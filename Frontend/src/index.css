@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #2E3A74;
+  --color-primary-dark: #1e264d;
+  --color-primary-light: #3e4d9b;
+  --color-active-menu: #343a76;
+  --color-accent: #49B6FF;
+  --color-accent-dark: #3a92cc;
+  --color-accent-light: #6dc4ff;
+  --color-soft: #F7F9FC;
+  --font-inter: "Inter", sans-serif;
+  --shadow-soft: 0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-premium: 0 10px 25px -5px rgba(0, 0, 0, 0.04), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+}
+
+@layer base {
+  html {
+    font-size: 14px;
+  }
+
+  body {
+    @apply font-inter bg-soft text-slate-900 antialiased;
+  }
+  
+  button, 
+  [type='button'], 
+  [type='reset'], 
+  [type='submit'],
+  label,
+  input[type="checkbox"] {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-xl shadow-soft border border-slate-100 p-6;
+  }
+  
+  .btn-primary {
+    @apply bg-primary text-white px-4 py-2 rounded-lg font-medium transition-all hover:bg-primary-dark active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+  }
+  
+  .btn-secondary {
+    @apply bg-white text-primary border border-slate-200 px-4 py-2 rounded-lg font-medium transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all bg-white;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-slate-500 hover:text-primary hover:bg-slate-50;
+  }
+
+  .sidebar-link-active {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-white bg-primary font-semibold shadow-lg shadow-primary/20;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-200 rounded-full hover:bg-slate-300 transition-colors;
+}

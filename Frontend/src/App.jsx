@@ -1,6 +1,7 @@
 // App Routes Configuration
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 
 // Layouts
 import AdminLayout from './layouts/AdminLayout';
@@ -50,6 +51,7 @@ import BorrowerCommunication from './dashboards/borrower/BorrowerCommunication';
 function App() {
   return (
     <Router>
+      <Toaster position="top-right" reverseOrder={false} />
       <Routes>
         {/* Landing Page */}
         <Route path="/" element={<LandingPage />} />

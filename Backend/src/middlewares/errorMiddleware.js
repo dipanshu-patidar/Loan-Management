@@ -1,0 +1,31 @@
+const { sendError } = require('../utils/responseHandler');
+
+const errorHandler = (err, req, res, next) => {
+  let error = { ...err };
+  error.message = err.message;
+
+  // Log to console for dev
+  console.error(err);
+
+  // Mongoose bad ObjectId
+  if (err.name === 'CastError') {
+    const message = `Resource not found with id of ${err.value}`;
+    return sendError(res, message, 404);
+  }
+
+  // Mongoose duplicate key
+  if (err.code === 11000) {
+    const message = 'Duplicate field value entered';
+    return sendError(res, message, 400);
+  }
+
+  // Mongoose validation error
+  if (err.name === 'ValidationError') {
+    const message = Object.values(err.errors).map((val) => val.message);
+    return sendError(res, message, 400);
+  }
+
+  sendError(res, error.message || 'Server Error', error.statusCode || 500);
+};
+
+module.exports = errorHandler;

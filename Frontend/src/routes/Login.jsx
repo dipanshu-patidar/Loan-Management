@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ShieldCheck, Briefcase, Users, UserCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { cn } from '../utils/cn';
+import authService from '../services/authService';
+import { AuthModal } from '../components/landing/AuthModals';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -10,6 +13,7 @@ const Login = () => {
   const [email, setEmail] = useState('admin@lms.com');
   const [password, setPassword] = useState('admin123');
   const [isLoading, setIsLoading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const handleRoleSelect = (selectedRole) => {
     setRole(selectedRole);
@@ -23,13 +27,27 @@ const Login = () => {
     setPassword(credentials[selectedRole].password);
   };
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
+    if (!email || !password) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
     setIsLoading(true);
-    setTimeout(() => {
-      navigate(`/${role}/dashboard`);
+    try {
+      await authService.login(email, password, role);
+      toast.success('Login successful! Redirecting...');
+      
+      setTimeout(() => {
+        navigate(`/${role}/dashboard`);
+        setIsLoading(false);
+      }, 1500);
+    } catch (error) {
       setIsLoading(false);
-    }, 1000);
+      const message = error.response?.data?.message || 'Login failed. Please check your credentials.';
+      toast.error(message);
+    }
   };
 
   const roles = [
@@ -43,7 +61,7 @@ const Login = () => {
     <div className="min-h-screen bg-white flex flex-col font-inter">
       {/* --- TOP HEADER (BLUE AREA) --- */}
       <div className="bg-[#2E3A74] h-[220px] flex items-center justify-center relative overflow-hidden shrink-0">
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           className="bg-white px-8 py-4 rounded-2xl shadow-sm flex flex-col items-center justify-center z-10"
@@ -104,7 +122,7 @@ const Login = () => {
 
             {/* Role Selection Grid */}
             <div className="pt-5 border-t border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 ml-1">Select Role (Demo only)</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4 ml-1">Select Role</p>
               <div className="grid grid-cols-2 gap-4">
                 {roles.map((r) => (
                   <button
@@ -134,19 +152,30 @@ const Login = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-[#2E3A74] hover:bg-[#1e264d] text-white py-4 rounded-xl font-bold text-base shadow-lg shadow-primary/10 transition-all active:scale-[0.99] disabled:opacity-70 mt-2"
+              className="w-full bg-[#2E3A74] hover:bg-[#1e264d] text-white py-4 rounded-xl font-bold text-base shadow-lg shadow-primary/10 transition-all active:scale-[0.99] disabled:opacity-70 mt-2 flex items-center justify-center gap-2"
             >
+              {isLoading && (
+                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+              )}
               {isLoading ? "Signing in..." : "Sign In"}
             </button>
           </form>
 
           <p className="mt-8 text-center text-xs text-slate-500 font-medium">
-            Don't have an account? <button className="text-primary font-bold hover:underline ml-1">Contact Administrator</button>
+            Don't have an account? <button onClick={() => setIsModalOpen(true)} className="text-primary font-bold hover:underline ml-1">Create Account</button>
           </p>
         </div>
       </div>
+
+      {/* BORROWER REGISTRATION MODAL */}
+      <AuthModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        initialTab="register"
+      />
     </div>
   );
 };
 
 export default Login;
+

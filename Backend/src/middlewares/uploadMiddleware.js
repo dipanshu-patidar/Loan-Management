@@ -1,28 +1,26 @@
 const multer = require('multer');
 const path = require('path');
 
-// Multer memory storage (used before uploading to ImageKit)
+// Multer storage configuration (memory storage for ImageKit)
 const storage = multer.memoryStorage();
 
-// Check file type
-function checkFileType(file, cb) {
-  const filetypes = /jpeg|jpg|png|pdf/;
-  const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = filetypes.test(file.mimetype);
+// File filter for images
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|webp/;
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedTypes.test(file.mimetype);
 
-  if (mimetype && extname) {
+  if (extname && mimetype) {
     return cb(null, true);
   } else {
-    cb('Error: Files only (JPEG/JPG/PNG/PDF)!');
+    cb(new Error('Only images (jpg, jpeg, png, webp) are allowed!'));
   }
-}
+};
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5000000 }, // 5MB limit
-  fileFilter: function (req, file, cb) {
-    checkFileType(file, cb);
-  },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: fileFilter,
 });
 
 module.exports = upload;

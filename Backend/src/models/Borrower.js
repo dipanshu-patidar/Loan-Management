@@ -2,37 +2,162 @@ const mongoose = require('mongoose');
 
 const borrowerSchema = new mongoose.Schema(
   {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    employmentStatus: {
+    // PERSONAL DETAILS
+    fullName: {
       type: String,
-      default: 'Not Specified',
-    },
-    monthlyIncome: {
-      type: Number,
-      default: 0,
-    },
-    address: {
-      type: String,
-      default: 'Not Specified',
+      required: [true, 'Please add a full name'],
     },
     idNumber: {
       type: String,
-      default: '',
+      unique: true,
+      sparse: true, // Allow multiple nulls for unique field
     },
-    bankDetails: {
-      accountName: String,
-      accountNumber: String,
-      bankName: String,
-      branchCode: String,
+    email: {
+      type: String,
+      required: [true, 'Please add an email'],
+      unique: true,
+      match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please add a valid email'],
+    },
+    phoneNumber: {
+      type: String,
+      required: [true, 'Please add a phone number'],
+    },
+    physicalAddress: {
+      type: String,
+    },
+    gender: {
+      type: String,
+      enum: ['Male', 'Female', 'Other'],
+    },
+    dateOfBirth: {
+      type: Date,
+    },
+    profilePhoto: {
+      type: String,
+      default: 'no-photo.jpg',
+    },
+    profilePhotoFileId: {
+      type: String,
+    },
+
+    // EMPLOYMENT
+    employerName: {
+      type: String,
+    },
+    occupation: {
+      type: String,
+    },
+    employmentStatus: {
+      type: String,
+      enum: ['Permanent', 'Contract', 'Self-Employed', 'Unemployed'],
+    },
+    monthlyNetSalary: {
+      type: Number,
+    },
+    yearsOfService: {
+      type: Number,
+    },
+    workAddress: {
+      type: String,
+    },
+
+    // BANKING INFORMATION
+    bankName: {
+      type: String,
+    },
+    accountNumber: {
+      type: String,
+    },
+    branchCode: {
+      type: String,
+    },
+    accountType: {
+      type: String,
+    },
+    accountHolderName: {
+      type: String,
+    },
+
+    // SYSTEM FIELDS
+    borrowerCode: {
+      type: String,
+      unique: true,
+    },
+    accountStatus: {
+      type: String,
+      enum: ['Active', 'Frozen', 'Blacklisted', 'Pending Verification'],
+      default: 'Active',
+    },
+    isBlacklisted: {
+      type: Boolean,
+      default: false,
+    },
+    isFrozen: {
+      type: Boolean,
+      default: false,
+    },
+    internalNotes: {
+      type: String,
+    },
+    frozenAt: {
+      type: Date,
+    },
+    frozenBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    blacklistReason: {
+      type: String,
+    },
+    blacklistedAt: {
+      type: Date,
+    },
+    blacklistedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    assignedAgent: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    assignedStaff: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      unique: true,
+      sparse: true,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
     },
   },
   {
     timestamps: true,
   }
 );
+
+// Pre-save hook to generate unique borrowerCode
+borrowerSchema.pre('save', async function () {
+  if (!this.borrowerCode) {
+    const lastBorrower = await this.constructor.findOne({}, {}, { sort: { 'createdAt': -1 } });
+    let nextNumber = 1001;
+    
+    if (lastBorrower && lastBorrower.borrowerCode) {
+      const parts = lastBorrower.borrowerCode.split('-');
+      if (parts.length === 2) {
+        const lastNumber = parseInt(parts[1]);
+        if (!isNaN(lastNumber)) {
+          nextNumber = lastNumber + 1;
+        }
+      }
+    }
+    
+    this.borrowerCode = `BRW-${nextNumber}`;
+  }
+});
 
 module.exports = mongoose.model('Borrower', borrowerSchema);

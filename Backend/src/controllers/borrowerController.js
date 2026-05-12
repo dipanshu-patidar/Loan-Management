@@ -1,0 +1,293 @@
+const mongoose = require('mongoose');
+const Borrower = require('../models/Borrower');
+const LoanApplication = require('../models/LoanApplication');
+const Loan = require('../models/Loan');
+const Payment = require('../models/Payment');
+const asyncHandler = require('../utils/asyncHandler');
+const { sendSuccess, sendError } = require('../utils/responseHandler');
+const imagekit = require('../config/imagekit');
+
+// @desc    Create a new borrower (Admin only)
+// @route   POST /api/admin/borrowers/create
+// @access  Private/Admin
+exports.createBorrower = async (req, res, next) => {
+  try {
+    const {
+      fullName,
+      idNumber,
+      email,
+      phoneNumber,
+      physicalAddress,
+      employerName,
+      occupation,
+      monthlyNetSalary,
+      yearsOfService,
+      bankName,
+      accountNumber,
+      branchCode,
+      accountType
+    } = req.body;
+
+    // 1. Check if borrower already exists (Email or ID Number)
+    const emailExists = await Borrower.findOne({ email });
+    if (emailExists) {
+      return sendError(res, 'A borrower with this email already exists', 400);
+    }
+
+    if (idNumber) {
+      const idExists = await Borrower.findOne({ idNumber });
+      if (idExists) {
+        return sendError(res, 'A borrower with this ID Number already exists', 400);
+      }
+    }
+
+    // 2. Handle Profile Photo Upload to ImageKit
+    let profilePhotoUrl = 'no-photo.jpg';
+    
+    console.log('FILE RECEIVED:', req.file);
+    console.log('BODY RECEIVED:', req.body);
+
+    if (req.file) {
+      try {
+        const uploadResponse = await imagekit.upload({
+          file: req.file.buffer, // Buffer from multer
+          fileName: `borrower_${Date.now()}_${req.file.originalname.replace(/\s+/g, '_')}`,
+          folder: '/borrowers/profiles',
+        });
+        profilePhotoUrl = uploadResponse.url;
+      } catch (uploadError) {
+        console.error('ImageKit Upload Error:', uploadError);
+        return sendError(res, 'Failed to upload profile photo', 500);
+      }
+    }
+
+    // 3. Create Borrower
+    const borrower = await Borrower.create({
+      ...req.body,
+      profilePhoto: profilePhotoUrl,
+      profilePhotoFileId: req.body.profilePhotoFileId,
+      monthlyNetSalary: Number(req.body.monthlyNetSalary) || 0,
+      yearsOfService: Number(req.body.yearsOfService) || 0,
+      createdBy: req.user._id, // From protect middleware
+    });
+
+    if (borrower) {
+      return sendSuccess(res, 'Borrower created successfully', borrower, 201);
+    } else {
+      return sendError(res, 'Invalid borrower data', 400);
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get all borrowers
+// @route   GET /api/admin/borrowers
+// @access  Private/Admin
+exports.getAllBorrowers = asyncHandler(async (req, res) => {
+  const { search, status, loanStatus } = req.query;
+  let query = {};
+
+  // Search by name, email or phone
+  if (search) {
+    query.$or = [
+      { fullName: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+      { phoneNumber: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  // Filter by status
+  if (status && status !== 'all') {
+    query.accountStatus = status;
+  }
+
+  const borrowers = await Borrower.find(query).sort({ createdAt: -1 });
+  
+  // Calculate stats
+  const stats = {
+    totalBorrowers: await Borrower.countDocuments(),
+    activeBorrowers: await Borrower.countDocuments({ accountStatus: 'Active' }),
+    blacklistedBorrowers: await Borrower.countDocuments({ isBlacklisted: true }),
+    frozenBorrowers: await Borrower.countDocuments({ isFrozen: true }),
+  };
+
+  sendSuccess(res, 'Borrowers retrieved successfully', { borrowers, stats });
+});
+
+// @desc    Get single borrower
+// @route   GET /api/admin/borrowers/:id
+// @access  Private/Admin
+exports.getBorrowerById = asyncHandler(async (req, res, next) => {
+  const borrower = await Borrower.findById(req.params.id)
+    .populate('assignedAgent', 'fullName email')
+    .populate('assignedStaff', 'fullName email');
+
+  if (!borrower) {
+    return sendError(res, 'Borrower not found', 404);
+  }
+
+  // Fetch Activity History (Applications, Loans, Payments)
+  const [applications, loans, payments] = await Promise.all([
+    LoanApplication.find({ borrower: borrower._id }).sort({ createdAt: -1 }),
+    Loan.find({ borrower: borrower._id }).sort({ createdAt: -1 }),
+    Payment.find({ borrower: borrower._id }).sort({ createdAt: -1 }),
+  ]);
+
+  const activityHistory = [
+    ...applications.map(app => ({
+      type: 'Application',
+      title: `Loan Application ${app.applicationId}`,
+      date: app.createdAt,
+      amount: app.loanAmount,
+      status: app.status,
+      iconType: 'FileText'
+    })),
+    ...loans.map(loan => ({
+      type: 'Loan',
+      title: `Loan Approved ${loan.loanId}`,
+      date: loan.startDate || loan.createdAt,
+      amount: loan.principalAmount,
+      status: loan.status,
+      iconType: 'CheckCircle'
+    })),
+    ...payments.map(pay => ({
+      type: 'Payment',
+      title: `EMI Payment ${pay.transactionId}`,
+      date: pay.paymentDate,
+      amount: pay.amount,
+      status: pay.status,
+      iconType: 'Wallet'
+    }))
+  ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  sendSuccess(res, 'Borrower retrieved successfully', { 
+    borrower,
+    activityHistory 
+  });
+});
+
+// @desc    Update borrower
+// @route   PUT /api/admin/borrowers/:id
+// @access  Private/Admin
+exports.updateBorrower = async (req, res, next) => {
+  try {
+    let borrower = await Borrower.findById(req.params.id);
+    if (!borrower) {
+      return sendError(res, 'Borrower not found', 404);
+    }
+
+    // Handle Profile Photo Update
+    if (req.file) {
+      try {
+        const uploadResponse = await imagekit.upload({
+          file: req.file.buffer,
+          fileName: `borrower_update_${Date.now()}_${req.file.originalname.replace(/\s+/g, '_')}`,
+          folder: '/borrowers/profiles',
+        });
+        req.body.profilePhoto = uploadResponse.url;
+        req.body.profilePhotoFileId = uploadResponse.fileId;
+      } catch (uploadError) {
+        console.error('ImageKit Update Upload Error:', uploadError);
+      }
+    }
+
+    // Convert numeric fields
+    if (req.body.monthlyNetSalary) req.body.monthlyNetSalary = Number(req.body.monthlyNetSalary);
+    if (req.body.yearsOfService) req.body.yearsOfService = Number(req.body.yearsOfService);
+
+    // Handle empty fields (convert to null or undefined if needed)
+    Object.keys(req.body).forEach(key => {
+      if (req.body[key] === '' || req.body[key] === 'null') {
+        req.body[key] = null;
+      }
+    });
+
+    borrower = await Borrower.findByIdAndUpdate(req.params.id, { $set: req.body }, {
+      new: true,
+      runValidators: true,
+    });
+
+    sendSuccess(res, 'Borrower updated successfully', borrower);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Freeze borrower
+// @route   PATCH /api/admin/borrowers/:id/freeze
+// @access  Private/Admin
+exports.freezeBorrower = asyncHandler(async (req, res, next) => {
+  const borrower = await Borrower.findById(req.params.id);
+
+  if (!borrower) {
+    return sendError(res, 'Borrower not found', 404);
+  }
+
+  borrower.accountStatus = 'Frozen';
+  borrower.isFrozen = true;
+  borrower.frozenAt = new Date();
+  borrower.frozenBy = req.user._id;
+  
+  if (req.body.reason) {
+    borrower.internalNotes = (borrower.internalNotes || '') + `\n[Freeze Reason]: ${req.body.reason}`;
+  }
+
+  await borrower.save();
+
+  // Sync with User model if linked
+  if (borrower.userId) {
+    await mongoose.model('User').findByIdAndUpdate(borrower.userId, {
+      isFrozen: true,
+      accountStatus: 'Frozen',
+      statusReason: req.body.reason
+    });
+  }
+
+  sendSuccess(res, 'Borrower account frozen successfully', borrower);
+});
+
+// @desc    Blacklist borrower
+// @route   PATCH /api/admin/borrowers/:id/blacklist
+// @access  Private/Admin
+exports.blacklistBorrower = asyncHandler(async (req, res, next) => {
+  const borrower = await Borrower.findById(req.params.id);
+
+  if (!borrower) {
+    return sendError(res, 'Borrower not found', 404);
+  }
+
+  borrower.accountStatus = 'Blacklisted';
+  borrower.isBlacklisted = true;
+  borrower.blacklistedAt = new Date();
+  borrower.blacklistedBy = req.user._id;
+  borrower.blacklistReason = req.body.reason;
+
+  await borrower.save();
+
+  // Sync with User model if linked
+  if (borrower.userId) {
+    await mongoose.model('User').findByIdAndUpdate(borrower.userId, {
+      isBlacklisted: true,
+      isActive: false,
+      statusReason: req.body.reason
+    });
+  }
+
+  sendSuccess(res, 'Borrower blacklisted successfully', borrower);
+});
+
+// @desc    Delete borrower
+// @route   DELETE /api/admin/borrowers/:id
+// @access  Private/Admin
+exports.deleteBorrower = async (req, res, next) => {
+  try {
+    const borrower = await Borrower.findByIdAndDelete(req.params.id);
+    if (!borrower) {
+      return sendError(res, 'Borrower not found', 404);
+    }
+    sendSuccess(res, 'Borrower deleted successfully', null);
+  } catch (error) {
+    next(error);
+  }
+};

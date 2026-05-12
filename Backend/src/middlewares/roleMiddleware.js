@@ -1,12 +1,15 @@
 const { sendError } = require('../utils/responseHandler');
 
-// Grant access to specific roles
+/**
+ * @desc    Middleware to restrict access to specific roles
+ * @param   {...string} roles - List of allowed roles
+ */
 const authorize = (...roles) => {
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    if (!req.user || !roles.includes(req.user.role)) {
       return sendError(
         res,
-        `User role ${req.user.role} is not authorized to access this route`,
+        `Unauthorized: Your account does not have ${roles.join(' or ')} privileges`,
         403
       );
     }

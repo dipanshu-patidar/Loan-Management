@@ -14,6 +14,7 @@ const Login = () => {
   const [password, setPassword] = useState('admin123');
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [loginError, setLoginError] = useState('');
 
   const handleRoleSelect = (selectedRole) => {
     setRole(selectedRole);
@@ -35,17 +36,25 @@ const Login = () => {
     }
 
     setIsLoading(true);
+    setLoginError('');
     try {
-      await authService.login(email, password, role);
-      toast.success('Login successful! Redirecting...');
+      const response = await authService.login(email, password, role);
       
-      setTimeout(() => {
-        navigate(`/${role}/dashboard`);
-        setIsLoading(false);
-      }, 1500);
+      if (response.success) {
+        toast.success('Login successful! Redirecting...');
+        
+        // Use the role from the server or the selected role
+        const userRole = response.data.user.role;
+        
+        setTimeout(() => {
+          navigate(`/${userRole}/dashboard`);
+          setIsLoading(false);
+        }, 1500);
+      }
     } catch (error) {
       setIsLoading(false);
       const message = error.response?.data?.message || 'Login failed. Please check your credentials.';
+      setLoginError(message);
       toast.error(message);
     }
   };
@@ -83,6 +92,20 @@ const Login = () => {
             <h2 className="text-3xl font-bold text-[#0F172A] mb-1">Welcome Back</h2>
             <p className="text-slate-500 text-sm">Please enter your details to sign in.</p>
           </div>
+
+          {loginError && (
+             <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-3 shadow-sm"
+             >
+                <ShieldCheck size={18} className="text-rose-600 mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                   <p className="text-sm font-black text-rose-900 tracking-tight uppercase">Login Restricted</p>
+                   <p className="text-xs text-rose-600/90 font-medium leading-relaxed">{loginError}</p>
+                </div>
+             </motion.div>
+          )}
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-4">

@@ -36,7 +36,13 @@ exports.register = asyncHandler(async (req, res) => {
 
   if (user) {
     // Create borrower profile (linked to user)
-    await Borrower.create({ userId: user._id });
+    await Borrower.create({ 
+      userId: user._id,
+      fullName: user.fullName,
+      email: user.email,
+      phoneNumber: user.phone,
+      accountStatus: 'Active'
+    });
 
     const token = generateToken(user._id, user.role);
 
@@ -89,7 +95,13 @@ exports.login = asyncHandler(async (req, res) => {
   }
 
   if (user.isFrozen) {
-    return sendError(res, 'Your account is frozen. Please contact support.', 403);
+    const reason = user.statusReason ? `: ${user.statusReason}` : '';
+    return sendError(res, `Your account is frozen${reason}. Please contact support to unfreeze.`, 403);
+  }
+
+  if (user.isBlacklisted) {
+    const reason = user.statusReason ? `: ${user.statusReason}` : '';
+    return sendError(res, `Access Denied: Your account has been blacklisted${reason}.`, 403);
   }
 
   if (user.isBlacklisted) {

@@ -5,5 +5,9 @@ export const API_ENDPOINTS = {
     LOGIN: "/api/auth/login",
     REGISTER: "/api/auth/register",
   },
+  BORROWERS: {
+    BASE: "/api/admin/borrowers",
+    CREATE: "/api/admin/borrowers/create",
+  },
   // Add more endpoints here as the project grows
 };

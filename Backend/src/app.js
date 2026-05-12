@@ -42,8 +42,8 @@ app.use(limiter);
 
 // Mount routers
 app.use('/api/auth', authRoutes);
+app.use('/api/admin/borrowers', borrowerRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/borrower', borrowerRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);

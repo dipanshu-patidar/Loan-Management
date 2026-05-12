@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const borrowerSchema = new mongoose.Schema(
   {
@@ -21,6 +22,12 @@ const borrowerSchema = new mongoose.Schema(
     phoneNumber: {
       type: String,
       required: [true, 'Please add a phone number'],
+    },
+    password: {
+      type: String,
+      required: [true, 'Please add a password'],
+      minlength: 6,
+      select: false,
     },
     physicalAddress: {
       type: String,
@@ -139,6 +146,15 @@ const borrowerSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Pre-save hook to hash password
+borrowerSchema.pre('save', async function () {
+  if (!this.isModified('password')) {
+    return;
+  }
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+});
 
 // Pre-save hook to generate unique borrowerCode
 borrowerSchema.pre('save', async function () {

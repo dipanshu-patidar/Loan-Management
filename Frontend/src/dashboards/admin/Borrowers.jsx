@@ -5,7 +5,7 @@ import {
   Building2, Wallet, Briefcase, Calendar, Clock, 
   CheckCircle, FileText, CreditCard, Activity, 
   ChevronRight, ArrowRight, ShieldAlert, CheckCircle2,
-  Trash2, X, Upload, Image as ImageIcon
+  Trash2, X, Upload, Image as ImageIcon, EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
@@ -50,8 +50,10 @@ const Borrowers = () => {
     gender: 'Male', dateOfBirth: '',
     employerName: '', occupation: '', employmentStatus: 'Permanent', monthlyNetSalary: '', yearsOfService: '', workAddress: '',
     bankName: '', accountNumber: '', branchCode: '', accountType: 'Savings', accountHolderName: '',
-    accountStatus: 'Active', internalNotes: '', assignedAgent: '', assignedStaff: ''
+    accountStatus: 'Active', internalNotes: '', assignedAgent: '', assignedStaff: '',
+    password: '', confirmPassword: ''
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [profilePhoto, setProfilePhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -327,10 +329,12 @@ const Borrowers = () => {
           gender: 'Male', dateOfBirth: '',
           employerName: '', occupation: '', employmentStatus: 'Permanent', monthlyNetSalary: '', yearsOfService: '', workAddress: '',
           bankName: '', accountNumber: '', branchCode: '', accountType: 'Savings', accountHolderName: '',
-          accountStatus: 'Active', internalNotes: '', assignedAgent: '', assignedStaff: ''
+          accountStatus: 'Active', internalNotes: '', assignedAgent: '', assignedStaff: '',
+          password: '', confirmPassword: ''
         });
         setProfilePhoto(null);
         setPhotoPreview(null);
+        setShowPassword(false);
       }
     }
   };
@@ -624,6 +628,40 @@ const Borrowers = () => {
                            value={formData.dateOfBirth}
                            onChange={(e) => handleInputChange('dateOfBirth', e.target.value)}
                         />
+                        <div className="relative">
+                           <Input 
+                              label="Password" 
+                              name="password" 
+                              type={showPassword ? "text" : "password"} 
+                              value={formData.password} 
+                              onChange={(e) => handleInputChange('password', e.target.value)} 
+                              placeholder="Enter password" 
+                           />
+                           <button 
+                              type="button"
+                              onClick={() => setShowPassword(!showPassword)}
+                              className="absolute right-4 top-[38px] text-slate-400 hover:text-primary transition-colors"
+                           >
+                              {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                           </button>
+                        </div>
+                        <div className="relative">
+                           <Input 
+                              label="Confirm Password" 
+                              name="confirmPassword" 
+                              type={showPassword ? "text" : "password"} 
+                              value={formData.confirmPassword} 
+                              onChange={(e) => handleInputChange('confirmPassword', e.target.value)} 
+                              placeholder="Confirm password" 
+                           />
+                           <button 
+                              type="button"
+                              onClick={() => setShowPassword(!showPassword)}
+                              className="absolute right-4 top-[38px] text-slate-400 hover:text-primary transition-colors"
+                           >
+                              {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                           </button>
+                        </div>
                      </div>
                     <Input 
                        label="Physical Address" 
@@ -778,7 +816,14 @@ const Borrowers = () => {
                  </Button>
               )}
               <Button 
-                 onClick={() => step < 4 ? setStep(step + 1) : handleSubmit()} 
+                 onClick={() => {
+                    if (step === 1) {
+                      if (!isEditing && !formData.password) return toast.error('Password is required');
+                      if (formData.password && formData.password.length < 6) return toast.error('Password must be at least 6 characters');
+                      if (formData.password !== formData.confirmPassword) return toast.error('Passwords do not match');
+                    }
+                    step < 4 ? setStep(step + 1) : handleSubmit();
+                  }} 
                  className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-primary/20"
                  disabled={isSubmitting}
               >

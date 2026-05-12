@@ -9,6 +9,7 @@ const errorHandler = require('./middlewares/errorMiddleware');
 // Route files
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const adminAgentRoutes = require('./routes/admin/agentRoutes');
 const borrowerRoutes = require('./routes/borrowerRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const agentRoutes = require('./routes/agentRoutes');
@@ -43,6 +44,7 @@ app.use(limiter);
 // Mount routers
 app.use('/api/auth', authRoutes);
 app.use('/api/admin/borrowers', borrowerRoutes);
+app.use('/api/admin/agents', adminAgentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/agent', agentRoutes);

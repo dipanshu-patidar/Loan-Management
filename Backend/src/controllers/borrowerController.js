@@ -3,6 +3,7 @@ const Borrower = require('../models/Borrower');
 const LoanApplication = require('../models/LoanApplication');
 const Loan = require('../models/Loan');
 const Payment = require('../models/Payment');
+const User = require('../models/User');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
 const imagekit = require('../config/imagekit');
@@ -25,7 +26,8 @@ exports.createBorrower = async (req, res, next) => {
       bankName,
       accountNumber,
       branchCode,
-      accountType
+      accountType,
+      password
     } = req.body;
 
     // 1. Check if borrower already exists (Email or ID Number)
@@ -39,6 +41,12 @@ exports.createBorrower = async (req, res, next) => {
       if (idExists) {
         return sendError(res, 'A borrower with this ID Number already exists', 400);
       }
+    }
+
+    // Check if email already exists in User model (Auth system)
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return sendError(res, 'This email is already registered in the authentication system. Please use a unique email.', 400);
     }
 
     // 2. Handle Profile Photo Upload to ImageKit
@@ -61,9 +69,27 @@ exports.createBorrower = async (req, res, next) => {
       }
     }
 
+    // 2.5 Create User for authentication
+    const user = await User.create({
+      fullName,
+      email,
+      phone: phoneNumber,
+      password,
+      role: 'borrower',
+      profilePhoto: profilePhotoUrl,
+    });
+
+    // 2.7 Cleanup empty fields to avoid casting errors (e.g. empty ObjectId)
+    Object.keys(req.body).forEach(key => {
+      if (req.body[key] === '' || req.body[key] === 'null') {
+        req.body[key] = null;
+      }
+    });
+
     // 3. Create Borrower
     const borrower = await Borrower.create({
       ...req.body,
+      userId: user._id,
       profilePhoto: profilePhotoUrl,
       profilePhotoFileId: req.body.profilePhotoFileId,
       monthlyNetSalary: Number(req.body.monthlyNetSalary) || 0,
@@ -196,29 +222,36 @@ exports.updateBorrower = async (req, res, next) => {
     if (req.body.monthlyNetSalary) req.body.monthlyNetSalary = Number(req.body.monthlyNetSalary);
     if (req.body.yearsOfService) req.body.yearsOfService = Number(req.body.yearsOfService);
 
-    // Handle empty fields (convert to null or undefined if needed)
+    // Handle empty fields
     Object.keys(req.body).forEach(key => {
       if (req.body[key] === '' || req.body[key] === 'null') {
-        req.body[key] = null;
+        delete req.body[key]; // Delete instead of null to avoid casting errors for optional fields
       }
+    });
+
+    // Update fields manually to support password hashing via .save()
+    Object.keys(req.body).forEach(key => {
+      borrower[key] = req.body[key];
     });
 
     // Reset flags if status is changed to Active
     if (req.body.accountStatus === 'Active') {
-      req.body.isFrozen = false;
-      req.body.isBlacklisted = false;
+      borrower.isFrozen = false;
+      borrower.isBlacklisted = false;
     }
 
-    borrower = await Borrower.findByIdAndUpdate(req.params.id, { $set: req.body }, {
-      new: true,
-      runValidators: true,
-    });
+    await borrower.save();
 
-    // Sync with User model if linked or find by email
+    // Sync with User model
     try {
-      const User = mongoose.model('User');
       const userUpdate = {};
       
+      // Update basic info in User model if changed
+      if (req.body.fullName) userUpdate.fullName = req.body.fullName;
+      if (req.body.email) userUpdate.email = req.body.email;
+      if (req.body.phoneNumber) userUpdate.phone = req.body.phoneNumber;
+      if (req.body.password) userUpdate.password = req.body.password; // User model has its own pre-save hook
+
       if (req.body.accountStatus === 'Active') {
         userUpdate.isActive = true;
         userUpdate.isFrozen = false;
@@ -234,17 +267,25 @@ exports.updateBorrower = async (req, res, next) => {
       if (Object.keys(userUpdate).length > 0) {
         let user;
         if (borrower.userId) {
-          user = await User.findByIdAndUpdate(borrower.userId, userUpdate, { new: true });
+          user = await User.findById(borrower.userId);
+          if (user) {
+            Object.keys(userUpdate).forEach(key => {
+              user[key] = userUpdate[key];
+            });
+            await user.save(); // Triggers password hashing
+          }
         } else {
-          // Fallback: Find user by email (case-insensitive)
-          user = await User.findOneAndUpdate(
-            { email: { $regex: new RegExp(`^${borrower.email}$`, 'i') } },
-            userUpdate,
-            { new: true }
-          );
+          // Fallback: Find user by email
+          user = await User.findOne({ email: { $regex: new RegExp(`^${borrower.email}$`, 'i') } });
+          if (user) {
+            Object.keys(userUpdate).forEach(key => {
+              user[key] = userUpdate[key];
+            });
+            await user.save();
+          }
         }
-        console.log(`Sync status for ${borrower.email}:`, user ? 'User updated' : 'User not found');
       }
+      console.log(`Sync status for ${borrower.email}: User updated`);
     } catch (syncError) {
       console.error('Account Sync Error:', syncError);
     }
@@ -318,17 +359,32 @@ exports.blacklistBorrower = asyncHandler(async (req, res, next) => {
   sendSuccess(res, 'Borrower blacklisted successfully', borrower);
 });
 
-// @desc    Delete borrower
+// @desc    Delete borrower (Hard delete)
 // @route   DELETE /api/admin/borrowers/:id
 // @access  Private/Admin
-exports.deleteBorrower = async (req, res, next) => {
-  try {
-    const borrower = await Borrower.findByIdAndDelete(req.params.id);
-    if (!borrower) {
-      return sendError(res, 'Borrower not found', 404);
-    }
-    sendSuccess(res, 'Borrower deleted successfully', null);
-  } catch (error) {
-    next(error);
+exports.deleteBorrower = asyncHandler(async (req, res, next) => {
+  const borrower = await Borrower.findById(req.params.id);
+
+  if (!borrower) {
+    return sendError(res, 'Borrower not found', 404);
   }
-};
+
+  // 1. Delete Profile Photo from ImageKit if it's not the default
+  if (borrower.profilePhotoFileId) {
+    try {
+      await imagekit.deleteFile(borrower.profilePhotoFileId);
+    } catch (err) {
+      console.error('Error deleting borrower photo from ImageKit:', err);
+    }
+  }
+
+  // 2. Delete linked User record
+  if (borrower.userId) {
+    await User.findByIdAndDelete(borrower.userId);
+  }
+
+  // 3. Delete Borrower record from database
+  await Borrower.findByIdAndDelete(req.params.id);
+
+  sendSuccess(res, 'Borrower and associated user deleted permanently');
+});

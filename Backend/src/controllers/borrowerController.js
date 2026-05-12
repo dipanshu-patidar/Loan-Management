@@ -108,8 +108,8 @@ exports.getAllBorrowers = asyncHandler(async (req, res) => {
   const stats = {
     totalBorrowers: await Borrower.countDocuments(),
     activeBorrowers: await Borrower.countDocuments({ accountStatus: 'Active' }),
-    blacklistedBorrowers: await Borrower.countDocuments({ isBlacklisted: true }),
-    frozenBorrowers: await Borrower.countDocuments({ isFrozen: true }),
+    blacklistedBorrowers: await Borrower.countDocuments({ accountStatus: 'Blacklisted' }),
+    frozenBorrowers: await Borrower.countDocuments({ accountStatus: 'Frozen' }),
   };
 
   sendSuccess(res, 'Borrowers retrieved successfully', { borrowers, stats });
@@ -203,10 +203,51 @@ exports.updateBorrower = async (req, res, next) => {
       }
     });
 
+    // Reset flags if status is changed to Active
+    if (req.body.accountStatus === 'Active') {
+      req.body.isFrozen = false;
+      req.body.isBlacklisted = false;
+    }
+
     borrower = await Borrower.findByIdAndUpdate(req.params.id, { $set: req.body }, {
       new: true,
       runValidators: true,
     });
+
+    // Sync with User model if linked or find by email
+    try {
+      const User = mongoose.model('User');
+      const userUpdate = {};
+      
+      if (req.body.accountStatus === 'Active') {
+        userUpdate.isActive = true;
+        userUpdate.isFrozen = false;
+        userUpdate.isBlacklisted = false;
+        userUpdate.statusReason = null;
+      } else if (req.body.accountStatus === 'Frozen') {
+        userUpdate.isFrozen = true;
+      } else if (req.body.accountStatus === 'Blacklisted') {
+        userUpdate.isBlacklisted = true;
+        userUpdate.isActive = false;
+      }
+
+      if (Object.keys(userUpdate).length > 0) {
+        let user;
+        if (borrower.userId) {
+          user = await User.findByIdAndUpdate(borrower.userId, userUpdate, { new: true });
+        } else {
+          // Fallback: Find user by email (case-insensitive)
+          user = await User.findOneAndUpdate(
+            { email: { $regex: new RegExp(`^${borrower.email}$`, 'i') } },
+            userUpdate,
+            { new: true }
+          );
+        }
+        console.log(`Sync status for ${borrower.email}:`, user ? 'User updated' : 'User not found');
+      }
+    } catch (syncError) {
+      console.error('Account Sync Error:', syncError);
+    }
 
     sendSuccess(res, 'Borrower updated successfully', borrower);
   } catch (error) {

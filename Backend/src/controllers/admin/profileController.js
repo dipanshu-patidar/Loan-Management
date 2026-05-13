@@ -95,10 +95,9 @@ const changePassword = asyncHandler(async (req, res) => {
     return sendError(res, 'New passwords do not match', 400);
   }
 
-  // Password rules: 8 char, 1 upper, 1 lower, 1 number
-  const pwdRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{8,}$/;
-  if (!pwdRegex.test(newPassword)) {
-    return sendError(res, 'Password must be minimum 8 characters, include 1 uppercase, 1 lowercase, and 1 number', 400);
+  // Password rules: Min 6 characters
+  if (newPassword.length < 6) {
+    return sendError(res, 'Password must be minimum 6 characters', 400);
   }
 
   const user = await User.findById(req.user._id).select('+password');

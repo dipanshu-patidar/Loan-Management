@@ -204,10 +204,9 @@ const Profile = () => {
       return;
     }
 
-    // Strength validation
-    const regex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{8,}$/;
-    if (!regex.test(newPassword)) {
-      toast.error('Password must contain minimum 8 characters, 1 uppercase, 1 lowercase, and 1 number');
+    // Length validation: Min 6 characters
+    if (newPassword.length < 6) {
+      toast.error('Password must contain minimum 6 characters');
       return;
     }
 
@@ -454,7 +453,7 @@ const Profile = () => {
                                    type="password" 
                                    value={pwdData.newPassword}
                                    onChange={(e) => setPwdData(prev => ({ ...prev, newPassword: e.target.value }))}
-                                   placeholder="Min 8 characters, 1 uppercase" 
+                                   placeholder="Min 6 characters" 
                                    icon={Key} 
                                    required
                                  />

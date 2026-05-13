@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, Settings, LogOut, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -6,9 +6,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 const UserDropdown = ({ role }) => {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
+  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || '{}'));
 
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  // Listen for profile updates from Profile.jsx without page refresh
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      setUser(JSON.parse(localStorage.getItem('user') || '{}'));
+    };
+    
+    window.addEventListener('storage', handleProfileUpdate);
+    window.addEventListener('profileUpdate', handleProfileUpdate);
+    
+    return () => {
+      window.removeEventListener('storage', handleProfileUpdate);
+      window.removeEventListener('profileUpdate', handleProfileUpdate);
+    };
+  }, []);
+
   const initials = user.fullName ? user.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : (role ? role.substring(0, 2).toUpperCase() : '??');
+
+  const hasPhoto = user.profilePhoto && user.profilePhoto !== 'no-photo.jpg' && !user.profilePhoto.includes('placeholder');
 
   return (
     <div className="relative">
@@ -16,8 +33,12 @@ const UserDropdown = ({ role }) => {
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-3 p-1.5 hover:bg-slate-50 rounded-xl transition-all"
       >
-        <div className="w-9 h-9 bg-accent/10 rounded-lg flex items-center justify-center text-accent font-bold">
-          {initials}
+        <div className="w-9 h-9 bg-accent/10 rounded-lg flex items-center justify-center text-accent font-bold overflow-hidden">
+          {hasPhoto ? (
+            <img src={user.profilePhoto} alt={user.fullName} className="w-full h-full object-cover" />
+          ) : (
+            initials
+          )}
         </div>
         <div className="hidden sm:block text-left">
           <p className="text-sm font-bold text-slate-800 leading-none">

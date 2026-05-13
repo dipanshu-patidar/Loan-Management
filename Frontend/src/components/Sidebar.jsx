@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -6,6 +6,25 @@ import { cn } from '../utils/cn';
 
 const Sidebar = ({ isOpen, isCollapsed, onClose, onToggleCollapse, menuItems, role }) => {
   const navigate = useNavigate();
+  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || '{}'));
+
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      setUser(JSON.parse(localStorage.getItem('user') || '{}'));
+    };
+
+    window.addEventListener('storage', handleProfileUpdate);
+    window.addEventListener('profileUpdate', handleProfileUpdate);
+
+    return () => {
+      window.removeEventListener('storage', handleProfileUpdate);
+      window.removeEventListener('profileUpdate', handleProfileUpdate);
+    };
+  }, []);
+
+  const initials = user.fullName ? user.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : (role ? role.substring(0, 2).toUpperCase() : '??');
+  const hasPhoto = user.profilePhoto && user.profilePhoto !== 'no-photo.jpg' && !user.profilePhoto.includes('placeholder');
+
   return (
     <>
       {/* Mobile Overlay */}
@@ -127,18 +146,22 @@ const Sidebar = ({ isOpen, isCollapsed, onClose, onToggleCollapse, menuItems, ro
             )}
           >
             <div className={cn(
-              "w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center shrink-0 shadow-sm border border-white/5 transition-colors",
+              "w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center shrink-0 shadow-sm border border-white/5 transition-colors overflow-hidden",
               isCollapsed && "w-10 h-10"
             )}>
-              <span className="text-white font-black text-xs uppercase">
-                {role === 'admin' ? 'AD' : role === 'staff' ? 'ST' : role === 'agent' ? 'AG' : 'BR'}
-              </span>
+              {hasPhoto ? (
+                <img src={user.profilePhoto} alt="User" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-white font-black text-xs uppercase">
+                  {initials}
+                </span>
+              )}
             </div>
             
             {!isCollapsed && (
               <div className="min-w-0 flex-1">
                 <p className="text-white font-black text-sm truncate leading-tight uppercase tracking-tight">
-                  {role === 'admin' ? 'Point.47 Admin' : role === 'staff' ? 'Branch Staff' : role === 'agent' ? 'Field Agent' : 'Borrower'}
+                  {user.fullName || (role === 'admin' ? 'Point.47 Admin' : role === 'staff' ? 'Branch Staff' : role === 'agent' ? 'Field Agent' : 'Borrower')}
                 </p>
                 <p className="text-white/70 font-bold text-[9px] uppercase tracking-widest mt-0.5 transition-colors">
                   {role} Portal

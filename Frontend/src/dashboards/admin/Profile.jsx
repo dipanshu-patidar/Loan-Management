@@ -1,42 +1,246 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, Mail, Phone, MapPin, Calendar, 
   Lock, Camera, CheckCircle2, X, Save, Key,
   ShieldCheck, Building2, BadgeCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'react-hot-toast';
 import { cn } from '../../utils/cn';
 import Button from '../../ui/Button';
 import Input from '../../ui/Input';
 import StatusBadge from '../../components/StatusBadge';
+import profileService from '../../services/profileService';
 
 const Profile = () => {
-  const [showToast, setShowToast] = useState(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('personal'); 
+  // Core States
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [activeTab, setActiveTab] = useState('personal');
+  
+  // Model States
+  const [profileData, setProfileData] = useState({
+    fullName: '',
+    email: '',
+    phoneNumber: '',
+    dateOfBirth: '',
+    address: '',
+    primaryBranch: '',
+    role: '',
+    profilePhoto: '',
+    accountStatus: 'Active'
+  });
+
+  // Original data backup for discard functionality
+  const originalDataRef = useRef({});
+
+  // Password fields state
+  const [pwdData, setPwdData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+
   const isStaff = window.location.pathname.includes('/staff');
   const isAgent = window.location.pathname.includes('/agent');
   const isBorrower = window.location.pathname.includes('/borrower');
 
-  const roleTitle = isBorrower ? 'Borrower User' : (isAgent ? 'Field Agent' : (isStaff ? 'Branch Staff' : 'Admin User'));
+  const roleTitle = profileData.fullName || (isBorrower ? 'Borrower' : (isAgent ? 'Field Agent' : (isStaff ? 'Branch Staff' : 'Administrator')));
   const roleSubtitle = isBorrower ? 'Verified Borrower' : (isAgent ? 'Portfolio Specialist' : (isStaff ? 'Operational Specialist' : 'Senior Administrator'));
-  const roleEmail = isBorrower ? 'borrower@point47.com' : (isAgent ? 'agent@point47.com' : (isStaff ? 'staff@point47.com' : 'admin@point47.com'));
   const locationLabel = isBorrower ? 'Residential Area' : 'Primary Branch';
-  const locationValue = isBorrower ? 'Sandton, Gauteng' : 'Johannesburg Central';
 
-  const handleSave = () => {
-    setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
-      setShowToast('Profile Updated Successfully!');
-      setTimeout(() => setShowToast(null), 3000);
-    }, 1500);
+  // Helper to format dates from Mongo to YYYY-MM-DD for Input compatibility
+  const formatDate = (dateInput) => {
+    if (!dateInput) return '';
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '';
+    return d.toISOString().split('T')[0];
   };
 
-  const triggerPhotoToast = () => {
-    setShowToast('Profile Photo Updated!');
-    setTimeout(() => setShowToast(null), 3000);
+  // 1. Hydrate Profile Info
+  const loadProfile = async () => {
+    try {
+      setLoading(true);
+      const response = await profileService.getAdminProfile();
+      if (response.data) {
+        const data = response.data;
+        const formatted = {
+          fullName: data.fullName || '',
+          email: data.email || '',
+          phoneNumber: data.phoneNumber || data.phone || '',
+          dateOfBirth: formatDate(data.dateOfBirth),
+          address: data.address || '',
+          primaryBranch: data.primaryBranch || '',
+          role: data.role || 'admin',
+          profilePhoto: data.profilePhoto || '',
+          accountStatus: data.operationalStatus || (data.isActive ? 'Active' : 'Inactive')
+        };
+        setProfileData(formatted);
+        originalDataRef.current = formatted;
+
+        // Sync to local storage for real-time navbar consistency
+        const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const newStored = {
+          ...currentStored,
+          fullName: formatted.fullName,
+          profilePhoto: formatted.profilePhoto,
+          role: formatted.role
+        };
+        localStorage.setItem('user', JSON.stringify(newStored));
+        window.dispatchEvent(new Event('profileUpdate'));
+      }
+    } catch (err) {
+      toast.error('Failed to load account profile data');
+      console.error('Profile fetch failure:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  // 2. Update Profile Handler
+  const handleSaveProfile = async (e) => {
+    if (e) e.preventDefault();
+    try {
+      setSaving(true);
+      
+      const res = await profileService.updateAdminProfile({
+        fullName: profileData.fullName,
+        phoneNumber: profileData.phoneNumber,
+        dateOfBirth: profileData.dateOfBirth || null,
+        address: profileData.address,
+        primaryBranch: profileData.primaryBranch
+      });
+
+      if (res.success) {
+        toast.success('Profile updated successfully!');
+        
+        // Track backup
+        originalDataRef.current = { ...profileData };
+
+        // Sync changes to user dropdown
+        const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const newStored = {
+          ...currentStored,
+          fullName: profileData.fullName
+        };
+        localStorage.setItem('user', JSON.stringify(newStored));
+        window.dispatchEvent(new Event('profileUpdate'));
+      }
+    } catch (err) {
+      const errMsg = err.response?.data?.message || 'Unable to commit profile changes';
+      toast.error(errMsg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 3. Profile Photo Upload Routine
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Client validation
+    const allowedTypes = ['image/png', 'image/jpg', 'image/jpeg', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Unsupported image format. Use PNG, JPG, or WEBP.');
+      return;
+    }
+
+    try {
+      setUploadingPhoto(true);
+      const formData = new FormData();
+      formData.append('profilePhoto', file);
+
+      const res = await profileService.updateProfilePhoto(formData);
+      
+      if (res.success) {
+        const newPhotoUrl = res.data.profilePhoto;
+        
+        // Set locally
+        setProfileData(prev => ({ ...prev, profilePhoto: newPhotoUrl }));
+        
+        // Update stored reference
+        const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
+        const newStored = { ...currentStored, profilePhoto: newPhotoUrl };
+        localStorage.setItem('user', JSON.stringify(newStored));
+        
+        // Fire React local sync event for top dropdown
+        window.dispatchEvent(new Event('profileUpdate'));
+
+        toast.success('Profile photo updated');
+      }
+    } catch (err) {
+      toast.error('Failed to upload image to server');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  // 4. Discard Logic
+  const handleDiscard = () => {
+    setProfileData({ ...originalDataRef.current });
+    toast('Fields reset to original values');
+  };
+
+  // 5. Password Change Flow
+  const handlePasswordUpdate = async (e) => {
+    if (e) e.preventDefault();
+    
+    const { currentPassword, newPassword, confirmPassword } = pwdData;
+
+    if (!newPassword || !confirmPassword) {
+      toast.error('Please fill the new password fields');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error('Confirm password does not match new password');
+      return;
+    }
+
+    // Strength validation
+    const regex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{8,}$/;
+    if (!regex.test(newPassword)) {
+      toast.error('Password must contain minimum 8 characters, 1 uppercase, 1 lowercase, and 1 number');
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      await profileService.changePassword({
+        currentPassword: currentPassword || '',
+        newPassword,
+        confirmPassword
+      });
+      
+      toast.success('Password updated successfully');
+      setPwdData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Password update failed';
+      toast.error(msg);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center font-black text-slate-400 tracking-widest animate-pulse flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          Syncing Profile Core...
+        </div>
+      </div>
+    );
+  }
+
+  const hasPhoto = profileData.profilePhoto && profileData.profilePhoto !== 'no-photo.jpg' && !profileData.profilePhoto.includes('placeholder');
 
   return (
     <div className="space-y-8 pb-20">
@@ -46,15 +250,17 @@ const Profile = () => {
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">My Profile</h1>
           <p className="text-slate-500 font-medium mt-1">Manage your account information, security settings, and personal details.</p>
         </div>
-        <div className="flex items-center gap-3">
-           <Button 
-             onClick={handleSave} 
-             isLoading={isSaving}
-             className="flex items-center gap-2 font-bold px-8 shadow-lg shadow-primary/20"
-           >
-             <Save size={18} /> Save Changes
-           </Button>
-        </div>
+        {activeTab === 'personal' && (
+          <div className="flex items-center gap-3">
+             <Button 
+               onClick={handleSaveProfile} 
+               isLoading={saving}
+               className="flex items-center gap-2 font-bold px-8 shadow-lg shadow-primary/20"
+             >
+               <Save size={18} /> Save Changes
+             </Button>
+          </div>
+        )}
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -70,21 +276,30 @@ const Profile = () => {
                           type="file" 
                           id="profile-upload" 
                           className="hidden" 
-                          accept="image/*"
-                          onChange={(e) => {
-                            if (e.target.files?.[0]) {
-                              triggerPhotoToast();
-                            }
-                          }}
+                          accept="image/png, image/jpg, image/jpeg, image/webp"
+                          onChange={handlePhotoChange}
+                          disabled={uploadingPhoto}
                         />
-                        <div className="w-24 h-24 rounded-3xl bg-white p-1.5 shadow-xl">
+                        <div className="w-24 h-24 rounded-3xl bg-white p-1.5 shadow-xl overflow-hidden flex items-center justify-center relative">
+                           {uploadingPhoto && (
+                             <div className="absolute inset-0 bg-white/80 z-10 flex items-center justify-center">
+                               <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                             </div>
+                           )}
+                           
                            <div className="w-full h-full rounded-[1.25rem] bg-slate-100 flex items-center justify-center text-3xl font-black text-slate-400 overflow-hidden">
-                              <User size={48} />
+                              {hasPhoto ? (
+                                <img src={profileData.profilePhoto} alt="Profile" className="w-full h-full object-cover" />
+                              ) : (
+                                <User size={48} />
+                              )}
                            </div>
                         </div>
                         <button 
                           onClick={() => document.getElementById('profile-upload').click()}
-                          className="absolute bottom-0 right-0 w-8 h-8 bg-primary text-white rounded-xl flex items-center justify-center shadow-lg hover:scale-110 transition-all border-2 border-white"
+                          disabled={uploadingPhoto}
+                          type="button"
+                          className="absolute bottom-0 right-0 w-8 h-8 bg-primary text-white rounded-xl flex items-center justify-center shadow-lg hover:scale-110 transition-all border-2 border-white disabled:opacity-50"
                         >
                            <Camera size={14} />
                         </button>
@@ -94,19 +309,23 @@ const Profile = () => {
                
                <div className="pt-16 pb-8 px-8 space-y-6">
                   <div>
-                     <h2 className="text-2xl font-black text-slate-900 tracking-tight">{roleTitle}</h2>
+                     <h2 className="text-2xl font-black text-slate-900 tracking-tight break-words">{roleTitle}</h2>
                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{roleSubtitle}</p>
                   </div>
 
                   <div className="space-y-4">
-                     <ProfileDetail icon={Mail} label="Email Address" value={roleEmail} />
-                     <ProfileDetail icon={Phone} label="Phone Number" value="+27 71 888 4444" />
-                     <ProfileDetail icon={isBorrower ? MapPin : Building2} label={locationLabel} value={locationValue} />
+                     <ProfileDetail icon={Mail} label="Email Address" value={profileData.email} />
+                     <ProfileDetail icon={Phone} label="Phone Number" value={profileData.phoneNumber || 'Not Set'} />
+                     <ProfileDetail 
+                        icon={isBorrower ? MapPin : Building2} 
+                        label={locationLabel} 
+                        value={profileData.primaryBranch || (isBorrower ? (profileData.address || 'Not set') : 'Corporate Head') } 
+                     />
                   </div>
 
                   <div className="pt-6 border-t border-slate-50 flex items-center justify-between">
                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Account Status</span>
-                     <StatusBadge status="Active" />
+                     <StatusBadge status={profileData.accountStatus} />
                   </div>
                </div>
             </section>
@@ -140,15 +359,61 @@ const Profile = () => {
                            </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                           <Input label="Full Name" defaultValue={roleTitle} icon={User} />
-                           <Input label="Email Address" defaultValue={roleEmail} icon={Mail} />
-                           <Input label="Phone Number" defaultValue="+27 71 888 4444" icon={Phone} />
-                           <Input label="Date of Birth" type="date" defaultValue="1990-01-01" icon={Calendar} />
+                        <form onSubmit={handleSaveProfile} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                           <Input 
+                             label="Full Name" 
+                             value={profileData.fullName} 
+                             onChange={(e) => setProfileData(prev => ({ ...prev, fullName: e.target.value }))}
+                             icon={User} 
+                             required
+                           />
+                           <Input 
+                             label="Email Address" 
+                             value={profileData.email} 
+                             readOnly 
+                             className="bg-slate-50 opacity-80 cursor-not-allowed"
+                             icon={Mail} 
+                           />
+                           <Input 
+                             label="Phone Number" 
+                             value={profileData.phoneNumber} 
+                             onChange={(e) => setProfileData(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                             icon={Phone} 
+                             placeholder="e.g. +27 71 888 4444"
+                           />
+                           <Input 
+                             label="Date of Birth" 
+                             type="date" 
+                             value={profileData.dateOfBirth} 
+                             onChange={(e) => setProfileData(prev => ({ ...prev, dateOfBirth: e.target.value }))}
+                             icon={Calendar} 
+                           />
                            <div className="md:col-span-2">
-                              <Input label="Address" isTextArea defaultValue="123 Financial District, Sandton, 2196" icon={MapPin} />
+                              <Input 
+                                label="Address" 
+                                isTextArea 
+                                value={profileData.address} 
+                                onChange={(e) => setProfileData(prev => ({ ...prev, address: e.target.value }))}
+                                icon={MapPin} 
+                                placeholder="Residential or office street address..."
+                              />
                            </div>
-                           <Input label={locationLabel} defaultValue={locationValue} icon={isBorrower ? MapPin : Building2} />
+                           <Input 
+                             label={locationLabel} 
+                             value={profileData.primaryBranch} 
+                             onChange={(e) => setProfileData(prev => ({ ...prev, primaryBranch: e.target.value }))}
+                             icon={isBorrower ? MapPin : Building2} 
+                             placeholder="Branch Location"
+                           />
+                        </form>
+
+                        <div className="flex gap-4 pt-2 border-t border-slate-50 mt-4">
+                          <Button onClick={handleDiscard} variant="ghost" className="flex-1 border border-slate-200 text-slate-600">
+                            Discard Changes
+                          </Button>
+                          <Button onClick={handleSaveProfile} isLoading={saving} className="flex-1">
+                            Save Profile Info
+                          </Button>
                         </div>
                      </section>
                   </motion.div>
@@ -162,7 +427,7 @@ const Profile = () => {
                      exit={{ opacity: 0, x: -20 }}
                      className="space-y-8"
                   >
-                     <section className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-soft space-y-10">
+                     <form onSubmit={handlePasswordUpdate} className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-soft space-y-10">
                         <div className="flex items-center gap-4">
                            <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
                               <Lock size={24} />
@@ -175,58 +440,73 @@ const Profile = () => {
 
                         <div className="space-y-8">
                            <div className="grid grid-cols-1 gap-6">
-                              <Input label="Current Password" type="password" placeholder="••••••••" icon={Lock} />
+                              <Input 
+                                label="Current Password" 
+                                type="password" 
+                                value={pwdData.currentPassword}
+                                onChange={(e) => setPwdData(prev => ({ ...prev, currentPassword: e.target.value }))}
+                                placeholder="••••••••" 
+                                icon={Lock} 
+                              />
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                 <Input label="New Password" type="password" placeholder="Create new password" icon={Key} />
-                                 <Input label="Confirm New Password" type="password" placeholder="Repeat new password" icon={ShieldCheck} />
+                                 <Input 
+                                   label="New Password" 
+                                   type="password" 
+                                   value={pwdData.newPassword}
+                                   onChange={(e) => setPwdData(prev => ({ ...prev, newPassword: e.target.value }))}
+                                   placeholder="Min 8 characters, 1 uppercase" 
+                                   icon={Key} 
+                                   required
+                                 />
+                                 <Input 
+                                   label="Confirm New Password" 
+                                   type="password" 
+                                   value={pwdData.confirmPassword}
+                                   onChange={(e) => setPwdData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                                   placeholder="Repeat new password" 
+                                   icon={ShieldCheck} 
+                                   required
+                                 />
                               </div>
                            </div>
 
-                           <div className="flex gap-4 pt-4">
-                              <Button variant="secondary" className="flex-1">Discard Changes</Button>
-                              <Button className="flex-1 shadow-lg shadow-primary/20">Update Password</Button>
+                           <div className="flex gap-4 pt-4 border-t border-slate-50">
+                              <Button 
+                                type="button"
+                                variant="secondary" 
+                                onClick={() => setPwdData({ currentPassword: '', newPassword: '', confirmPassword: '' })} 
+                                className="flex-1 border border-slate-200"
+                              >
+                                Clear Fields
+                              </Button>
+                              <Button 
+                                type="submit" 
+                                isLoading={changingPassword} 
+                                className="flex-1 shadow-lg shadow-primary/20"
+                              >
+                                Update Password
+                              </Button>
                            </div>
                         </div>
-                     </section>
+                     </form>
                   </motion.div>
                )}
             </AnimatePresence>
          </div>
       </div>
 
-      {/* SAVE BAR (MOBILE) */}
-      <div className="lg:hidden fixed bottom-6 left-6 right-6 z-40">
-         <Button 
-            onClick={handleSave}
-            isLoading={isSaving}
-            className="w-full shadow-2xl shadow-primary/40 py-5 rounded-[1.5rem] flex items-center justify-center gap-3"
-         >
-            <Save size={20} /> Save All Changes
-         </Button>
-      </div>
-
-      {/* SUCCESS TOAST */}
-      <AnimatePresence>
-         {showToast && (
-            <motion.div 
-               initial={{ opacity: 0, y: 100 }}
-               animate={{ opacity: 1, y: 0 }}
-               exit={{ opacity: 0, y: 100 }}
-               className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-8 py-4 rounded-2xl shadow-2xl z-[100] flex items-center gap-4 border border-white/10"
-            >
-               <div className="w-8 h-8 bg-emerald-500 rounded-full flex items-center justify-center">
-                  <CheckCircle2 size={18} className="text-white" />
-               </div>
-               <div>
-                  <p className="text-sm font-black tracking-tight">{showToast}</p>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Action completed successfully</p>
-               </div>
-               <button onClick={() => setShowToast(null)} className="ml-4 p-1 hover:bg-white/10 rounded-lg">
-                  <X size={16} className="text-slate-500" />
-               </button>
-            </motion.div>
-         )}
-      </AnimatePresence>
+      {/* SAVE BAR (MOBILE) - ONLY PERSONAL TAB */}
+      {activeTab === 'personal' && (
+        <div className="lg:hidden fixed bottom-6 left-6 right-6 z-40">
+           <Button 
+              onClick={handleSaveProfile}
+              isLoading={saving}
+              className="w-full shadow-2xl shadow-primary/40 py-5 rounded-[1.5rem] flex items-center justify-center gap-3"
+           >
+              <Save size={20} /> Save All Changes
+           </Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -235,12 +515,12 @@ const Profile = () => {
 
 const ProfileDetail = ({ icon: Icon, label, value }) => (
    <div className="flex items-center gap-4 group">
-      <div className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center transition-all group-hover:bg-primary/5 group-hover:text-primary">
+      <div className="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center transition-all group-hover:bg-primary/5 group-hover:text-primary flex-shrink-0">
          <Icon size={18} />
       </div>
-      <div>
-         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
-         <p className="text-sm font-bold text-slate-700">{value}</p>
+      <div className="min-w-0 flex-1">
+         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">{label}</p>
+         <p className="text-sm font-bold text-slate-700 truncate" title={value}>{value}</p>
       </div>
    </div>
 );

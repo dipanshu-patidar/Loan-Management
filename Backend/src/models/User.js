@@ -56,6 +56,18 @@ const userSchema = new mongoose.Schema(
       enum: ['Active', 'Inactive', 'Suspended'],
       default: 'Active',
     },
+    phoneNumber: {
+      type: String
+    },
+    dateOfBirth: {
+      type: Date
+    },
+    address: {
+      type: String
+    },
+    primaryBranch: {
+      type: String
+    },
   },
   {
     timestamps: true,

@@ -1,50 +1,80 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, Download, Eye, Search, Filter, 
   MoreVertical, Calendar, TrendingUp, PieChart, 
   FileText, Briefcase, Users, AlertCircle, 
   DollarSign, Activity, ArrowRight, X, Mail,
   Printer, CheckCircle2, Trash2, FileUp, ShieldCheck,
-  ChevronRight, Wallet, History, CreditCard, Layout
+  ChevronRight, Wallet, History, CreditCard, Layout, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'react-hot-toast';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer, LineChart, Line,
   AreaChart, Area
 } from 'recharts';
 import { cn } from '../../utils/cn';
+import reportService from '../../services/reportService';
 import StatCard from '../../components/StatCard';
 import StatusBadge from '../../components/StatusBadge';
 import Modal from '../../ui/Modal';
 import Drawer from '../../ui/Drawer';
 import Button from '../../ui/Button';
 import Input from '../../ui/Input';
-
-// --- Mock Data ---
-const collectionData = [
-  { month: 'Jan', collections: 45000, repayments: 38000 },
-  { month: 'Feb', collections: 52000, repayments: 41000 },
-  { month: 'Mar', collections: 48000, repayments: 45000 },
-  { month: 'Apr', collections: 61000, repayments: 52000 },
-  { month: 'May', collections: 55000, repayments: 48000 },
-  { month: 'Jun', collections: 67000, repayments: 55000 },
-];
-
-const initialReports = [
-  { id: 'REP-001', name: 'Monthly Collection Summary', type: 'Collections', user: 'Admin John', date: '2024-05-08', format: 'PDF' },
-  { id: 'REP-002', name: 'Loan Disbursal Audit', type: 'Loan Reports', user: 'Admin John', date: '2024-05-07', format: 'Excel' },
-  { id: 'REP-003', name: 'Overdue Borrowers List', type: 'Borrower Reports', user: 'Staff Sarah', date: '2024-05-06', format: 'CSV' },
-  { id: 'REP-004', name: 'Agent Commission Payouts', type: 'Agent Reports', user: 'Admin John', date: '2024-05-05', format: 'PDF' },
-  { id: 'REP-005', name: 'Quarterly Business Review', type: 'Business Reports', user: 'Admin John', date: '2024-05-01', format: 'Excel' },
-];
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const Reports = () => {
-  const [reports] = useState(initialReports);
+  const [reports, setReports] = useState([]);
+  const [stats, setStats] = useState({ totalCollections: 0, totalLoans: 0, activeBorrowers: 0, overduePayments: 0, agentCommissions: 0 });
+  const [chartData, setChartData] = useState([]);
+  const [loanPerf, setLoanPerf] = useState({ approved: 0, active: 0, completed: 0, overdue: 0 });
+  const [borrowerPerf, setBorrowerPerf] = useState({ active: 0, new: 0, overdue: 0, blacklisted: 0 });
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Form states
+  const [genCategory, setGenCategory] = useState('Loan Reports');
+  const [genType, setGenType] = useState('Detailed Summary');
+  const [genDateFrom, setGenDateFrom] = useState('');
+  const [genDateTo, setGenDateTo] = useState('');
+  const [genFormat, setGenFormat] = useState('PDF');
+
+  const [exportFormat, setExportFormat] = useState('PDF');
+
   const [activeModal, setActiveModal] = useState(null); // 'generate', 'export', 'delete'
   const [activeDrawer, setActiveDrawer] = useState(null); // 'view'
   const [selectedReport, setSelectedReport] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      const [statsRes, chartRes, loanRes, borrowerRes, reportsRes] = await Promise.all([
+        reportService.getReportStats(),
+        reportService.getCollectionsOverview(),
+        reportService.getLoanPerformance(),
+        reportService.getBorrowerOverview(),
+        reportService.getAllReports({ search: searchQuery, limit: 100 })
+      ]);
+
+      setStats(statsRes.data.data);
+      setChartData(chartRes.data.data.data);
+      setLoanPerf(loanRes.data.data);
+      setBorrowerPerf(borrowerRes.data.data);
+      setReports(reportsRes.data.data.reports);
+    } catch (err) {
+      toast.error('Failed to load reports data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [searchQuery]);
 
   const openModal = (type, report = null) => {
     setSelectedReport(report);
@@ -52,14 +82,84 @@ const Reports = () => {
     setOpenMenuId(null);
   };
 
-  const openDrawer = (type, report) => {
-    setSelectedReport(report);
+  const openDrawer = async (type, report) => {
     setActiveDrawer(type);
     setOpenMenuId(null);
+    try {
+      const res = await reportService.getSingleReport(report._id);
+      setSelectedReport(res.data.data.report);
+    } catch (err) {
+      toast.error('Failed to fetch report details');
+    }
   };
 
   const closeModal = () => setActiveModal(null);
   const closeDrawer = () => setActiveDrawer(null);
+
+  const handleGenerate = async () => {
+    try {
+      setIsSubmitting(true);
+      const dateRange = genDateFrom && genDateTo ? `${genDateFrom} to ${genDateTo}` : 'All Time';
+      await reportService.generateReport({
+        reportCategory: genCategory,
+        reportType: genType,
+        dateRange,
+        exportFormat: genFormat
+      });
+      toast.success('Report generated successfully');
+      fetchDashboardData();
+      closeModal();
+    } catch (err) {
+      toast.error('Failed to generate report');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      setIsSubmitting(true);
+      await reportService.deleteReport(selectedReport._id);
+      toast.success('Report deleted successfully');
+      fetchDashboardData();
+      closeModal();
+    } catch (err) {
+      toast.error('Failed to delete report');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleExportFile = async () => {
+    try {
+      if (selectedReport) {
+        await reportService.exportReport(selectedReport._id, { exportFormat });
+      }
+      
+      if (exportFormat === 'PDF') {
+        const doc = new jsPDF();
+        doc.setFontSize(20);
+        doc.text("Point.47 Analytics Export", 14, 20);
+        doc.setFontSize(10);
+        doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+        doc.save(`Export_${new Date().getTime()}.pdf`);
+      } else {
+        const headers = ["Dummy,Export,Data\n"];
+        const rows = "1,2,3";
+        const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `Export_${new Date().getTime()}.csv`;
+        link.click();
+      }
+
+      toast.success('Report exported successfully');
+      fetchDashboardData();
+      closeModal();
+    } catch (err) {
+      toast.error('Export failed');
+    }
+  };
 
   return (
     <div className="space-y-8 pb-10" onClick={() => setOpenMenuId(null)}>
@@ -81,11 +181,11 @@ const Reports = () => {
 
       {/* 2. ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <StatCard title="Total Collections" value="R 8.4M" icon={DollarSign} color="navy" />
-        <StatCard title="Total Loans" value="1,240" icon={Briefcase} color="blue" />
-        <StatCard title="Active Borrowers" value="860" icon={Users} color="emerald" />
-        <StatCard title="Overdue Payments" value="124" icon={AlertCircle} color="rose" />
-        <StatCard title="Agent Commissions" value="R 42K" icon={TrendingUp} color="navy" />
+        <StatCard title="Total Collections" value={`R ${stats.totalCollections?.toLocaleString()}`} icon={DollarSign} color="navy" />
+        <StatCard title="Total Loans" value={stats.totalLoans?.toLocaleString()} icon={Briefcase} color="blue" />
+        <StatCard title="Active Borrowers" value={stats.activeBorrowers?.toLocaleString()} icon={Users} color="emerald" />
+        <StatCard title="Overdue Payments" value={stats.overduePayments?.toLocaleString()} icon={AlertCircle} color="rose" />
+        <StatCard title="Agent Commissions" value={`R ${stats.agentCommissions?.toLocaleString()}`} icon={TrendingUp} color="navy" />
       </section>
 
       {/* 3. CHARTS SECTION */}
@@ -110,7 +210,7 @@ const Reports = () => {
             </div>
             <div className="h-[300px] w-full">
                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={collectionData}>
+                  <AreaChart data={chartData}>
                      <defs>
                         <linearGradient id="colorColl" x1="0" y1="0" x2="0" y2="1">
                            <stop offset="5%" stopColor="#2E3A74" stopOpacity={0.1}/>
@@ -123,7 +223,7 @@ const Reports = () => {
                      </defs>
                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
                      <XAxis 
-                        dataKey="month" 
+                        dataKey="name" 
                         axisLine={false} 
                         tickLine={false} 
                         tick={{fill: '#94A3B8', fontSize: 10, fontWeight: 700}}
@@ -133,7 +233,7 @@ const Reports = () => {
                         axisLine={false} 
                         tickLine={false} 
                         tick={{fill: '#94A3B8', fontSize: 10, fontWeight: 700}}
-                        tickFormatter={(value) => `R${value/1000}k`}
+                        tickFormatter={(value) => `R${(value/1000).toFixed(0)}k`}
                      />
                      <Tooltip 
                         contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }}
@@ -151,10 +251,10 @@ const Reports = () => {
             <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-soft h-full">
                <h3 className="text-lg font-black text-slate-900 mb-6">Loan Performance</h3>
                <div className="space-y-4">
-                  <PerformanceItem label="Approved Loans" value="1,420" subValue="+12% from last month" color="text-primary" icon={ShieldCheck} />
-                  <PerformanceItem label="Active Loans" value="860" subValue="R 5.2M value" color="text-blue-500" icon={Activity} />
-                  <PerformanceItem label="Completed" value="340" subValue="Fully settled" color="text-emerald-600" icon={CheckCircle2} />
-                  <PerformanceItem label="Overdue Loans" value="42" subValue="Action required" color="text-rose-500" icon={AlertCircle} />
+                  <PerformanceItem label="Approved Loans" value={loanPerf.approved?.toLocaleString()} subValue="Total Approved" color="text-primary" icon={ShieldCheck} />
+                  <PerformanceItem label="Active Loans" value={loanPerf.active?.toLocaleString()} subValue="Currently Repaying" color="text-blue-500" icon={Activity} />
+                  <PerformanceItem label="Completed" value={loanPerf.completed?.toLocaleString()} subValue="Fully Settled" color="text-emerald-600" icon={CheckCircle2} />
+                  <PerformanceItem label="Overdue Loans" value={loanPerf.overdue?.toLocaleString()} subValue="Action Required" color="text-rose-500" icon={AlertCircle} />
                </div>
                
                <div className="mt-10 pt-10 border-t border-slate-50">
@@ -162,10 +262,10 @@ const Reports = () => {
                      <Users size={16} className="text-primary" /> Borrower Overview
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
-                     <SummaryBox label="Total Active" value="860" />
-                     <SummaryBox label="New This Week" value="14" />
-                     <SummaryBox label="Overdue" value="42" />
-                     <SummaryBox label="Blacklisted" value="3" />
+                     <SummaryBox label="Total Active" value={borrowerPerf.active?.toLocaleString()} />
+                     <SummaryBox label="New (30d)" value={borrowerPerf.new?.toLocaleString()} />
+                     <SummaryBox label="Overdue" value={borrowerPerf.overdue?.toLocaleString()} />
+                     <SummaryBox label="Blacklisted" value={borrowerPerf.blacklisted?.toLocaleString()} />
                   </div>
                </div>
             </div>
@@ -173,17 +273,23 @@ const Reports = () => {
       </section>
 
       {/* 4. REPORTS TABLE */}
-      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft overflow-hidden">
-        <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
+      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft">
+        <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between bg-slate-50/30 rounded-t-[2.5rem]">
            <h3 className="text-lg font-black text-slate-900">Recent Reports</h3>
            <div className="flex items-center gap-3">
-              <div className="relative">
-                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                 <input type="text" placeholder="Search reports..." className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary/10 transition-all w-64" />
-              </div>
+               <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input 
+                     type="text" 
+                     value={searchQuery}
+                     onChange={(e) => setSearchQuery(e.target.value)}
+                     placeholder="Search reports..." 
+                     className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-primary/10 transition-all w-64" 
+                  />
+               </div>
            </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-visible pb-4">
            <table className="w-full">
               <thead>
                  <tr className="text-left border-b border-slate-50 bg-slate-50/50">
@@ -196,30 +302,43 @@ const Reports = () => {
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                 {reports.map((r) => (
-                    <tr key={r.id} className="group hover:bg-slate-50/50 transition-all">
+                 {loading ? (
+                    <tr>
+                       <td colSpan="6" className="px-8 py-12 text-center">
+                          <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto mb-3" />
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Loading Reports...</p>
+                       </td>
+                    </tr>
+                 ) : reports.length === 0 ? (
+                    <tr>
+                       <td colSpan="6" className="px-8 py-12 text-center">
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">No Reports Found</p>
+                       </td>
+                    </tr>
+                 ) : reports.map((r, index) => (
+                    <tr key={r._id} className={cn("group hover:bg-slate-50/50 transition-all", openMenuId === r._id && "relative z-[100]")}>
                        <td className="px-8 py-5">
                           <div className="flex items-center gap-4">
                              <div className="w-10 h-10 rounded-xl bg-primary/5 text-primary flex items-center justify-center border border-primary/10">
                                 <FileText size={18} />
                              </div>
                              <div>
-                                <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{r.name}</p>
-                                <p className="text-[10px] text-slate-400 font-black uppercase tracking-tight">{r.id}</p>
+                                <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{r.reportTitle}</p>
+                                <p className="text-[10px] text-slate-400 font-black uppercase tracking-tight">{r.reportCode}</p>
                              </div>
                           </div>
                        </td>
                        <td className="px-6 py-5">
-                          <StatusBadge status={r.type} className="text-[10px] px-3 py-0.5" />
+                          <StatusBadge status={r.reportCategory} className="text-[10px] px-3 py-0.5" />
                        </td>
                        <td className="px-6 py-5 text-sm font-bold text-slate-600">
-                          {r.user}
+                          {r.generatedBy?.firstName} {r.generatedBy?.lastName}
                        </td>
                        <td className="px-6 py-5 text-center text-xs font-bold text-slate-500 uppercase">
-                          {r.date}
+                          {new Date(r.generatedDate).toLocaleDateString('en-GB')}
                        </td>
                        <td className="px-6 py-5 text-center">
-                          <StatusBadge status={r.format} />
+                          <StatusBadge status={r.exportFormat} />
                        </td>
                        <td className="px-8 py-5">
                           <div className="flex items-center justify-end gap-2">
@@ -228,22 +347,25 @@ const Reports = () => {
                              
                              <div className="relative" onClick={(e) => e.stopPropagation()}>
                                 <button 
-                                   onClick={() => setOpenMenuId(openMenuId === r.id ? null : r.id)}
+                                   onClick={() => setOpenMenuId(openMenuId === r._id ? null : r._id)}
                                    className={cn(
                                       "p-2 rounded-xl transition-all",
-                                      openMenuId === r.id ? "bg-slate-100 text-slate-900" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                                      openMenuId === r._id ? "bg-slate-100 text-slate-900" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
                                    )}
                                 >
                                    <MoreVertical size={18} />
                                 </button>
 
                                 <AnimatePresence>
-                                   {openMenuId === r.id && (
+                                   {openMenuId === r._id && (
                                       <motion.div 
                                          initial={{ opacity: 0, scale: 0.95, y: 10 }}
                                          animate={{ opacity: 1, scale: 1, y: 0 }}
                                          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                         className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 z-50"
+                                         className={cn(
+                                            "absolute right-0 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 z-[101]",
+                                            index >= reports.length - 2 && reports.length > 2 ? "bottom-full mb-2" : "top-full mt-2"
+                                         )}
                                       >
                                          <DropdownItem icon={Mail} label="Email Report" onClick={() => openModal('export', r)} />
                                          <DropdownItem icon={Printer} label="Print PDF" onClick={() => openModal('export', r)} />
@@ -272,7 +394,7 @@ const Reports = () => {
       {/* GENERATE MODAL */}
       <Modal isOpen={activeModal === 'generate'} onClose={closeModal} title="Generate New Report" maxWidth="max-w-md">
          <div className="space-y-6">
-            <Input label="Report Category" type="select">
+            <Input label="Report Category" type="select" value={genCategory} onChange={e=>setGenCategory(e.target.value)}>
                <option>Loan Reports</option>
                <option>Payment Reports</option>
                <option>Collections Reports</option>
@@ -280,15 +402,22 @@ const Reports = () => {
                <option>Agent Commission Reports</option>
             </Input>
             <div className="grid grid-cols-2 gap-4">
-               <Input label="From Date" type="date" />
-               <Input label="To Date" type="date" />
+               <Input label="From Date" type="date" value={genDateFrom} onChange={e=>setGenDateFrom(e.target.value)} />
+               <Input label="To Date" type="date" value={genDateTo} onChange={e=>setGenDateTo(e.target.value)} />
             </div>
-            <Input label="Report Type" type="select">
+            <Input label="Report Type" type="select" value={genType} onChange={e=>setGenType(e.target.value)}>
                <option>Detailed Summary</option>
                <option>Analytics Only</option>
                <option>Raw Data Export</option>
             </Input>
-            <Button onClick={closeModal} className="w-full py-4 shadow-lg shadow-primary/20">Generate Report</Button>
+            <Input label="Export Format" type="select" value={genFormat} onChange={e=>setGenFormat(e.target.value)}>
+               <option>PDF</option>
+               <option>CSV</option>
+               <option>Excel</option>
+            </Input>
+            <Button onClick={handleGenerate} disabled={isSubmitting} className="w-full py-4 shadow-lg shadow-primary/20">
+               {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Generate Report'}
+            </Button>
          </div>
       </Modal>
 
@@ -296,10 +425,9 @@ const Reports = () => {
       <Modal isOpen={activeModal === 'export'} onClose={closeModal} title="Export Report" maxWidth="max-w-md">
          <div className="space-y-6">
             <p className="text-sm text-slate-500 font-medium text-center px-4">Choose your preferred format for the data export.</p>
-            <div className="grid grid-cols-3 gap-3">
-               <ExportCard label="PDF" icon={FileText} />
-               <ExportCard label="CSV" icon={Activity} />
-               <ExportCard label="Excel" icon={PieChart} />
+            <div className="grid grid-cols-2 gap-3">
+               <ExportCard label="PDF" icon={FileText} active={exportFormat === 'PDF'} onClick={() => setExportFormat('PDF')} />
+               <ExportCard label="CSV" icon={Activity} active={exportFormat === 'CSV'} onClick={() => setExportFormat('CSV')} />
             </div>
             <div className="space-y-4 pt-4 border-t border-slate-50">
                <Input label="Date Range" type="select">
@@ -309,7 +437,7 @@ const Reports = () => {
                   <option>Custom Range</option>
                </Input>
             </div>
-            <Button className="w-full py-4 shadow-lg shadow-primary/20">Generate Export</Button>
+            <Button onClick={handleExportFile} className="w-full py-4 shadow-lg shadow-primary/20">Generate Export</Button>
          </div>
       </Modal>
 
@@ -321,11 +449,13 @@ const Reports = () => {
             </div>
             <div>
                <h4 className="text-xl font-black text-slate-900 tracking-tight">Permanently Delete?</h4>
-               <p className="text-sm text-slate-500 mt-2">You are removing <span className="font-bold text-slate-900">{selectedReport?.name}</span>. This action cannot be undone.</p>
+               <p className="text-sm text-slate-500 mt-2">You are removing <span className="font-bold text-slate-900">{selectedReport?.reportTitle}</span>. This action cannot be undone.</p>
             </div>
             <div className="flex gap-3 pt-2">
-               <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button variant="danger" onClick={closeModal} className="flex-1 shadow-lg shadow-rose-200">Delete</Button>
+               <Button variant="ghost" onClick={closeModal} disabled={isSubmitting} className="flex-1">Cancel</Button>
+               <Button variant="danger" onClick={handleDelete} disabled={isSubmitting} className="flex-1 shadow-lg shadow-rose-200">
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Delete'}
+               </Button>
             </div>
          </div>
       </Modal>
@@ -341,15 +471,15 @@ const Reports = () => {
             <div className="space-y-10">
                {/* Header */}
                <div className="flex items-center gap-6 p-6 bg-slate-900 text-white rounded-[2rem] shadow-xl">
-                  <div className="w-20 h-20 rounded-3xl bg-primary flex items-center justify-center text-white text-3xl font-black shadow-lg">
+                  <div className="w-20 h-20 rounded-3xl bg-primary flex items-center justify-center text-white text-3xl font-black shadow-lg border border-white/10">
                      <FileText size={40} />
                   </div>
                   <div className="flex-1">
-                     <h2 className="text-2xl font-black text-white tracking-tight">{selectedReport.name}</h2>
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Ref: {selectedReport.id}</p>
+                     <h2 className="text-2xl font-black text-white tracking-tight">{selectedReport.reportTitle}</h2>
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Ref: {selectedReport.reportCode}</p>
                      <div className="flex items-center gap-2 mt-4">
-                        <StatusBadge status={selectedReport.type} className="bg-white/10 text-white border-white/20" />
-                        <span className="text-xs font-bold text-slate-400 ml-2">Generated on {selectedReport.date}</span>
+                        <StatusBadge status={selectedReport.reportCategory} className="bg-white/10 text-white border-white/20" />
+                        <span className="text-xs font-bold text-slate-400 ml-2">Generated on {new Date(selectedReport.generatedDate).toLocaleDateString('en-GB')}</span>
                      </div>
                   </div>
                </div>
@@ -357,24 +487,21 @@ const Reports = () => {
                {/* Snapshot */}
                <div className="space-y-5">
                   <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                     <Activity size={14} className="text-primary" /> Analytics Snapshot
+                     <Activity size={14} className="text-primary" /> Report Summary
                   </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                     <SummaryBox label="Total Data Points" value="2,480" />
-                     <SummaryBox label="Net Value" value="R 850,000" />
-                     <SummaryBox label="Variance" value="+4.2%" />
-                     <SummaryBox label="Accuracy" value="99.9%" />
+                  <div className="p-6 bg-slate-50 border border-slate-100 rounded-3xl text-sm font-medium text-slate-700 leading-relaxed">
+                     {selectedReport.reportSummary}
                   </div>
                </div>
 
                {/* Business Summary Area */}
-               <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 space-y-6">
-                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest">Business Summary</h4>
+               <div className="p-8 bg-white rounded-[2.5rem] border border-slate-100 space-y-6 shadow-sm">
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest">Business Snapshot Included</h4>
                   <div className="space-y-4">
-                     <ReviewRow label="Total Collections" value="R 8.4M" />
-                     <ReviewRow label="Overdue Amount" value="R 420K" />
-                     <ReviewRow label="Active Loans" value="860" />
-                     <ReviewRow label="Commissions Paid" value="R 42K" />
+                     <ReviewRow label="Total Collections" value={`R ${selectedReport.totalCollections?.toLocaleString()}`} />
+                     <ReviewRow label="Overdue Amount" value={`R ${selectedReport.overduePayments?.toLocaleString()}`} />
+                     <ReviewRow label="Active Loans" value={selectedReport.totalLoans?.toLocaleString()} />
+                     <ReviewRow label="Active Borrowers" value={selectedReport.activeBorrowers?.toLocaleString()} />
                   </div>
                </div>
 
@@ -446,10 +573,16 @@ const ReviewRow = ({ label, value }) => (
   </div>
 );
 
-const ExportCard = ({ label, icon: Icon }) => (
-  <button className="flex flex-col items-center justify-center p-6 bg-slate-50 border border-slate-100 rounded-3xl hover:border-primary hover:bg-primary/5 transition-all group">
-     <Icon size={28} className="text-slate-400 group-hover:text-primary mb-3" />
-     <span className="text-[10px] font-black text-slate-500 group-hover:text-primary uppercase tracking-widest">{label}</span>
+const ExportCard = ({ label, icon: Icon, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={cn(
+       "flex flex-col items-center justify-center p-6 border rounded-3xl transition-all group",
+       active ? "border-primary bg-primary/5 text-primary" : "bg-slate-50 border-slate-100 hover:border-primary hover:bg-primary/5 text-slate-500"
+    )}
+  >
+     <Icon size={28} className={cn("mb-3 transition-colors", active ? "text-primary" : "text-slate-400 group-hover:text-primary")} />
+     <span className={cn("text-[10px] font-black uppercase tracking-widest transition-colors", active ? "text-primary" : "group-hover:text-primary")}>{label}</span>
   </button>
 );
 

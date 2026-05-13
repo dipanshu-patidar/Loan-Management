@@ -1,78 +1,169 @@
 // Due Payments Module
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BellRing, ClipboardCheck, Eye, Search, Filter, 
   MoreVertical, Download, Clock, AlertTriangle, 
   DollarSign, Activity, Users, ArrowRight, X, 
   Mail, MessageSquare, Phone, Calendar, CheckCircle2,
   Trash2, UserCheck, ShieldCheck, History, Wallet,
-  CreditCard, Smartphone, FileText
+  CreditCard, Smartphone, FileText, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'react-hot-toast';
 import { cn } from '../../utils/cn';
+import duePaymentService from '../../services/duePaymentService';
 import StatCard from '../../components/StatCard';
 import StatusBadge from '../../components/StatusBadge';
 import Modal from '../../ui/Modal';
 import Drawer from '../../ui/Drawer';
 import Button from '../../ui/Button';
 import Input from '../../ui/Input';
-
-// --- Mock Data ---
-const initialDues = [
-  { 
-    id: 'DUE-7701', borrower: 'Sipho Nkosi', phone: '+27 82 444 5555', loanId: 'P47-001', 
-    emi: 4500, dueDate: '2024-05-08', lateDays: 0, totalDue: 4500, 
-    reminder: 'Pending Reminder', status: 'Due Today' 
-  },
-  { 
-    id: 'DUE-7702', borrower: 'Amara Okafor', phone: '+27 71 333 4444', loanId: 'P47-005', 
-    emi: 12500, dueDate: '2024-05-01', lateDays: 7, totalDue: 12750, 
-    reminder: 'Reminder Sent', status: 'Overdue' 
-  },
-  { 
-    id: 'DUE-7703', borrower: 'Kgotso Motaung', phone: '+27 61 999 8888', loanId: 'P47-022', 
-    emi: 7400, dueDate: '2024-04-15', lateDays: 23, totalDue: 8600, 
-    reminder: 'Reminder Sent', status: 'Overdue' 
-  },
-  { 
-    id: 'DUE-7704', borrower: 'Lindiwe Zulu', phone: '+27 72 111 2222', loanId: 'P47-018', 
-    emi: 1100, dueDate: '2024-05-08', lateDays: 0, totalDue: 1100, 
-    reminder: 'Pending Reminder', status: 'Due Today' 
-  },
-  { 
-    id: 'DUE-7705', borrower: 'David van Wyk', phone: '+27 83 222 3333', loanId: 'P47-012', 
-    emi: 2200, dueDate: '2024-05-08', lateDays: 0, totalDue: 2200, 
-    reminder: 'Pending Reminder', status: 'Due Today' 
-  },
-];
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const DuePayments = () => {
-  const [dues] = useState(initialDues);
-  const [activeModal, setActiveModal] = useState(null); // 'reminder', 'followup', 'bulk', 'export', 'delete'
+  const [dues, setDues] = useState([]);
+  const [stats, setStats] = useState({ dueTodayCount: 0, overdueCount: 0, totalDueAmount: 0, lateEmiAccounts: 0 });
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [exportFormat, setExportFormat] = useState('pdf');
+  const [notesInput, setNotesInput] = useState('');
+  const [bulkFilter, setBulkFilter] = useState('Due Today');
+
+  const [activeModal, setActiveModal] = useState(null); // 'reminder', 'followup', 'bulk', 'export'
   const [activeDrawer, setActiveDrawer] = useState(null); // 'view'
   const [selectedDue, setSelectedDue] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [activeTab, setActiveTab] = useState('All');
 
+  const fetchDuePaymentsData = async () => {
+    try {
+      setLoading(true);
+      const [dueRes, statsRes] = await Promise.all([
+        duePaymentService.getAllDuePayments({ search: searchQuery, status: activeTab === 'All' ? '' : activeTab, limit: 100 }),
+        duePaymentService.getDuePaymentStats()
+      ]);
+      setDues(dueRes.data.data?.duePayments || []);
+      setStats(statsRes.data.data || { dueTodayCount: 0, overdueCount: 0, totalDueAmount: 0, lateEmiAccounts: 0 });
+    } catch (err) {
+      toast.error('Failed to load due payments');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDuePaymentsData();
+  }, [searchQuery, activeTab]);
+
   const openModal = (type, due = null) => {
     setSelectedDue(due);
     setActiveModal(type);
     setOpenMenuId(null);
+    if (type === 'followup') {
+      setNotesInput(due?.notes || '');
+    }
   };
 
-  const openDrawer = (type, due) => {
-    setSelectedDue(due);
+  const openDrawer = async (type, due) => {
     setActiveDrawer(type);
     setOpenMenuId(null);
+    try {
+      const res = await duePaymentService.getDuePaymentDetails(due._id);
+      setSelectedDue(res.data.data.duePayment);
+    } catch (err) {
+      toast.error('Failed to load details');
+    }
   };
 
   const closeModal = () => setActiveModal(null);
   const closeDrawer = () => setActiveDrawer(null);
 
+  const handleSendReminder = async () => {
+    try {
+      setIsSubmitting(true);
+      await duePaymentService.sendReminder(selectedDue._id);
+      toast.success('Reminder sent successfully');
+      fetchDuePaymentsData();
+      closeModal();
+    } catch (error) {
+      toast.error('Failed to send reminder');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBulkReminders = async () => {
+    try {
+      setIsSubmitting(true);
+      await duePaymentService.sendBulkReminders(bulkFilter);
+      toast.success('Bulk reminders sent');
+      fetchDuePaymentsData();
+      closeModal();
+    } catch (error) {
+      toast.error('Failed to send bulk reminders');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSaveNotes = async () => {
+    try {
+      setIsSubmitting(true);
+      await duePaymentService.updateNotes(selectedDue._id, notesInput);
+      toast.success('Notes updated successfully');
+      fetchDuePaymentsData();
+      closeModal();
+    } catch (error) {
+      toast.error('Failed to update notes');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const res = await duePaymentService.exportDuePayments();
+      const exportData = res.data.data.duePayments || [];
+
+      if (exportFormat === 'pdf') {
+        const doc = new jsPDF();
+        doc.setFontSize(20);
+        doc.text("Due Payments Report", 14, 20);
+        doc.setFontSize(10);
+        doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+
+        const tableColumn = ["Borrower", "Loan Code", "EMI Amount", "Total Due", "Due Date", "Status", "Late Days"];
+        const tableRows = exportData.map(p => [
+          p.borrowerName, p.loanCode, `R ${p.emiAmount}`, `R ${p.totalDueAmount}`, new Date(p.dueDate).toLocaleDateString(), p.dueStatus, p.overdueDays
+        ]);
+
+        autoTable(doc, { head: [tableColumn], body: tableRows, startY: 40, theme: 'grid' });
+        doc.save(`DuePayments_${new Date().getTime()}.pdf`);
+        toast.success('PDF Export successful');
+      } else {
+        const headers = ["Borrower,Loan Code,EMI Amount,Total Due,Due Date,Status,Late Days\n"];
+        const rows = exportData.map(p => 
+          `"${p.borrowerName}",${p.loanCode},${p.emiAmount},${p.totalDueAmount},${new Date(p.dueDate).toLocaleDateString()},${p.dueStatus},${p.overdueDays}`
+        ).join("\n");
+        const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `DuePayments_${new Date().getTime()}.csv`;
+        link.click();
+        toast.success('CSV Export successful');
+      }
+      closeModal();
+    } catch (error) {
+      toast.error('Failed to export data');
+    }
+  };
+
   const tabs = [
-    { id: 'All', label: 'All Dues', count: initialDues.length },
-    { id: 'Today', label: 'Due Today', count: initialDues.filter(d => d.status === 'Due Today').length },
-    { id: 'Overdue', label: 'Overdue', count: initialDues.filter(d => d.status === 'Overdue').length },
+    { id: 'All', label: 'All Dues', count: stats.dueTodayCount + stats.overdueCount },
+    { id: 'Due Today', label: 'Due Today', count: stats.dueTodayCount },
+    { id: 'Overdue', label: 'Overdue', count: stats.overdueCount },
   ];
 
   return (
@@ -95,10 +186,10 @@ const DuePayments = () => {
 
       {/* 2. ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Due Today" value="48" icon={Clock} color="blue" />
-        <StatCard title="Overdue Payments" value="124" icon={AlertTriangle} color="rose" />
-        <StatCard title="Total Due Amount" value="R 420K" icon={DollarSign} color="navy" />
-        <StatCard title="Late EMI Accounts" value="86" icon={Users} color="navy" />
+        <StatCard title="Due Today" value={stats.dueTodayCount.toLocaleString()} icon={Clock} color="blue" />
+        <StatCard title="Overdue Payments" value={stats.overdueCount.toLocaleString()} icon={AlertTriangle} color="rose" />
+        <StatCard title="Total Due Amount" value={`R ${stats.totalDueAmount.toLocaleString()}`} icon={DollarSign} color="navy" />
+        <StatCard title="Late EMI Accounts" value={stats.lateEmiAccounts.toLocaleString()} icon={Users} color="navy" />
       </section>
 
       {/* 3. TABS SECTION */}
@@ -131,7 +222,9 @@ const DuePayments = () => {
            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
            <input 
               type="text" 
-              placeholder="Search borrower by name or loan ID..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search borrower by name, loan code or phone..." 
               className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-medium focus:ring-2 focus:ring-primary/10 transition-all"
            />
         </div>
@@ -167,36 +260,53 @@ const DuePayments = () => {
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                 {dues.map((due) => (
-                    <tr key={due.id} className="group hover:bg-slate-50/50 transition-all">
+                 {loading ? (
+                    <tr>
+                       <td colSpan="8" className="px-8 py-12 text-center">
+                          <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto mb-3" />
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Loading Dues...</p>
+                       </td>
+                    </tr>
+                 ) : dues.length === 0 ? (
+                    <tr>
+                       <td colSpan="8" className="px-8 py-12 text-center">
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">No Due Payments Found</p>
+                       </td>
+                    </tr>
+                 ) : dues.map((due) => (
+                    <tr key={due._id} className="group hover:bg-slate-50/50 transition-all">
                        <td className="px-8 py-5">
                           <div className="flex items-center gap-4">
-                             <div className="w-11 h-11 rounded-2xl bg-primary/5 text-primary flex items-center justify-center font-black text-sm border border-primary/10">
-                                {due.borrower.charAt(0)}
-                             </div>
+                             {due.borrowerPhoto && due.borrowerPhoto !== 'no-photo.jpg' ? (
+                                <img src={due.borrowerPhoto} alt="" className="w-11 h-11 rounded-2xl object-cover border border-slate-100 shadow-sm" />
+                             ) : (
+                                <div className="w-11 h-11 rounded-2xl bg-primary/5 text-primary flex items-center justify-center font-black text-sm border border-primary/10">
+                                   {due.borrowerName?.charAt(0) || 'B'}
+                                </div>
+                             )}
                              <div>
-                                <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{due.borrower}</p>
-                                <p className="text-[11px] text-slate-400 font-bold uppercase">{due.phone} • {due.loanId}</p>
+                                <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{due.borrowerName}</p>
+                                <p className="text-[11px] text-slate-400 font-bold uppercase">{due.borrowerPhone} • {due.loanCode}</p>
                              </div>
                           </div>
                        </td>
                        <td className="px-6 py-5 text-right font-black text-slate-900 text-sm">
-                          R {due.emi.toLocaleString()}
+                          R {due.emiAmount?.toLocaleString()}
                        </td>
                        <td className="px-6 py-5 text-center text-xs font-bold text-slate-500 uppercase">
-                          {due.dueDate}
+                          {new Date(due.dueDate).toLocaleDateString('en-GB')}
                        </td>
                        <td className="px-6 py-5 text-center">
-                          <StatusBadge status={due.lateDays === 0 ? 'On Time' : due.lateDays <= 7 ? '1-7 Days Late' : '8+ Days Late'} />
+                          <StatusBadge status={due.lateDayStatus} />
                        </td>
                        <td className="px-6 py-5 text-right font-black text-primary text-sm">
-                          R {due.totalDue.toLocaleString()}
+                          R {due.totalDueAmount?.toLocaleString()}
                        </td>
                        <td className="px-6 py-5 text-center">
-                          <StatusBadge status={due.reminder} />
+                          <StatusBadge status={due.reminderStatus} />
                        </td>
                        <td className="px-6 py-5 text-center">
-                          <StatusBadge status={due.status} />
+                          <StatusBadge status={due.dueStatus} />
                        </td>
                        <td className="px-8 py-5">
                           <div className="flex items-center justify-end gap-2">
@@ -206,17 +316,17 @@ const DuePayments = () => {
                              
                              <div className="relative" onClick={(e) => e.stopPropagation()}>
                                 <button 
-                                   onClick={() => setOpenMenuId(openMenuId === due.id ? null : due.id)}
+                                   onClick={() => setOpenMenuId(openMenuId === due._id ? null : due._id)}
                                    className={cn(
                                       "p-2 rounded-xl transition-all",
-                                      openMenuId === due.id ? "bg-slate-100 text-slate-900" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                                      openMenuId === due._id ? "bg-slate-100 text-slate-900" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
                                    )}
                                 >
                                    <MoreVertical size={18} />
                                 </button>
 
                                 <AnimatePresence>
-                                   {openMenuId === due.id && (
+                                   {openMenuId === due._id && (
                                       <motion.div 
                                          initial={{ opacity: 0, scale: 0.95, y: 10 }}
                                          animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -227,13 +337,6 @@ const DuePayments = () => {
                                             icon={Mail} 
                                             label="Email Statement" 
                                             onClick={() => openModal('reminder', due)} 
-                                         />
-                                         <div className="my-1 border-t border-slate-50" />
-                                         <DropdownItem 
-                                            icon={Trash2} 
-                                            label="Delete Task" 
-                                            color="text-rose-600 hover:bg-rose-50"
-                                            onClick={() => openModal('delete', due)} 
                                          />
                                       </motion.div>
                                    )}
@@ -250,14 +353,13 @@ const DuePayments = () => {
 
       {/* --- MODALS & DRAWERS --- */}
 
-      {/* REMINDER MODAL */}
       <Modal isOpen={activeModal === 'reminder'} onClose={closeModal} title="Send Payment Reminder" maxWidth="max-w-md">
          <div className="space-y-6">
             <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-               <div className="w-12 h-12 bg-primary text-white rounded-xl flex items-center justify-center font-black">{selectedDue?.borrower.charAt(0)}</div>
+               <div className="w-12 h-12 bg-primary text-white rounded-xl flex items-center justify-center font-black">{selectedDue?.borrowerName?.charAt(0) || 'B'}</div>
                <div>
-                  <p className="text-sm font-black text-slate-900">{selectedDue?.borrower}</p>
-                  <p className="text-xs font-black text-primary">R {selectedDue?.totalDue.toLocaleString()} Due</p>
+                  <p className="text-sm font-black text-slate-900">{selectedDue?.borrowerName}</p>
+                  <p className="text-xs font-black text-primary">R {selectedDue?.totalDueAmount?.toLocaleString()} Due</p>
                </div>
             </div>
 
@@ -268,68 +370,67 @@ const DuePayments = () => {
                </div>
             </div>
 
-            <Input label="Reminder Message" isTextArea defaultValue={`Dear ${selectedDue?.borrower}, your loan repayment of R ${selectedDue?.totalDue.toLocaleString()} is due today. Please ensure funds are available.`} />
+            <Input label="Reminder Message" isTextArea defaultValue={`Dear ${selectedDue?.borrowerName}, your loan repayment of R ${selectedDue?.totalDueAmount?.toLocaleString()} is due today. Please ensure funds are available.`} />
             
-            <Button onClick={closeModal} className="w-full py-4 shadow-lg shadow-primary/20 flex items-center justify-center gap-2">
-               <BellRing size={18} /> Send Reminder
+            <Button onClick={handleSendReminder} disabled={isSubmitting} className="w-full py-4 shadow-lg shadow-primary/20 flex items-center justify-center gap-2">
+               {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><BellRing size={18} /> Send Reminder</>}
             </Button>
          </div>
       </Modal>
 
-      {/* FOLLOW-UP MODAL */}
-      <Modal isOpen={activeModal === 'followup'} onClose={closeModal} title="Mark Follow-Up" maxWidth="max-w-md">
+      <Modal isOpen={activeModal === 'followup'} onClose={closeModal} title="Update Notes" maxWidth="max-w-md">
          <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
-               <Input label="Follow-Up Date" type="date" defaultValue={new Date().toISOString().split('T')[0]} />
-               <Input label="Promise Date" type="date" />
-            </div>
-            <Input label="Follow-Up Notes" isTextArea placeholder="Enter details of the conversation..." />
-            <Button onClick={closeModal} className="w-full py-4 shadow-lg shadow-primary/20">Save Follow-Up</Button>
+            <Input 
+              label="Admin Notes" 
+              isTextArea 
+              value={notesInput}
+              onChange={(e) => setNotesInput(e.target.value)}
+              placeholder="Enter details of the conversation or follow-up..." 
+            />
+            <Button onClick={handleSaveNotes} disabled={isSubmitting} className="w-full py-4 shadow-lg shadow-primary/20">
+               {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Save Notes'}
+            </Button>
          </div>
       </Modal>
 
-      {/* BULK REMINDER MODAL */}
       <Modal isOpen={activeModal === 'bulk'} onClose={closeModal} title="Bulk Reminders" maxWidth="max-w-md">
          <div className="space-y-6">
             <p className="text-sm text-slate-500 font-medium text-center px-4">Send automated reminders to all borrowers in selected categories.</p>
             <div className="space-y-3">
-               <BulkOption label="Due Today Borrowers" count="48" icon={Clock} color="bg-blue-500" />
-               <BulkOption label="Overdue Borrowers" count="124" icon={AlertTriangle} color="bg-rose-500" />
+               <BulkOption 
+                  label="Due Today Borrowers" 
+                  count={stats.dueTodayCount} 
+                  icon={Clock} 
+                  color="bg-blue-500" 
+                  active={bulkFilter === 'Due Today'}
+                  onClick={() => setBulkFilter('Due Today')}
+               />
+               <BulkOption 
+                  label="Overdue Borrowers" 
+                  count={stats.overdueCount} 
+                  icon={AlertTriangle} 
+                  color="bg-rose-500" 
+                  active={bulkFilter === 'Overdue'}
+                  onClick={() => setBulkFilter('Overdue')}
+               />
             </div>
             <div className="flex gap-3 pt-2">
-               <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button onClick={closeModal} className="flex-[2] shadow-lg shadow-primary/20">Send All Reminders</Button>
+               <Button variant="ghost" onClick={closeModal} disabled={isSubmitting} className="flex-1">Cancel</Button>
+               <Button onClick={handleBulkReminders} disabled={isSubmitting || (bulkFilter === 'Due Today' && stats.dueTodayCount === 0) || (bulkFilter === 'Overdue' && stats.overdueCount === 0)} className="flex-[2] shadow-lg shadow-primary/20">
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Send All Reminders'}
+               </Button>
             </div>
          </div>
       </Modal>
 
-      {/* EXPORT MODAL */}
       <Modal isOpen={activeModal === 'export'} onClose={closeModal} title="Export Due Payments" maxWidth="max-w-md">
          <div className="space-y-6">
             <p className="text-sm text-slate-500 font-medium text-center px-4">Choose format for the due payments list export.</p>
-            <div className="grid grid-cols-3 gap-3">
-               <ExportCard label="PDF" icon={FileText} />
-               <ExportCard label="CSV" icon={CreditCard} />
-               <ExportCard label="Excel" icon={Activity} />
+            <div className="grid grid-cols-2 gap-3">
+               <ExportCard label="PDF" icon={FileText} active={exportFormat === 'pdf'} onClick={() => setExportFormat('pdf')} />
+               <ExportCard label="CSV" icon={CreditCard} active={exportFormat === 'csv'} onClick={() => setExportFormat('csv')} />
             </div>
-            <Button className="w-full py-4 shadow-lg shadow-primary/20">Generate Report</Button>
-         </div>
-      </Modal>
-
-      {/* DELETE MODAL */}
-      <Modal isOpen={activeModal === 'delete'} onClose={closeModal} title="Delete Task" maxWidth="max-w-md">
-         <div className="space-y-6 text-center">
-            <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-rose-100 shadow-sm">
-               <Trash2 size={28} />
-            </div>
-            <div>
-               <h4 className="text-xl font-black text-slate-900 tracking-tight">Discard Record?</h4>
-               <p className="text-sm text-slate-500 mt-2">You are removing this due payment task. This will not affect the loan balance.</p>
-            </div>
-            <div className="flex gap-3 pt-2">
-               <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button variant="danger" onClick={closeModal} className="flex-1 shadow-lg shadow-rose-200">Confirm Delete</Button>
-            </div>
+            <Button onClick={handleExport} className="w-full py-4 shadow-lg shadow-primary/20">Generate Report</Button>
          </div>
       </Modal>
 
@@ -342,17 +443,21 @@ const DuePayments = () => {
       >
          {selectedDue && (
             <div className="space-y-10">
-               {/* Header Info */}
+                {/* Header Info */}
                <div className="flex items-center gap-6 p-6 bg-slate-900 text-white rounded-[2rem] shadow-xl">
-                  <div className="w-20 h-20 rounded-3xl bg-primary flex items-center justify-center text-white text-3xl font-black shadow-lg">
-                     {selectedDue.borrower.charAt(0)}
-                  </div>
+                  {selectedDue.borrowerPhoto && selectedDue.borrowerPhoto !== 'no-photo.jpg' ? (
+                     <img src={selectedDue.borrowerPhoto} alt="" className="w-20 h-20 rounded-3xl object-cover border border-white/10 shadow-lg" />
+                  ) : (
+                     <div className="w-20 h-20 rounded-3xl bg-primary flex items-center justify-center text-white text-3xl font-black shadow-lg border border-white/10">
+                        {selectedDue.borrowerName?.charAt(0) || 'B'}
+                     </div>
+                  )}
                   <div className="flex-1">
-                     <h2 className="text-2xl font-black text-white tracking-tight">{selectedDue.borrower}</h2>
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Loan ID: {selectedDue.loanId}</p>
+                     <h2 className="text-2xl font-black text-white tracking-tight">{selectedDue.borrowerName}</h2>
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Loan ID: {selectedDue.loanCode}</p>
                      <div className="flex items-center gap-2 mt-4">
-                        <StatusBadge status={selectedDue.status} className="bg-white/10 text-white border-white/20" />
-                        <span className="text-xl font-black text-accent ml-2">Total Due: R {selectedDue.totalDue.toLocaleString()}</span>
+                        <StatusBadge status={selectedDue.dueStatus} className="bg-white/10 text-white border-white/20" />
+                        <span className="text-xl font-black text-accent ml-2">Total Due: R {selectedDue.totalDueAmount?.toLocaleString()}</span>
                      </div>
                   </div>
                </div>
@@ -363,10 +468,10 @@ const DuePayments = () => {
                      <Wallet size={14} className="text-primary" /> Due Breakdown
                   </h4>
                   <div className="grid grid-cols-2 gap-4">
-                     <SummaryCard title="Current EMI Due" value={`R ${selectedDue.emi.toLocaleString()}`} color="text-slate-900" />
-                     <SummaryCard title="Overdue Amount" value={`R ${(selectedDue.totalDue - selectedDue.emi).toLocaleString()}`} color="text-rose-500" />
-                     <SummaryCard title="Paid EMIs" value="8 / 12" color="text-emerald-600" />
-                     <SummaryCard title="Pending EMIs" value="4" color="text-blue-500" />
+                     <SummaryCard title="Current EMI Due" value={`R ${selectedDue.emiAmount?.toLocaleString()}`} color="text-slate-900" />
+                     <SummaryCard title="Penalty Amount" value={`R ${selectedDue.penaltyAmount?.toLocaleString()}`} color="text-rose-500" />
+                     <SummaryCard title="Overdue Days" value={`${selectedDue.overdueDays} Days`} color="text-emerald-600" />
+                     <SummaryCard title="Reminder Status" value={selectedDue.reminderStatus} color="text-blue-500" />
                   </div>
                </div>
 
@@ -377,26 +482,44 @@ const DuePayments = () => {
                   </h4>
                   <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-4">
                      <ReviewRow label="Loan Type" value="Personal Loan" />
-                     <ReviewRow label="Approved Amount" value="R 50,000" />
-                     <ReviewRow label="Remaining Balance" value="R 24,500" />
-                     <ReviewRow label="Interest Rate" value="12%" />
+                     <ReviewRow label="Approved Amount" value={`R ${selectedDue.loanAmount?.toLocaleString()}`} />
+                     <ReviewRow label="Remaining Balance" value={`R ${selectedDue.remainingBalance?.toLocaleString()}`} />
+                     <ReviewRow label="Borrower Phone" value={selectedDue.borrowerPhone} />
+                     <ReviewRow label="Borrower Email" value={selectedDue.borrowerEmail} />
                   </div>
                </div>
 
-               {/* Recent Payments */}
+               {/* Reminder History */}
                <div className="space-y-5">
                   <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                     <History size={14} className="text-slate-400" /> Recent EMI History
+                     <History size={14} className="text-slate-400" /> Reminder History
                   </h4>
                   <div className="space-y-4">
-                     <PaymentItem date="15 Apr 2024" amount={`R ${selectedDue.emi.toLocaleString()}`} status="Paid" />
-                     <PaymentItem date="15 Mar 2024" amount={`R ${selectedDue.emi.toLocaleString()}`} status="Paid" />
-                     <PaymentItem date="15 Feb 2024" amount={`R ${selectedDue.emi.toLocaleString()}`} status="Late Paid" />
+                     {selectedDue.reminderHistory && selectedDue.reminderHistory.length > 0 ? (
+                        selectedDue.reminderHistory.map((rem, idx) => (
+                           <PaymentItem key={idx} date={new Date(rem.date).toLocaleString('en-GB')} amount={rem.type} status={rem.status} />
+                        ))
+                     ) : (
+                        <div className="text-center p-6 bg-slate-50 border border-slate-100 rounded-3xl text-slate-400 text-sm font-bold">
+                           No reminders sent yet.
+                        </div>
+                     )}
                   </div>
                </div>
 
+               {selectedDue.notes && (
+                  <div className="space-y-5">
+                     <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                        <MessageSquare size={14} className="text-slate-400" /> Admin Notes
+                     </h4>
+                     <div className="p-6 bg-yellow-50 border border-yellow-100 rounded-3xl text-sm font-medium text-slate-700">
+                        {selectedDue.notes}
+                     </div>
+                  </div>
+               )}
+
                <div className="pt-6 border-t border-slate-100 flex gap-4 sticky bottom-0 bg-white">
-                  <Button variant="ghost" className="flex-1" onClick={() => openModal('followup', selectedDue)}>Follow-Up Log</Button>
+                  <Button variant="ghost" className="flex-1" onClick={() => openModal('followup', selectedDue)}>Update Notes</Button>
                   <Button onClick={() => openModal('reminder', selectedDue)} className="flex-1 shadow-lg shadow-primary/20">Send Reminder</Button>
                </div>
             </div>
@@ -471,8 +594,8 @@ const ChannelButton = ({ icon: Icon, label, active }) => (
    </button>
 );
 
-const BulkOption = ({ label, count, icon: Icon, color }) => (
-   <div className="flex items-center justify-between p-5 bg-white border border-slate-100 rounded-2xl shadow-sm group hover:border-primary transition-all">
+const BulkOption = ({ label, count, icon: Icon, color, active, onClick }) => (
+   <div onClick={onClick} className={cn("flex items-center justify-between p-5 bg-white border rounded-2xl shadow-sm group hover:border-primary transition-all cursor-pointer", active ? "border-primary bg-primary/5" : "border-slate-100")}>
       <div className="flex items-center gap-4">
          <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center text-white", color)}>
             <Icon size={24} />
@@ -482,16 +605,22 @@ const BulkOption = ({ label, count, icon: Icon, color }) => (
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total: {count} Borrowers</p>
          </div>
       </div>
-      <div className="w-6 h-6 rounded-full border-2 border-slate-200 flex items-center justify-center group-hover:border-primary">
-         <div className="w-3 h-3 bg-primary rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+      <div className={cn("w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all", active ? "border-primary" : "border-slate-200 group-hover:border-primary")}>
+         <div className={cn("w-3 h-3 bg-primary rounded-full transition-opacity", active ? "opacity-100" : "opacity-0 group-hover:opacity-20")} />
       </div>
    </div>
 );
 
-const ExportCard = ({ label, icon: Icon }) => (
-  <button className="flex flex-col items-center justify-center p-5 bg-slate-50 border border-slate-100 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all group">
-     <Icon size={24} className="text-slate-400 group-hover:text-primary mb-3" />
-     <span className="text-[10px] font-black text-slate-500 group-hover:text-primary uppercase tracking-widest">{label}</span>
+const ExportCard = ({ label, icon: Icon, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={cn(
+       "flex flex-col items-center justify-center p-5 border rounded-2xl transition-all group",
+       active ? "border-primary bg-primary/5 text-primary" : "bg-slate-50 border-slate-100 hover:border-primary hover:bg-primary/5"
+    )}
+  >
+     <Icon size={24} className={cn("mb-3 transition-colors", active ? "text-primary" : "text-slate-400 group-hover:text-primary")} />
+     <span className={cn("text-[10px] font-black uppercase tracking-widest transition-colors", active ? "text-primary" : "text-slate-500 group-hover:text-primary")}>{label}</span>
   </button>
 );
 

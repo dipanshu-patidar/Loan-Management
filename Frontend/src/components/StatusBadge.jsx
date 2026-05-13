@@ -30,11 +30,13 @@ const StatusBadge = ({ status, className }) => {
     blacklisted: 'bg-black text-white border-black',
     frozen: 'bg-cyan-50 text-cyan-600 border-cyan-100',
     paid: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-    underreview: 'bg-blue-50 text-blue-600 border-blue-100',
-    new: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+    new: 'bg-blue-50 text-blue-600 border-blue-100',
+    recommended: 'bg-purple-50 text-purple-600 border-purple-100',
+    hold: 'bg-yellow-50 text-yellow-600 border-yellow-100',
+    'under review': 'bg-orange-50 text-orange-600 border-orange-100',
   };
 
-  const currentStyle = styles[status.toLowerCase()] || 'bg-slate-100 text-slate-600 border-slate-200';
+  const currentStyle = styles[status.toLowerCase()] || styles[status.toLowerCase().replace(/\s+/g, '')] || 'bg-slate-100 text-slate-600 border-slate-200';
 
   return (
     <span className={cn(

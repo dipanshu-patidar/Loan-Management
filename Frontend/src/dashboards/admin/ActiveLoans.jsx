@@ -15,63 +15,185 @@ import Drawer from '../../ui/Drawer';
 import Button from '../../ui/Button';
 import Input from '../../ui/Input';
 
-// --- Mock Data ---
-const initialLoans = [
-  { 
-    id: 'LN-2041', borrower: 'Sipho Nkosi', loanId: 'P47-001', type: 'Personal Loan', 
-    amount: 50000, emi: 4500, balance: 32000, nextDue: '2024-05-15', 
-    overdue: 'On Time', penalties: 0, status: 'Active' 
-  },
-  { 
-    id: 'LN-2042', borrower: 'Amara Okafor', loanId: 'P47-005', type: 'Business Loan', 
-    amount: 150000, emi: 12500, balance: 142000, nextDue: '2024-05-10', 
-    overdue: '1-7 Days Late', penalties: 250, status: 'Overdue' 
-  },
-  { 
-    id: 'LN-2043', borrower: 'David van Wyk', loanId: 'P47-012', type: 'SME Loan', 
-    amount: 25000, emi: 2200, balance: 0, nextDue: '-', 
-    overdue: 'On Time', penalties: 0, status: 'Completed' 
-  },
-  { 
-    id: 'LN-2044', borrower: 'Lindiwe Zulu', loanId: 'P47-018', type: 'Personal Loan', 
-    amount: 12000, emi: 1100, balance: 8400, nextDue: '2024-05-18', 
-    overdue: 'On Time', penalties: 0, status: 'Active' 
-  },
-  { 
-    id: 'LN-2045', borrower: 'Kgotso Motaung', loanId: 'P47-022', type: 'Vehicle Loan', 
-    amount: 85000, emi: 7400, balance: 42000, nextDue: '2024-05-05', 
-    overdue: '8+ Days Late', penalties: 1200, status: 'Overdue' 
-  },
-];
+import { toast } from 'react-hot-toast';
+import activeLoanService from '../../services/activeLoanService';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { Loader2 } from 'lucide-react';
 
 const ActiveLoans = () => {
-  const [loans] = useState(initialLoans);
+  const [loans, setLoans] = useState([]);
+  const [stats, setStats] = useState({ totalActiveLoans: 0, outstandingBalance: 0, overdueLoans: 0, completedThisMonth: 0 });
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  
   const [activeTab, setActiveTab] = useState('All'); // 'All', 'Active', 'Overdue', 'Completed'
-  const [activeModal, setActiveModal] = useState(null); // 'schedule', 'complete', 'export', 'delete', 'penalty'
+  const [activeModal, setActiveModal] = useState(null); // 'schedule', 'complete', 'export', 'delete', 'penalty', 'due-payments', 'notes'
   const [activeDrawer, setActiveDrawer] = useState(null); // 'view'
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [exportFormat, setExportFormat] = useState('pdf');
+  
+  const [duePayments, setDuePayments] = useState([]);
+  const [isDuePaymentsLoading, setIsDuePaymentsLoading] = useState(false);
+
+  const [adminNotes, setAdminNotes] = useState('');
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      const [loansRes, statsRes] = await Promise.all([
+        activeLoanService.getAllActiveLoans({ search: searchQuery, status: activeTab === 'All' ? '' : activeTab, limit: 100 }),
+        activeLoanService.getDashboardStats()
+      ]);
+      setLoans(loansRes.data.data?.activeLoans || []);
+      setStats(statsRes.data.data || { totalActiveLoans: 0, outstandingBalance: 0, overdueLoans: 0, completedThisMonth: 0 });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to fetch active loans data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchDashboardData();
+  }, [searchQuery, activeTab]);
 
   const openModal = (type, loan = null) => {
     setSelectedLoan(loan);
     setActiveModal(type);
     setOpenMenuId(null);
+    if (type === 'notes') setAdminNotes(loan?.notes || '');
   };
 
-  const openDrawer = (type, loan) => {
-    setSelectedLoan(loan);
+  const openDrawer = async (type, loan) => {
     setActiveDrawer(type);
     setOpenMenuId(null);
+    try {
+      const res = await activeLoanService.getLoanDetails(loan._id);
+      setSelectedLoan(res.data.data.activeLoan);
+    } catch (err) {
+      toast.error('Failed to fetch loan details');
+    }
   };
 
   const closeModal = () => setActiveModal(null);
   const closeDrawer = () => setActiveDrawer(null);
 
+  const handleUpdateStatus = async (status) => {
+    try {
+      setIsSubmitting(true);
+      await activeLoanService.updateLoanStatus(selectedLoan._id, status);
+      toast.success('Loan status updated');
+      fetchDashboardData();
+      closeModal();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to update status');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAddNotes = async () => {
+    try {
+      setIsSubmitting(true);
+      await activeLoanService.addAdminNotes(selectedLoan._id, adminNotes);
+      toast.success('Loan notes added');
+      fetchDashboardData();
+      closeModal();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to add notes');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteLoan = async () => {
+    try {
+      setIsSubmitting(true);
+      await activeLoanService.softDeleteLoan(selectedLoan._id);
+      toast.success('Loan removed successfully');
+      fetchDashboardData();
+      closeModal();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to delete loan');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleViewDuePayments = async () => {
+    setActiveModal('due-payments');
+    try {
+      setIsDuePaymentsLoading(true);
+      const res = await activeLoanService.getDuePayments();
+      setDuePayments(res.data.data.duePayments || []);
+    } catch (err) {
+      toast.error('Failed to fetch due payments');
+    } finally {
+      setIsDuePaymentsLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const res = await activeLoanService.getExportData();
+      const exportData = res.data.data.activeLoans || [];
+
+      if (exportFormat === 'pdf') {
+        const doc = new jsPDF();
+        doc.setFontSize(20);
+        doc.setTextColor(46, 58, 116);
+        doc.text("Loan Management System", 14, 15);
+        doc.setFontSize(14);
+        doc.setTextColor(100, 100, 100);
+        doc.text("Active Loans Export", 14, 25);
+        doc.setFontSize(10);
+        doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 32);
+
+        const tableColumn = ["Loan Code", "Borrower", "Amount", "Balance", "Status", "Date"];
+        const tableRows = exportData.map(l => [
+          l.loanCode, l.borrowerName, `R ${l.approvedAmount}`, `R ${l.remainingBalance}`, l.loanStatus, new Date(l.createdAt).toLocaleDateString()
+        ]);
+
+        autoTable(doc, {
+          head: [tableColumn],
+          body: tableRows,
+          startY: 40,
+          theme: 'grid',
+          headStyles: { fillColor: [46, 58, 116], textColor: [255, 255, 255], fontStyle: 'bold' },
+          styles: { fontSize: 8, cellPadding: 3 },
+        });
+
+        doc.save(`ActiveLoans_Report_${new Date().getTime()}.pdf`);
+        toast.success('PDF Export downloaded successfully!');
+      } else if (exportFormat === 'csv') {
+        const headers = ["Loan Code,Borrower,Amount,Balance,Status,Date\n"];
+        const rows = exportData.map(l => 
+          `${l.loanCode},"${l.borrowerName}",${l.approvedAmount},${l.remainingBalance},${l.loanStatus},${new Date(l.createdAt).toLocaleDateString()}`
+        ).join("\n");
+        const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `ActiveLoans_Data_${new Date().getTime()}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success('CSV Data exported successfully!');
+      }
+      closeModal();
+    } catch (error) {
+      toast.error('Failed to export data');
+    }
+  };
+
   const tabs = [
-    { id: 'All', label: 'All Loans', count: initialLoans.length },
-    { id: 'Active', label: 'Active', count: initialLoans.filter(l => l.status === 'Active').length },
-    { id: 'Overdue', label: 'Overdue', count: initialLoans.filter(l => l.status === 'Overdue').length },
-    { id: 'Completed', label: 'Completed', count: initialLoans.filter(l => l.status === 'Completed').length },
+    { id: 'All', label: 'All Loans', count: stats.totalActiveLoans + stats.overdueLoans + stats.completedThisMonth },
+    { id: 'Active', label: 'Active', count: stats.totalActiveLoans },
+    { id: 'Overdue', label: 'Overdue', count: stats.overdueLoans },
+    { id: 'Completed', label: 'Completed', count: stats.completedThisMonth },
   ];
 
   return (
@@ -86,7 +208,7 @@ const ActiveLoans = () => {
            <Button variant="secondary" onClick={() => openModal('export')} className="flex items-center gap-2 font-bold px-6">
              <Download size={18} /> Export
            </Button>
-           <Button className="flex items-center gap-2 font-bold px-6 shadow-lg shadow-primary/20 bg-primary">
+           <Button onClick={handleViewDuePayments} className="flex items-center gap-2 font-bold px-6 shadow-lg shadow-primary/20 bg-primary">
              <Calendar size={18} /> View Due Payments
            </Button>
         </div>
@@ -94,10 +216,10 @@ const ActiveLoans = () => {
 
       {/* 2. ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Total Active Loans" value="1,890" icon={Wallet} color="navy" />
-        <StatCard title="Outstanding Balance" value="R 4.2M" icon={DollarSign} color="blue" />
-        <StatCard title="Overdue Loans" value="42" icon={AlertTriangle} color="rose" />
-        <StatCard title="Completed This Month" value="86" icon={BadgeCheck} color="emerald" />
+        <StatCard title="Total Active Loans" value={(stats.totalActiveLoans || 0).toLocaleString()} icon={Wallet} color="navy" />
+        <StatCard title="Outstanding Balance" value={`R ${(stats.outstandingBalance || 0).toLocaleString()}`} icon={DollarSign} color="blue" />
+        <StatCard title="Overdue Loans" value={(stats.overdueLoans || 0).toLocaleString()} icon={AlertTriangle} color="rose" />
+        <StatCard title="Completed This Month" value={(stats.completedThisMonth || 0).toLocaleString()} icon={BadgeCheck} color="emerald" />
       </section>
 
       {/* 3. TABS SECTION */}
@@ -131,6 +253,8 @@ const ActiveLoans = () => {
            <input 
               type="text" 
               placeholder="Search borrower by name or loan ID..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-medium focus:ring-2 focus:ring-primary/10 transition-all"
            />
         </div>
@@ -167,39 +291,58 @@ const ActiveLoans = () => {
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                 {loans.map((loan) => (
-                    <tr key={loan.id} className="group hover:bg-slate-50/50 transition-all">
+                 {loading ? (
+                    <tr>
+                       <td colSpan="9" className="px-8 py-12 text-center">
+                          <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto mb-3" />
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">Loading Loans...</p>
+                       </td>
+                    </tr>
+                 ) : loans.length === 0 ? (
+                    <tr>
+                       <td colSpan="9" className="px-8 py-12 text-center">
+                          <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">No Loans Found</p>
+                       </td>
+                    </tr>
+                 ) : loans.map((loan) => (
+                    <tr key={loan._id} className="group hover:bg-slate-50/50 transition-all">
                        <td className="px-8 py-5">
                           <div className="flex items-center gap-4">
-                             <div className="w-11 h-11 rounded-2xl bg-primary/5 text-primary flex items-center justify-center font-black text-sm border border-primary/10">
-                                {loan.borrower.charAt(0)}
-                             </div>
+                             {loan.borrowerPhoto && loan.borrowerPhoto !== 'no-photo.jpg' ? (
+                                <img src={loan.borrowerPhoto} alt="" className="w-11 h-11 rounded-2xl object-cover border border-slate-100 shadow-sm" />
+                             ) : (
+                                <div className="w-11 h-11 rounded-2xl bg-primary/5 text-primary flex items-center justify-center font-black text-sm border border-primary/10">
+                                   {loan.borrowerName?.charAt(0) || 'B'}
+                                </div>
+                             )}
                              <div>
-                                <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{loan.borrower}</p>
-                                <p className="text-[11px] text-slate-400 font-bold uppercase">{loan.loanId} • {loan.type}</p>
+                                <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{loan.borrowerName}</p>
+                                <p className="text-[11px] text-slate-400 font-bold uppercase">{loan.loanCode} • {loan.loanType}</p>
                              </div>
                           </div>
                        </td>
                        <td className="px-6 py-5 text-right font-black text-slate-900 text-sm">
-                          R {loan.amount.toLocaleString()}
+                          R {loan.approvedAmount?.toLocaleString()}
                        </td>
                        <td className="px-6 py-5 text-right font-black text-primary text-sm">
-                          R {loan.emi.toLocaleString()}
+                          R {loan.emiAmount?.toLocaleString()}
                        </td>
                        <td className="px-6 py-5 text-right font-black text-slate-900 text-sm">
-                          R {loan.balance.toLocaleString()}
+                          R {loan.remainingBalance?.toLocaleString()}
                        </td>
                        <td className="px-6 py-5 text-center">
-                          <p className="text-xs font-bold text-slate-600">{loan.nextDue}</p>
+                          <p className="text-xs font-bold text-slate-600">
+                             {loan.nextDueDate ? new Date(loan.nextDueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                          </p>
                        </td>
                        <td className="px-6 py-5 text-center">
-                          <StatusBadge status={loan.overdue} />
+                          <StatusBadge status={loan.overdueStatus} />
                        </td>
                        <td className="px-6 py-5 text-center">
-                          <StatusBadge status={loan.penalties > 0 ? 'Late Fee Applied' : 'No Penalty'} />
+                          <StatusBadge status={loan.penaltyAmount > 0 ? 'Late Fee Applied' : 'No Penalty'} />
                        </td>
                        <td className="px-6 py-5 text-center">
-                          <StatusBadge status={loan.status} />
+                          <StatusBadge status={loan.loanStatus} />
                        </td>
                        <td className="px-8 py-5">
                           <div className="flex items-center justify-end gap-2">
@@ -209,17 +352,17 @@ const ActiveLoans = () => {
                              
                              <div className="relative" onClick={(e) => e.stopPropagation()}>
                                 <button 
-                                   onClick={() => setOpenMenuId(openMenuId === loan.id ? null : loan.id)}
+                                   onClick={() => setOpenMenuId(openMenuId === loan._id ? null : loan._id)}
                                    className={cn(
                                       "p-2 rounded-xl transition-all",
-                                      openMenuId === loan.id ? "bg-slate-100 text-slate-900" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                                      openMenuId === loan._id ? "bg-slate-100 text-slate-900" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
                                    )}
                                 >
                                    <MoreVertical size={18} />
                                 </button>
 
                                 <AnimatePresence>
-                                   {openMenuId === loan.id && (
+                                   {openMenuId === loan._id && (
                                       <motion.div 
                                          initial={{ opacity: 0, scale: 0.95, y: 10 }}
                                          animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -234,8 +377,13 @@ const ActiveLoans = () => {
                                          />
                                          <DropdownItem 
                                             icon={AlertTriangle} 
-                                            label="Add Penalty" 
-                                            onClick={() => openModal('penalty', loan)} 
+                                            label="Update Status" 
+                                            onClick={() => openModal('status', loan)} 
+                                         />
+                                         <DropdownItem 
+                                            icon={Activity} 
+                                            label="Add Notes" 
+                                            onClick={() => openModal('notes', loan)} 
                                          />
                                          <div className="my-1 border-t border-slate-50" />
                                          <DropdownItem 
@@ -263,15 +411,15 @@ const ActiveLoans = () => {
          <div className="space-y-6">
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary text-white rounded-xl flex items-center justify-center font-black">{selectedLoan?.borrower.charAt(0)}</div>
+                  <div className="w-10 h-10 bg-primary text-white rounded-xl flex items-center justify-center font-black">{selectedLoan?.borrowerName?.charAt(0)}</div>
                   <div>
-                     <p className="text-sm font-black text-slate-900">{selectedLoan?.borrower}</p>
-                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{selectedLoan?.loanId} • R {selectedLoan?.amount.toLocaleString()}</p>
+                     <p className="text-sm font-black text-slate-900">{selectedLoan?.borrowerName}</p>
+                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{selectedLoan?.loanCode} • R {selectedLoan?.approvedAmount?.toLocaleString()}</p>
                   </div>
                </div>
                <div className="text-right">
                   <p className="text-xs font-black text-slate-900">EMI Amount</p>
-                  <p className="text-lg font-black text-primary">R {selectedLoan?.emi.toLocaleString()}</p>
+                  <p className="text-lg font-black text-primary">R {selectedLoan?.emiAmount?.toLocaleString()}</p>
                </div>
             </div>
 
@@ -286,13 +434,13 @@ const ActiveLoans = () => {
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                     {[1, 2, 3, 4, 5, 6].map(i => (
+                     {selectedLoan?.repaymentSchedule?.map((schedule, i) => (
                         <tr key={i} className="hover:bg-slate-50 transition-colors">
-                           <td className="px-6 py-4 font-bold text-slate-900">{i}</td>
-                           <td className="px-6 py-4 text-xs font-bold text-slate-500">15 {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'][i-1]} 2024</td>
-                           <td className="px-6 py-4 font-black text-slate-900">R {selectedLoan?.emi.toLocaleString()}</td>
+                           <td className="px-6 py-4 font-bold text-slate-900">{schedule.installmentNumber}</td>
+                           <td className="px-6 py-4 text-xs font-bold text-slate-500">{new Date(schedule.dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                           <td className="px-6 py-4 font-black text-slate-900">R {schedule.emiAmount.toLocaleString()}</td>
                            <td className="px-6 py-4 text-center">
-                              <StatusBadge status={i < 4 ? 'Paid' : i === 4 ? 'Overdue' : 'Pending'} />
+                              <StatusBadge status={schedule.paymentStatus} />
                            </td>
                         </tr>
                      ))}
@@ -376,16 +524,18 @@ const ActiveLoans = () => {
             </div>
             <div>
                <h4 className="text-xl font-black text-slate-900 tracking-tight">Final Settlement?</h4>
-               <p className="text-sm text-slate-500 mt-2">You are confirming full repayment for <span className="font-bold text-slate-900">{selectedLoan?.borrower}</span>. This will close the loan account.</p>
+               <p className="text-sm text-slate-500 mt-2">You are confirming full repayment for <span className="font-bold text-slate-900">{selectedLoan?.borrowerName}</span>. This will mark the loan account as Completed.</p>
             </div>
             <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4 text-left">
-               <ReviewRow label="Final Balance" value={`R ${selectedLoan?.balance.toLocaleString()}`} />
-               <ReviewRow label="Settlement Date" value="Today" />
+               <ReviewRow label="Final Balance" value={`R ${selectedLoan?.remainingBalance?.toLocaleString()}`} />
+               <ReviewRow label="Settlement Date" value={new Date().toLocaleDateString('en-GB')} />
                <ReviewRow label="Completion Status" value="Debt Free" />
             </div>
             <div className="flex gap-3 pt-2">
                <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button onClick={closeModal} className="flex-1 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-100 border-none">Mark Completed</Button>
+               <Button onClick={() => handleUpdateStatus('Completed')} disabled={isSubmitting} className="flex-1 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-100 border-none">
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Mark Completed'}
+               </Button>
             </div>
          </div>
       </Modal>
@@ -394,12 +544,11 @@ const ActiveLoans = () => {
       <Modal isOpen={activeModal === 'export'} onClose={closeModal} title="Export Active Loans" maxWidth="max-w-md">
          <div className="space-y-6">
             <p className="text-sm text-slate-500 font-medium text-center px-4">Choose format for the active loan portfolio export.</p>
-            <div className="grid grid-cols-3 gap-3">
-               <ExportCard label="PDF" icon={FileUp} />
-               <ExportCard label="CSV" icon={CreditCard} />
-               <ExportCard label="Excel" icon={Activity} />
+            <div className="grid grid-cols-2 gap-3">
+               <ExportCard label="PDF" icon={FileUp} active={exportFormat === 'pdf'} onClick={() => setExportFormat('pdf')} />
+               <ExportCard label="CSV" icon={CreditCard} active={exportFormat === 'csv'} onClick={() => setExportFormat('csv')} />
             </div>
-            <Button className="w-full py-4 shadow-lg shadow-primary/20">Download Report</Button>
+            <Button onClick={handleExport} className="w-full py-4 shadow-lg shadow-primary/20">Download Report</Button>
          </div>
       </Modal>
 
@@ -411,15 +560,107 @@ const ActiveLoans = () => {
             </div>
             <div>
                <h4 className="text-xl font-black text-slate-900 tracking-tight">Remove Loan Record?</h4>
-               <p className="text-sm text-slate-500 mt-2">You are deleting <span className="font-bold text-slate-900">{selectedLoan?.loanId}</span>. This is for administrative cleanup only.</p>
+               <p className="text-sm text-slate-500 mt-2">You are soft deleting <span className="font-bold text-slate-900">{selectedLoan?.loanCode}</span>. This is for administrative cleanup only.</p>
             </div>
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col gap-3 text-left">
-               <Checkbox label="I understand this will remove historical EMI data" />
-               <Checkbox label="This record is no longer needed for auditing" />
+               <Checkbox label="I understand this will remove historical EMI data from view" />
+               <Checkbox label="This record is no longer needed for current auditing" />
             </div>
             <div className="flex gap-3 pt-2">
+               <Button variant="ghost" onClick={closeModal} disabled={isSubmitting} className="flex-1">Cancel</Button>
+               <Button variant="danger" onClick={handleDeleteLoan} disabled={isSubmitting} className="flex-1 shadow-lg shadow-rose-200">
+                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Remove Loan'}
+               </Button>
+            </div>
+         </div>
+      </Modal>
+
+      {/* STATUS MODAL */}
+      <Modal isOpen={activeModal === 'status'} onClose={closeModal} title="Update Loan Status" maxWidth="max-w-md">
+         <div className="space-y-6">
+            <p className="text-sm text-slate-500 font-medium">Change the operational status for <span className="font-bold text-slate-900">{selectedLoan?.borrowerName}</span>.</p>
+            <div className="space-y-3">
+               {['Active', 'Overdue', 'Completed', 'Closed'].map(status => (
+                  <button 
+                     key={status}
+                     onClick={() => handleUpdateStatus(status)}
+                     disabled={isSubmitting || selectedLoan?.loanStatus === status}
+                     className={cn(
+                        "w-full flex items-center justify-between p-4 rounded-2xl border transition-all text-sm font-bold",
+                        selectedLoan?.loanStatus === status ? "bg-primary/5 border-primary text-primary" : "bg-slate-50 border-slate-100 text-slate-600 hover:border-primary hover:bg-white"
+                     )}
+                  >
+                     <span>Mark as {status}</span>
+                     {selectedLoan?.loanStatus === status && <CheckCircle2 size={18} className="text-primary" />}
+                  </button>
+               ))}
+            </div>
+            <Button variant="ghost" onClick={closeModal} className="w-full">Cancel</Button>
+         </div>
+      </Modal>
+
+      {/* NOTES MODAL */}
+      <Modal isOpen={activeModal === 'notes'} onClose={closeModal} title="Admin Notes" maxWidth="max-w-md">
+         <div className="space-y-6">
+            <p className="text-sm text-slate-500 font-medium">Add internal administrative notes for <span className="font-bold text-slate-900">{selectedLoan?.loanCode}</span>.</p>
+            <textarea 
+               value={adminNotes}
+               onChange={(e) => setAdminNotes(e.target.value)}
+               className="w-full h-32 bg-slate-50 border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-primary/10 transition-all resize-none"
+               placeholder="Write internal notes here..."
+            />
+            <div className="flex gap-3">
                <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button variant="danger" onClick={closeModal} className="flex-1 shadow-lg shadow-rose-200">Permanently Delete</Button>
+               <Button onClick={handleAddNotes} disabled={isSubmitting} className="flex-1 shadow-lg shadow-primary/20 bg-primary">
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Save Notes'}
+               </Button>
+            </div>
+         </div>
+      </Modal>
+
+      {/* DUE PAYMENTS MODAL */}
+      <Modal isOpen={activeModal === 'due-payments'} onClose={closeModal} title="Due & Overdue Payments" maxWidth="max-w-4xl">
+         <div className="space-y-6">
+            <div className="overflow-x-auto border border-slate-100 rounded-2xl shadow-sm">
+               <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                     <tr className="text-left">
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Borrower</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Installment #</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Due Date</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">EMI Amount</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                     {isDuePaymentsLoading ? (
+                        <tr>
+                           <td colSpan="6" className="px-6 py-8 text-center">
+                              <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto mb-2" />
+                              <span className="text-xs font-bold text-slate-400">Loading payments...</span>
+                           </td>
+                        </tr>
+                     ) : duePayments.length === 0 ? (
+                        <tr>
+                           <td colSpan="6" className="px-6 py-8 text-center">
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">No due payments found.</span>
+                           </td>
+                        </tr>
+                     ) : duePayments.map((p, i) => (
+                        <tr key={i} className="hover:bg-slate-50 transition-colors">
+                           <td className="px-6 py-4 font-bold text-slate-900">{p.borrowerName} <span className="block text-[10px] text-slate-400 uppercase">{p.loanCode}</span></td>
+                           <td className="px-6 py-4 text-xs font-bold text-slate-600">{p.borrowerPhone}</td>
+                           <td className="px-6 py-4 text-center font-bold text-slate-900">{p.installmentNumber}</td>
+                           <td className="px-6 py-4 text-xs font-bold text-slate-500">{new Date(p.dueDate).toLocaleDateString('en-GB')}</td>
+                           <td className="px-6 py-4 font-black text-primary text-right">R {p.emiAmount.toLocaleString()}</td>
+                           <td className="px-6 py-4 text-center">
+                              <StatusBadge status={p.isOverdue ? 'Overdue' : 'Pending'} />
+                           </td>
+                        </tr>
+                     ))}
+                  </tbody>
+               </table>
             </div>
          </div>
       </Modal>
@@ -435,15 +676,19 @@ const ActiveLoans = () => {
             <div className="space-y-10">
                {/* Header Info */}
                <div className="flex items-center gap-6 p-6 bg-slate-900 text-white rounded-[2rem] shadow-xl">
-                  <div className="w-20 h-20 rounded-3xl bg-primary flex items-center justify-center text-white text-3xl font-black shadow-lg">
-                     {selectedLoan.borrower.charAt(0)}
-                  </div>
+                  {selectedLoan.borrowerPhoto && selectedLoan.borrowerPhoto !== 'no-photo.jpg' ? (
+                     <img src={selectedLoan.borrowerPhoto} alt="" className="w-20 h-20 rounded-3xl object-cover shadow-lg border border-white/10" />
+                  ) : (
+                     <div className="w-20 h-20 rounded-3xl bg-primary flex items-center justify-center text-white text-3xl font-black shadow-lg border border-white/10">
+                        {selectedLoan.borrowerName?.charAt(0) || 'B'}
+                     </div>
+                  )}
                   <div className="flex-1">
-                     <h2 className="text-2xl font-black text-white tracking-tight">{selectedLoan.borrower}</h2>
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">ID: {selectedLoan.loanId} • {selectedLoan.type}</p>
+                     <h2 className="text-2xl font-black text-white tracking-tight">{selectedLoan.borrowerName}</h2>
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">ID: {selectedLoan.loanCode} • {selectedLoan.loanType}</p>
                      <div className="flex items-center gap-2 mt-4">
-                        <StatusBadge status={selectedLoan.status} className="bg-white/10 text-white border-white/20" />
-                        <span className="text-xl font-black text-accent ml-2">Balance: R {selectedLoan.balance.toLocaleString()}</span>
+                        <StatusBadge status={selectedLoan.loanStatus} className="bg-white/10 text-white border-white/20" />
+                        <span className="text-xl font-black text-accent ml-2">Balance: R {selectedLoan.remainingBalance?.toLocaleString()}</span>
                      </div>
                   </div>
                </div>
@@ -454,10 +699,10 @@ const ActiveLoans = () => {
                      <Activity size={14} className="text-primary" /> Loan Summary
                   </h4>
                   <div className="grid grid-cols-2 gap-4">
-                     <SummaryCard title="Total Paid" value={`R ${(selectedLoan.amount - selectedLoan.balance).toLocaleString()}`} color="text-emerald-600" />
-                     <SummaryCard title="Remaining" value={`R ${selectedLoan.balance.toLocaleString()}`} color="text-rose-500" />
-                     <SummaryCard title="Overdue Amount" value={selectedLoan.status === 'Overdue' ? `R ${selectedLoan.emi.toLocaleString()}` : 'R 0'} color="text-amber-500" />
-                     <SummaryCard title="Total Penalties" value={`R ${selectedLoan.penalties.toLocaleString()}`} color="text-rose-600" />
+                     <SummaryCard title="Total Paid" value={`R ${(selectedLoan.totalPayableAmount - selectedLoan.remainingBalance).toLocaleString()}`} color="text-emerald-600" />
+                     <SummaryCard title="Remaining" value={`R ${selectedLoan.remainingBalance?.toLocaleString()}`} color="text-rose-500" />
+                     <SummaryCard title="Overdue Amount" value={selectedLoan.loanStatus === 'Overdue' ? `R ${selectedLoan.emiAmount?.toLocaleString()}` : 'R 0'} color="text-amber-500" />
+                     <SummaryCard title="Total Penalties" value={`R ${selectedLoan.penaltyAmount?.toLocaleString()}`} color="text-rose-600" />
                   </div>
                </div>
 
@@ -487,9 +732,27 @@ const ActiveLoans = () => {
                      <History size={14} className="text-slate-400" /> Recent Repayments
                   </h4>
                   <div className="space-y-4">
-                     <PaymentItem date="15 Apr 2024" amount={`R ${selectedLoan.emi.toLocaleString()}`} status="Paid" />
-                     <PaymentItem date="15 Mar 2024" amount={`R ${selectedLoan.emi.toLocaleString()}`} status="Paid" />
-                     <PaymentItem date="15 Feb 2024" amount={`R ${selectedLoan.emi.toLocaleString()}`} status="Late Paid" />
+                     {selectedLoan.repaymentSchedule?.filter(s => s.paymentStatus === 'Paid').slice(0,3).map((s, idx) => (
+                        <PaymentItem 
+                          key={idx} 
+                          date={s.paidDate ? new Date(s.paidDate).toLocaleDateString('en-GB') : '-'} 
+                          amount={`R ${s.emiAmount?.toLocaleString()}`} 
+                          status={s.paymentStatus} 
+                        />
+                     ))}
+                     {selectedLoan.repaymentSchedule?.filter(s => s.paymentStatus === 'Paid').length === 0 && (
+                       <p className="text-xs text-slate-400 font-bold">No payments made yet.</p>
+                     )}
+                  </div>
+               </div>
+
+               {/* Admin Notes */}
+               <div className="space-y-5">
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                     <UserCheck size={14} className="text-primary" /> Admin Notes
+                  </h4>
+                  <div className="p-6 bg-slate-50 border border-slate-100 rounded-3xl shadow-sm text-sm text-slate-600">
+                     {selectedLoan.notes || "No admin notes added."}
                   </div>
                </div>
 
@@ -568,10 +831,16 @@ const Checkbox = ({ label }) => (
   </label>
 );
 
-const ExportCard = ({ label, icon: Icon }) => (
-  <button className="flex flex-col items-center justify-center p-5 bg-slate-50 border border-slate-100 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all group">
-     <Icon size={24} className="text-slate-400 group-hover:text-primary mb-3" />
-     <span className="text-[10px] font-black text-slate-500 group-hover:text-primary uppercase tracking-widest">{label}</span>
+const ExportCard = ({ label, icon: Icon, active, onClick }) => (
+  <button 
+     onClick={onClick}
+     className={cn(
+        "flex flex-col items-center justify-center p-5 border rounded-2xl transition-all group",
+        active ? "border-primary bg-primary/5 text-primary" : "bg-slate-50 border-slate-100 hover:border-primary hover:bg-primary/5"
+     )}
+  >
+     <Icon size={24} className={cn("mb-3 transition-colors", active ? "text-primary" : "text-slate-400 group-hover:text-primary")} />
+     <span className={cn("text-[10px] font-black uppercase tracking-widest transition-colors", active ? "text-primary" : "text-slate-500 group-hover:text-primary")}>{label}</span>
   </button>
 );
 

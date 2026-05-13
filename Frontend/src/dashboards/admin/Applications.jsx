@@ -1,14 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  FileText, Plus, Download, Filter, Search, MoreVertical, 
-  Eye, BadgeCheck, XCircle, PauseCircle, UserPlus, 
-  Mail, Phone, MapPin, Building2, Wallet, Briefcase, 
-  Calendar, Clock, CheckCircle, CreditCard, Activity, 
-  Trash2, CheckCircle2, ShieldAlert, ChevronRight,
-  ArrowRight, X, FileUp, Info, ShieldCheck, DownloadCloud
+  FileText, Search, Filter, Download, MoreVertical, 
+  Eye, CheckCircle, XCircle, Clock, AlertCircle,
+  Calendar, DollarSign, User, Building2, Briefcase,
+  MapPin, Phone, Mail, ArrowRight, Loader2, Info,
+  History, ShieldCheck, CheckCircle2, ChevronRight,
+  ExternalLink, FileCheck, FileX, Pause, Image as ImageIcon,
+  CreditCard
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'react-hot-toast';
 import { cn } from '../../utils/cn';
+import loanApplicationService from '../../services/loanApplicationService';
 import StatCard from '../../components/StatCard';
 import StatusBadge from '../../components/StatusBadge';
 import Modal from '../../ui/Modal';
@@ -16,663 +21,795 @@ import Drawer from '../../ui/Drawer';
 import Button from '../../ui/Button';
 import Input from '../../ui/Input';
 
-// --- Mock Data ---
-const initialApplications = [
-  { 
-    id: 'APP-9901', borrower: 'Sipho Gumede', phone: '+27 82 444 5555', type: 'Personal Loan', 
-    amount: 25000, affordability: 'Eligible', docs: 'Complete', status: 'Approved', submittedDate: '2024-05-08'
-  },
-  { 
-    id: 'APP-9902', borrower: 'Lerato Molefe', phone: '+27 71 333 4444', type: 'Business Loan', 
-    amount: 150000, affordability: 'Moderate', docs: 'Pending', status: 'Under Review', submittedDate: '2024-05-08'
-  },
-  { 
-    id: 'APP-9903', borrower: 'David van Wyk', phone: '+27 83 222 3333', type: 'SME Loan', 
-    amount: 45000, affordability: 'Risky', docs: 'Missing', status: 'Rejected', submittedDate: '2024-05-07'
-  },
-  { 
-    id: 'APP-9904', borrower: 'Thabo Mbeki', phone: '+27 61 111 2222', type: 'Education Loan', 
-    amount: 12000, affordability: 'Eligible', docs: 'Complete', status: 'New', submittedDate: '2024-05-07'
-  },
-  { 
-    id: 'APP-9905', borrower: 'Sarah Jenkins', phone: '+27 72 999 8888', type: 'Vehicle Loan', 
-    amount: 85000, affordability: 'Moderate', docs: 'Complete', status: 'Hold', submittedDate: '2024-05-06'
-  },
-];
-
 const Applications = () => {
-  const [applications] = useState(initialApplications);
-  const [activeTab, setActiveTab] = useState('All'); // 'All', 'New', 'Approved', 'Rejected'
-  const [activeModal, setActiveModal] = useState(null); // 'new', 'approve', 'reject', 'hold', 'reviewer', 'export', 'delete'
-  const [activeDrawer, setActiveDrawer] = useState(null); // 'view'
+  const [applications, setApplications] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedApp, setSelectedApp] = useState(null);
-  const [step, setStep] = useState(1);
-  const [openMenuId, setOpenMenuId] = useState(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [activeModal, setActiveModal] = useState(null); // 'approve', 'reject', 'hold', 'export'
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [exportFormat, setExportFormat] = useState('pdf');
+  const [statsData, setStatsData] = useState({
+    All: 0,
+    New: 0,
+    'Under Review': 0,
+    Recommended: 0,
+    Hold: 0,
+    Approved: 0,
+    Rejected: 0
+  });
+  
+  // Filters & Search
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All Status');
+  const [reviewerFilter, setReviewerFilter] = useState('All Reviewers');
 
-  const openModal = (type, app = null) => {
-    setSelectedApp(app);
+  // Decision Form States
+  const [decisionData, setDecisionData] = useState({
+    adminNotes: '',
+    approvedAmount: '',
+    finalDuration: '',
+    interestOverride: '',
+    rejectionReason: '',
+    holdReason: ''
+  });
+
+  useEffect(() => {
+    fetchApplications();
+    fetchStats();
+  }, [searchTerm, statusFilter, reviewerFilter]);
+
+  const fetchStats = async () => {
+    try {
+      const response = await loanApplicationService.getApplicationStats();
+      if (response.success && response.data) {
+        setStatsData(response.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch stats:', error);
+    }
+  };
+
+  const fetchApplications = async () => {
+    try {
+      setLoading(true);
+      const params = {
+        search: searchTerm,
+        status: statusFilter !== 'All Status' ? statusFilter : undefined,
+        staffReviewer: reviewerFilter !== 'All Reviewers' ? reviewerFilter : undefined
+      };
+      const response = await loanApplicationService.getAllApplications(params);
+      setApplications(response.data.data.applications);
+    } catch (error) {
+      toast.error('Failed to fetch applications');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleViewDetails = async (id) => {
+    try {
+      setLoading(true);
+      const response = await loanApplicationService.getApplicationDetails(id);
+      setSelectedApp(response.data.data.application);
+      setIsDrawerOpen(true);
+    } catch (error) {
+      toast.error('Failed to fetch application details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openDecisionModal = (type, app = null) => {
+    if (app) setSelectedApp(app);
     setActiveModal(type);
-    if (type === 'new') setStep(1);
-    setOpenMenuId(null);
+    if (type === 'export') {
+      setExportFormat('pdf');
+      return;
+    }
+    setDecisionData({
+      adminNotes: '',
+      approvedAmount: (app || selectedApp)?.requestedAmount || '',
+      finalDuration: (app || selectedApp)?.loanDuration || '',
+      interestOverride: (app || selectedApp)?.interestRate || '',
+      rejectionReason: '',
+      holdReason: ''
+    });
   };
 
-  const openDrawer = (type, app) => {
-    setSelectedApp(app);
-    setActiveDrawer(type);
-    setOpenMenuId(null);
+  const handleExport = () => {
+    if (exportFormat === 'pdf') {
+      const doc = new jsPDF();
+      
+      // Add Title
+      doc.setFontSize(20);
+      doc.setTextColor(46, 58, 116);
+      doc.text("Loan Management System", 14, 15);
+      
+      doc.setFontSize(14);
+      doc.setTextColor(100, 100, 100);
+      doc.text("Loan Applications Report", 14, 25);
+      
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 32);
+
+      // Prepare Table Data
+      const tableColumn = ["App ID", "Borrower", "Amount", "Duration", "Status", "Date"];
+      const tableRows = applications.map(a => [
+        a.applicationId || 'N/A',
+        a.borrower?.fullName || a.borrowerName || 'N/A',
+        `R ${(a.requestedAmount || 0).toLocaleString()}`,
+        `${a.loanDuration || 0} Months`,
+        a.status || 'N/A',
+        new Date(a.createdAt || new Date()).toLocaleDateString()
+      ]);
+
+      autoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 40,
+        theme: 'grid',
+        headStyles: { fillColor: [46, 58, 116], textColor: [255, 255, 255], fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 3 },
+      });
+
+      doc.save(`Applications_Report_${new Date().getTime()}.pdf`);
+      toast.success('PDF Report generated successfully!');
+    } else if (exportFormat === 'csv') {
+      const headers = ["Application ID,Borrower Name,Requested Amount,Duration,Status,Date\n"];
+      const rows = applications.map(a => 
+        `${a.applicationId || 'N/A'},"${a.borrower?.fullName || a.borrowerName || ''}",${a.requestedAmount || 0},${a.loanDuration || 0},${a.status || 'N/A'},${new Date(a.createdAt || new Date()).toLocaleDateString()}`
+      ).join("\n");
+      
+      const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Applications_Data_${new Date().getTime()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('CSV Data exported successfully!');
+    }
+    setActiveModal(null);
   };
 
-  const closeModal = () => setActiveModal(null);
-  const closeDrawer = () => setActiveDrawer(null);
+  const handleApprove = async () => {
+    try {
+      setIsSubmitting(true);
+      await loanApplicationService.approveApplication(selectedApp._id, {
+        approvedAmount: decisionData.approvedAmount,
+        finalDuration: decisionData.finalDuration,
+        adminNotes: decisionData.adminNotes,
+        interestOverride: decisionData.interestOverride
+      });
+      toast.success('Loan application approved successfully');
+      fetchApplications();
+      fetchStats();
+      setActiveModal(null);
+      setIsDrawerOpen(false);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to approve application');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleReject = async () => {
+    try {
+      setIsSubmitting(true);
+      await loanApplicationService.rejectApplication(selectedApp._id, {
+        rejectionReason: decisionData.rejectionReason,
+        adminNotes: decisionData.adminNotes
+      });
+      toast.success('Loan application rejected successfully');
+      fetchApplications();
+      fetchStats();
+      setActiveModal(null);
+      setIsDrawerOpen(false);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to reject application');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleHold = async () => {
+    try {
+      setIsSubmitting(true);
+      await loanApplicationService.holdApplication(selectedApp._id, {
+        holdReason: decisionData.holdReason,
+        adminNotes: decisionData.adminNotes
+      });
+      toast.success('Application placed on hold');
+      fetchApplications();
+      fetchStats();
+      setActiveModal(null);
+      setIsDrawerOpen(false);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to place on hold');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const stats = [
+    { title: 'Total Applications', value: statsData['All'] || 0, icon: FileText, color: 'navy' },
+    { title: 'Under Review', value: statsData['Under Review'] || 0, icon: Clock, color: 'orange' },
+    { title: 'Recommended', value: statsData['Recommended'] || 0, icon: ShieldCheck, color: 'purple' },
+    { title: 'Approved', value: statsData['Approved'] || 0, icon: CheckCircle, color: 'green' }
+  ];
 
   const tabs = [
-    { id: 'All', label: 'All Applications', count: initialApplications.length },
-    { id: 'New', label: 'New', count: initialApplications.filter(a => a.status === 'New').length },
-    { id: 'Approved', label: 'Approved', count: initialApplications.filter(a => a.status === 'Approved').length },
-    { id: 'Rejected', label: 'Rejected', count: initialApplications.filter(a => a.status === 'Rejected').length },
+    { id: 'All Status', label: 'All Applications', key: 'All' },
+    { id: 'New', label: 'New', key: 'New' },
+    { id: 'Under Review', label: 'Under Review', key: 'Under Review' },
+    { id: 'Recommended', label: 'Recommended', key: 'Recommended' },
+    { id: 'Hold', label: 'Hold', key: 'Hold' },
+    { id: 'Approved', label: 'Approved', key: 'Approved' },
+    { id: 'Rejected', label: 'Rejected', key: 'Rejected' },
   ];
 
   return (
-    <div className="space-y-8 pb-10" onClick={() => setOpenMenuId(null)}>
-      {/* 1. PAGE HEADER */}
+    <div className="space-y-8 pb-10">
+      {/* HEADER */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">Loan Applications</h1>
-          <p className="text-slate-500 font-medium mt-1">Manage borrower loan requests, approvals, uploaded documents, and reviews.</p>
+          <p className="text-slate-500 font-medium mt-1">Review and manage incoming borrower loan requests for final approval.</p>
         </div>
         <div className="flex items-center gap-3">
-           <Button variant="secondary" onClick={() => openModal('export')} className="flex items-center gap-2 font-bold px-6">
-             <Download size={18} /> Export
-           </Button>
-           <Button onClick={() => openModal('new')} className="flex items-center gap-2 font-bold px-6 shadow-lg shadow-primary/20">
-             <Plus size={18} /> New Application
-           </Button>
+          <Button variant="secondary" onClick={() => openDecisionModal('export')} className="flex items-center gap-2 font-bold px-6">
+            <Download size={18} /> Export List
+          </Button>
         </div>
       </header>
 
-      {/* 2. ANALYTICS CARDS */}
+      {/* STATS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="New Applications" value="12" icon={Plus} color="navy" />
-        <StatCard title="Under Review" value="24" icon={Clock} color="blue" />
-        <StatCard title="Approved Applications" value="846" icon={BadgeCheck} color="navy" />
-        <StatCard title="Rejected Applications" value="124" icon={XCircle} color="rose" />
-      </section>
-
-      {/* 3. TABS SECTION */}
-      <section className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide border-b border-slate-100">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              "flex items-center gap-2 px-6 py-4 text-sm font-bold transition-all border-b-2 whitespace-nowrap relative",
-              activeTab === tab.id 
-                ? "border-primary text-primary bg-primary/5" 
-                : "border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50"
-            )}
-          >
-            {tab.label}
-            <span className={cn(
-              "px-2 py-0.5 rounded-full text-[10px] font-black",
-              activeTab === tab.id ? "bg-primary text-white" : "bg-slate-100 text-slate-500"
-            )}>
-              {tab.count}
-            </span>
-          </button>
+        {stats.map((stat, idx) => (
+          <StatCard key={idx} {...stat} />
         ))}
       </section>
 
-      {/* 4. SEARCH & FILTER SECTION */}
+      {/* TABS */}
+      <section className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide border-b border-slate-100">
+        {tabs.map((tab) => {
+          const isActive = statusFilter === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setStatusFilter(tab.id)}
+              className={cn(
+                "flex items-center gap-2 px-6 py-4 text-sm font-bold transition-all border-b-2 whitespace-nowrap relative",
+                isActive 
+                  ? "border-primary text-primary bg-primary/5" 
+                  : "border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              {tab.label}
+              <span className={cn(
+                "px-2 py-0.5 rounded-full text-[10px] font-black",
+                isActive ? "bg-primary text-white" : "bg-slate-100 text-slate-500"
+              )}>
+                {statsData[tab.key] || 0}
+              </span>
+            </button>
+          );
+        })}
+      </section>
+
+      {/* SEARCH & FILTERS */}
       <section className="bg-white p-4 rounded-3xl border border-slate-100 shadow-soft flex flex-col md:flex-row gap-4 items-center">
         <div className="relative flex-1 w-full">
-           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-           <input 
-              type="text" 
-              placeholder="Search borrower by name, ID or application ID..." 
-              className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-medium focus:ring-2 focus:ring-primary/10 transition-all"
-           />
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input 
+            type="text" 
+            placeholder="Search by ID, Name, Email, or Phone..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl text-sm font-medium focus:ring-2 focus:ring-primary/10 transition-all"
+          />
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
-           <select className="flex-1 md:flex-none bg-slate-50 border-none rounded-2xl px-5 py-3 text-sm font-bold text-slate-600 focus:ring-0">
-              <option>Loan Type</option>
-              <option>Personal Loan</option>
-              <option>Business Loan</option>
-              <option>SME Loan</option>
-           </select>
-           <select className="flex-1 md:flex-none bg-slate-50 border-none rounded-2xl px-5 py-3 text-sm font-bold text-slate-600 focus:ring-0">
-              <option>Status</option>
-              <option>New</option>
-              <option>Under Review</option>
-              <option>Approved</option>
-              <option>Rejected</option>
-              <option>Hold</option>
-           </select>
+          <select 
+            value={reviewerFilter}
+            onChange={(e) => setReviewerFilter(e.target.value)}
+            className="flex-1 md:flex-none bg-slate-50 border-none rounded-2xl px-5 py-3 text-sm font-bold text-slate-600 focus:ring-0"
+          >
+            <option>All Reviewers</option>
+          </select>
         </div>
       </section>
 
-      {/* 5. APPLICATIONS TABLE */}
+      {/* TABLE */}
       <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft overflow-hidden">
         <div className="overflow-x-auto">
-           <table className="w-full">
+          {loading && !isDrawerOpen ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-4">
+              <Loader2 className="w-10 h-10 text-primary animate-spin" />
+              <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Fetching Applications...</p>
+            </div>
+          ) : (
+            <table className="w-full">
               <thead>
-                 <tr className="text-left border-b border-slate-50 bg-slate-50/50">
-                    <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Borrower</th>
-                    <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Loan Type</th>
-                    <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Requested Amount</th>
-                    <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Affordability</th>
-                    <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Docs</th>
-                    <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
-                    <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Submitted Date</th>
-                    <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
-                 </tr>
+                <tr className="text-left border-b border-slate-50 bg-slate-50/50">
+                  <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Application ID</th>
+                  <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Borrower</th>
+                  <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Requested Amount</th>
+                  <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Duration</th>
+                  <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">EMI Estimate</th>
+                  <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Staff Reviewer</th>
+                  <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+                  <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                 {applications.map((app) => (
-                    <tr key={app.id} className="group hover:bg-slate-50/50 transition-all">
-                       <td className="px-8 py-5">
-                          <div className="flex items-center gap-4">
-                             <div className="w-11 h-11 rounded-2xl bg-primary/5 text-primary flex items-center justify-center font-black text-sm border border-primary/10">
-                                {app.borrower.charAt(0)}
-                             </div>
-                             <div>
-                                <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{app.borrower}</p>
-                                <p className="text-[11px] text-slate-400 font-bold uppercase">{app.phone}</p>
-                             </div>
+                {applications.map((app) => (
+                  <tr key={app._id} className="group hover:bg-slate-50/50 transition-all">
+                    <td className="px-8 py-5">
+                      <span className="text-[11px] font-black text-slate-600 bg-slate-100 px-3 py-1 rounded-lg uppercase tracking-tight">
+                        {app.applicationId}
+                      </span>
+                      <p className="text-[10px] text-slate-400 font-bold mt-1 uppercase">{new Date(app.createdAt).toLocaleDateString()}</p>
+                    </td>
+                    <td className="px-6 py-5">
+                      <div className="flex items-center gap-3">
+                        {app.borrower?.profilePhoto?.url ? (
+                          <img src={app.borrower.profilePhoto.url} className="w-10 h-10 rounded-2xl object-cover shadow-sm border border-slate-100" alt="" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-2xl bg-primary/5 text-primary flex items-center justify-center font-black text-xs">
+                            {app.borrower?.fullName?.charAt(0)}
                           </div>
-                       </td>
-                       <td className="px-6 py-5">
-                          <span className="text-[11px] font-black text-slate-600 bg-slate-100 px-3 py-1 rounded-lg uppercase tracking-tight">
-                             {app.type}
-                          </span>
-                       </td>
-                       <td className="px-6 py-5 text-right font-black text-slate-900">
-                          R {app.amount.toLocaleString()}
-                       </td>
-                       <td className="px-6 py-5 text-center">
-                          <StatusBadge status={app.affordability} />
-                       </td>
-                       <td className="px-6 py-5 text-center">
-                          <StatusBadge status={app.docs} />
-                       </td>
-                       <td className="px-6 py-5 text-center">
-                          <StatusBadge status={app.status} />
-                       </td>
-                       <td className="px-6 py-5">
-                          <p className="text-xs font-bold text-slate-500 uppercase tracking-tight">{app.submittedDate}</p>
-                       </td>
-                       <td className="px-8 py-5">
-                          <div className="flex items-center justify-end gap-2">
-                             <TableAction icon={Eye} color="text-blue-500 hover:bg-blue-50" onClick={() => openDrawer('view', app)} tooltip="Review Application" />
-                             <TableAction icon={BadgeCheck} color="text-emerald-500 hover:bg-emerald-50" onClick={() => openModal('approve', app)} tooltip="Approve" />
-                             <TableAction icon={Trash2} color="text-rose-500 hover:bg-rose-50" onClick={() => openModal('delete', app)} tooltip="Delete Application" />
-                             
-                             <div className="relative" onClick={(e) => e.stopPropagation()}>
-                                <button 
-                                   onClick={() => setOpenMenuId(openMenuId === app.id ? null : app.id)}
-                                   className={cn(
-                                      "p-2 rounded-xl transition-all",
-                                      openMenuId === app.id ? "bg-slate-100 text-slate-900" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
-                                   )}
-                                >
-                                   <MoreVertical size={18} />
-                                </button>
-
-                                <AnimatePresence>
-                                   {openMenuId === app.id && (
-                                      <motion.div 
-                                         initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                                         animate={{ opacity: 1, scale: 1, y: 0 }}
-                                         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                         className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 z-50"
-                                      >
-                                         <DropdownItem 
-                                            icon={XCircle} 
-                                            label="Reject Application" 
-                                            color="text-rose-600 hover:bg-rose-50"
-                                            onClick={() => openModal('reject', app)} 
-                                         />
-                                         <DropdownItem 
-                                            icon={PauseCircle} 
-                                            label="Hold Application" 
-                                            color="text-amber-600 hover:bg-amber-50"
-                                            onClick={() => openModal('hold', app)} 
-                                         />
-                                         <DropdownItem 
-                                            icon={UserPlus} 
-                                            label="Assign Reviewer" 
-                                            onClick={() => openModal('reviewer', app)} 
-                                         />
-                                         <div className="my-1 border-t border-slate-50" />
-                                         <DropdownItem 
-                                            icon={Download} 
-                                            label="Export Report" 
-                                            onClick={() => openModal('export', app)} 
-                                         />
-                                      </motion.div>
-                                   )}
-                                </AnimatePresence>
-                             </div>
-                          </div>
-                       </td>
-                    </tr>
-                 ))}
+                        )}
+                        <div>
+                          <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{app.borrower?.fullName}</p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">{app.borrower?.borrowerId}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <p className="text-sm font-black text-slate-900">R {app.requestedAmount?.toLocaleString()}</p>
+                    </td>
+                    <td className="px-6 py-5">
+                      <p className="text-xs font-bold text-slate-700">{app.loanDuration} Months</p>
+                    </td>
+                    <td className="px-6 py-5">
+                      <p className="text-xs font-black text-primary">R {app.estimatedEmi?.toLocaleString()}</p>
+                    </td>
+                    <td className="px-6 py-5">
+                      {app.staffReviewer ? (
+                        <div className="flex items-center gap-2">
+                           <div className="w-6 h-6 rounded-lg bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 uppercase">
+                             {app.staffReviewer.fullName.charAt(0)}
+                           </div>
+                           <p className="text-xs font-bold text-slate-600">{app.staffReviewer.fullName}</p>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-400 uppercase italic">Unassigned</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-5 text-center">
+                      <StatusBadge status={app.status} />
+                    </td>
+                    <td className="px-8 py-5">
+                      <div className="flex items-center justify-end gap-1">
+                        <button 
+                          onClick={() => handleViewDetails(app._id)}
+                          className="p-2 rounded-xl text-primary hover:bg-primary/5 transition-all"
+                          title="View Application"
+                        >
+                          <Eye size={18} />
+                        </button>
+                        <button 
+                          onClick={() => openDecisionModal('approve', app)}
+                          className="p-2 rounded-xl text-emerald-500 hover:bg-emerald-50 transition-all"
+                          title="Approve Loan"
+                        >
+                          <CheckCircle size={18} />
+                        </button>
+                        <button 
+                          onClick={() => openDecisionModal('hold', app)}
+                          className="p-2 rounded-xl text-amber-500 hover:bg-amber-50 transition-all"
+                          title="Put On Hold"
+                        >
+                          <Pause size={18} />
+                        </button>
+                        <button 
+                          onClick={() => openDecisionModal('reject', app)}
+                          className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 transition-all"
+                          title="Reject Loan"
+                        >
+                          <XCircle size={18} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {applications.length === 0 && !loading && (
+                  <tr>
+                    <td colSpan="8" className="px-8 py-20 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <Info size={40} className="text-slate-200" />
+                        <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No loan applications found</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
-           </table>
+            </table>
+          )}
         </div>
       </section>
 
-      {/* --- MODALS & DRAWERS --- */}
-
-      {/* NEW APPLICATION MODAL */}
-      <Modal 
-        isOpen={activeModal === 'new'} 
-        onClose={closeModal} 
-        title={`New Application - Step ${step} of 5`}
-        maxWidth="max-w-4xl"
+      {/* VIEW APPLICATION DRAWER */}
+      <Drawer 
+        isOpen={isDrawerOpen} 
+        onClose={() => setIsDrawerOpen(false)} 
+        title="Application Review"
+        width="max-w-4xl"
       >
-        <div className="space-y-8">
-           <div className="flex gap-2 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-              {[1, 2, 3, 4, 5].map(s => (
-                 <div key={s} className={cn("h-full flex-1 transition-all duration-500", step >= s ? "bg-primary" : "bg-slate-200")} />
-              ))}
+        {selectedApp && (
+          <div className="space-y-10 pb-20">
+            {/* Header / Status Banner */}
+            <div className="p-8 bg-slate-900 rounded-[2.5rem] relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2" />
+               <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="flex items-center gap-6">
+                    {selectedApp.borrower?.profilePhoto?.url ? (
+                      <img src={selectedApp.borrower.profilePhoto.url} className="w-24 h-24 rounded-[2rem] object-cover border-4 border-white/10 shadow-2xl" alt="" />
+                    ) : (
+                      <div className="w-24 h-24 rounded-[2rem] bg-white/10 flex items-center justify-center text-white text-4xl font-black border-4 border-white/5 shadow-2xl">
+                        {selectedApp.borrower?.fullName?.charAt(0)}
+                      </div>
+                    )}
+                    <div>
+                      <h2 className="text-3xl font-black text-white tracking-tight">{selectedApp.borrower?.fullName}</h2>
+                      <div className="flex flex-wrap items-center gap-3 mt-2">
+                        <span className="text-[10px] font-black text-white/50 bg-white/5 px-3 py-1 rounded-lg uppercase tracking-widest border border-white/10">ID: {selectedApp.applicationId}</span>
+                        <StatusBadge status={selectedApp.status} />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end text-white">
+                    <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Requested Amount</p>
+                    <p className="text-4xl font-black tracking-tighter">R {selectedApp.requestedAmount?.toLocaleString()}</p>
+                    <div className="flex items-center gap-2 mt-2 text-primary">
+                      <Clock size={14} />
+                      <p className="text-xs font-black uppercase">{selectedApp.loanDuration} Months Duration</p>
+                    </div>
+                  </div>
+               </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 text-left">
+               <div className="lg:col-span-2 space-y-10">
+                  {/* SECTION 1 — BORROWER DETAILS */}
+                  <section className="space-y-6">
+                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                       <User size={16} className="text-primary" /> Borrower Details
+                     </h3>
+                     <div className="grid grid-cols-2 gap-4">
+                        <InfoBox icon={ShieldCheck} label="Borrower ID" value={selectedApp.borrower?.borrowerId} />
+                        <InfoBox icon={Phone} label="Phone Number" value={selectedApp.borrower?.phoneNumber} />
+                        <InfoBox icon={Mail} label="Email Address" value={selectedApp.borrower?.email} />
+                        <InfoBox icon={Briefcase} label="Employment Status" value={selectedApp.employmentStatus} />
+                        <InfoBox icon={MapPin} label="Physical Address" value={selectedApp.borrower?.physicalAddress} fullWidth />
+                     </div>
+                  </section>
+
+                  {/* SECTION 2 — LOAN DETAILS */}
+                  <section className="space-y-6">
+                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                       <DollarSign size={16} className="text-primary" /> Loan Details
+                     </h3>
+                     <div className="grid grid-cols-2 gap-4 p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
+                        <DetailItem label="Requested Amount" value={`R ${selectedApp.requestedAmount?.toLocaleString()}`} isBold />
+                        <DetailItem label="Loan Duration" value={`${selectedApp.loanDuration} Months`} />
+                        <DetailItem label="Interest Rate" value={`${selectedApp.interestRate}% P.A.`} />
+                        <DetailItem label="Estimated EMI" value={`R ${selectedApp.estimatedEmi?.toLocaleString()}`} isPrimary />
+                        <DetailItem label="Processing Fee" value={`R ${selectedApp.processingFee?.toLocaleString() || '0'}`} />
+                        <DetailItem label="Loan Purpose" value={selectedApp.loanPurpose} />
+                     </div>
+                  </section>
+
+                  {/* SECTION 3 — EMPLOYMENT DETAILS */}
+                  <section className="space-y-6">
+                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                       <Building2 size={16} className="text-primary" /> Employment Details
+                     </h3>
+                     <div className="grid grid-cols-2 gap-4 p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
+                        <DetailItem label="Employer Name" value={selectedApp.employerName} />
+                        <DetailItem label="Monthly Income" value={`R ${selectedApp.monthlyIncome?.toLocaleString()}`} isBold />
+                        <DetailItem label="Years Of Service" value={`${selectedApp.yearsOfService} Years`} />
+                        <DetailItem label="Work Address" value={selectedApp.workAddress} />
+                     </div>
+                  </section>
+
+                  {/* SECTION 4 — BANKING DETAILS */}
+                  <section className="space-y-6">
+                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                       <ShieldCheck size={16} className="text-primary" /> Banking Details
+                     </h3>
+                     <div className="grid grid-cols-2 gap-4 p-6 bg-primary/5 rounded-[2rem] border border-primary/10">
+                        <DetailItem label="Bank Name" value={selectedApp.bankName} />
+                        <DetailItem label="Account Number" value={selectedApp.accountNumber} isBold />
+                        <DetailItem label="Account Holder" value={selectedApp.accountHolder || selectedApp.borrower?.fullName} />
+                        <DetailItem label="Branch Code" value={selectedApp.branchCode} />
+                     </div>
+                  </section>
+
+                  {/* SECTION 5 — DOCUMENTS */}
+                  <section className="space-y-6">
+                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                       <FileText size={16} className="text-primary" /> Uploaded Documents
+                     </h3>
+                     <div className="grid grid-cols-2 gap-4">
+                        {['idProof', 'payslip', 'bankStatement', 'addressProof'].map((docKey) => {
+                          const doc = selectedApp.documents?.[docKey];
+                          const label = docKey.replace(/([A-Z])/g, ' $1').trim();
+                          return (
+                            <div key={docKey} className="group p-4 bg-white border border-slate-100 rounded-3xl flex items-center justify-between hover:border-primary/50 transition-all shadow-sm">
+                               <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-primary/10 group-hover:text-primary transition-all">
+                                     <FileText size={20} />
+                                  </div>
+                                  <div>
+                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{label}</p>
+                                     <p className="text-xs font-bold text-slate-900">{doc ? 'Available' : 'Missing'}</p>
+                                  </div>
+                               </div>
+                               {doc?.url && (
+                                 <div className="flex items-center gap-1">
+                                   <a href={doc.url} target="_blank" rel="noreferrer" className="p-2 rounded-lg text-primary hover:bg-primary/5 transition-all" title="Preview/Open">
+                                     <ExternalLink size={16} />
+                                   </a>
+                                   <a href={doc.url} download className="p-2 rounded-lg text-slate-400 hover:bg-slate-50 transition-all" title="Download">
+                                     <Download size={16} />
+                                   </a>
+                                 </div>
+                               )}
+                            </div>
+                          );
+                        })}
+                     </div>
+                  </section>
+               </div>
+
+               <div className="space-y-10">
+                  {/* SECTION 6 — STAFF REVIEW */}
+                  <section className="space-y-6">
+                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                       <ShieldCheck size={16} className="text-primary" /> Staff Review
+                     </h3>
+                     <div className="p-6 bg-white rounded-[2rem] border-2 border-slate-100 space-y-6 shadow-sm">
+                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl">
+                           <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center font-black">
+                              {selectedApp.staffReviewer?.fullName?.charAt(0) || 'U'}
+                           </div>
+                           <div>
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reviewer</p>
+                              <p className="text-sm font-bold text-slate-900">{selectedApp.staffReviewer?.fullName || 'Unassigned'}</p>
+                           </div>
+                        </div>
+
+                        <div className="space-y-4">
+                           <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verification Date</p>
+                              <p className="text-[11px] font-bold text-slate-600">
+                                {selectedApp.staffReview?.verifiedAt ? new Date(selectedApp.staffReview.verifiedAt).toLocaleDateString() : 'Pending'}
+                              </p>
+                           </div>
+                           <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risk Level</p>
+                              <span className={cn(
+                                "px-3 py-1 rounded-lg text-[10px] font-black uppercase",
+                                selectedApp.staffReview?.riskLevel === 'Low' ? "bg-emerald-100 text-emerald-700" :
+                                selectedApp.staffReview?.riskLevel === 'Medium' ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
+                              )}>
+                                {selectedApp.staffReview?.riskLevel || 'N/A'}
+                              </span>
+                           </div>
+                           <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recommendation</p>
+                              <span className="text-[11px] font-black text-primary uppercase">{selectedApp.staffReview?.recommendation || 'None'}</span>
+                           </div>
+                           <div className="space-y-2 pt-2">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verification Notes</p>
+                              <div className="p-3 bg-slate-50 rounded-xl text-xs font-medium text-slate-600 border border-slate-100 italic min-h-[60px]">
+                                "{selectedApp.staffReview?.verificationNotes || 'No notes provided.'}"
+                              </div>
+                           </div>
+                        </div>
+                     </div>
+                  </section>
+
+                  {/* SECTION 7 — ADMIN FINAL DECISION */}
+                  <section className="space-y-6">
+                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                       <CheckCircle2 size={16} className="text-primary" /> Admin Final Decision
+                     </h3>
+                     <div className="p-6 bg-slate-900 rounded-[2rem] space-y-6 shadow-xl shadow-slate-900/20">
+                        <div className="grid grid-cols-1 gap-3">
+                           <Button 
+                             onClick={() => openDecisionModal('approve')}
+                             className="w-full py-5 bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-3 border-none"
+                           >
+                              <FileCheck size={20} />
+                              <span className="font-black uppercase tracking-widest text-xs text-white">Approve Loan</span>
+                           </Button>
+                           <Button 
+                             variant="secondary"
+                             onClick={() => openDecisionModal('hold')}
+                             className="w-full py-5 bg-amber-500 hover:bg-amber-600 shadow-lg shadow-amber-500/20 text-white flex items-center justify-center gap-3 border-none"
+                           >
+                              <Pause size={20} />
+                              <span className="font-black uppercase tracking-widest text-xs">Put On Hold</span>
+                           </Button>
+                           <Button 
+                             variant="danger"
+                             onClick={() => openDecisionModal('reject')}
+                             className="w-full py-5 bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-500/20 flex items-center justify-center gap-3 border-none"
+                           >
+                              <FileX size={20} />
+                              <span className="font-black uppercase tracking-widest text-xs text-white">Reject Loan</span>
+                           </Button>
+                        </div>
+                     </div>
+                  </section>
+               </div>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      {/* DECISION MODALS */}
+      <Modal 
+        isOpen={!!activeModal && activeModal !== 'export'} 
+        onClose={() => setActiveModal(null)} 
+        title={activeModal === 'approve' ? 'Approve Loan Application' : activeModal === 'reject' ? 'Reject Loan Application' : 'Put Application On Hold'}
+        maxWidth="max-w-xl"
+      >
+        <div className="space-y-6 text-left">
+           <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-primary font-black shadow-sm">
+                {activeModal === 'approve' ? <FileCheck size={24} /> : activeModal === 'reject' ? <FileX size={24} /> : <Pause size={24} />}
+              </div>
+              <div>
+                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Confirming Decision for</p>
+                 <p className="text-sm font-bold text-slate-900">{selectedApp?.borrower?.fullName} (ID: {selectedApp?.applicationId})</p>
+              </div>
            </div>
 
-           <div className="min-h-[350px]">
-              {step === 1 && (
-                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                    <h4 className="text-lg font-black text-slate-900 tracking-tight">Borrower Information</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                       <Input label="Search Existing Borrower" placeholder="Name or ID..." />
-                       <div className="flex items-end pb-1">
-                          <Button variant="ghost" className="text-primary text-[10px] font-black uppercase">Or Add New</Button>
-                       </div>
-                       <Input label="Full Name" placeholder="e.g. Sipho Gumede" />
-                       <Input label="ID Number" placeholder="YYMMDD SSSS CCC" />
-                    </div>
-                 </motion.div>
-              )}
+           {activeModal === 'approve' && (
+             <div className="grid grid-cols-2 gap-4">
+                <Input 
+                  label="Approved Amount (R)" 
+                  type="number" 
+                  value={decisionData.approvedAmount}
+                  onChange={(e) => setDecisionData({...decisionData, approvedAmount: e.target.value})}
+                />
+                <Input 
+                  label="Final Duration (Months)" 
+                  type="number" 
+                  value={decisionData.finalDuration}
+                  onChange={(e) => setDecisionData({...decisionData, finalDuration: e.target.value})}
+                />
+                <Input 
+                  label="Interest Override (%)" 
+                  type="number" 
+                  className="col-span-2"
+                  value={decisionData.interestOverride}
+                  onChange={(e) => setDecisionData({...decisionData, interestOverride: e.target.value})}
+                />
+                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-emerald-700 col-span-2">
+                   <p className="text-[10px] font-black uppercase tracking-tight flex items-center gap-2">
+                     <Info size={14} /> Approved loan will automatically move to Active Loans.
+                   </p>
+                </div>
+             </div>
+           )}
 
-              {step === 2 && (
-                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                    <h4 className="text-lg font-black text-slate-900 tracking-tight">Loan Configuration</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                       <div className="space-y-1.5">
-                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Loan Type</label>
-                          <select className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm">
-                             <option>Personal Loan</option>
-                             <option>Business Loan</option>
-                             <option>SME Loan</option>
-                          </select>
-                       </div>
-                       <Input label="Requested Amount" placeholder="R 0.00" />
-                       <div className="space-y-1.5">
-                          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Loan Tenure</label>
-                          <select className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm">
-                             <option>6 Months</option>
-                             <option>12 Months</option>
-                             <option>24 Months</option>
-                          </select>
-                       </div>
-                       <Input label="Purpose of Loan" placeholder="e.g. Home Improvement" />
-                    </div>
-                 </motion.div>
-              )}
+           {activeModal === 'reject' && (
+             <Input 
+               label="Rejection Reason" 
+               isTextArea 
+               placeholder="Specify why this application is being rejected..."
+               value={decisionData.rejectionReason}
+               onChange={(e) => setDecisionData({...decisionData, rejectionReason: e.target.value})}
+             />
+           )}
 
-              {step === 3 && (
-                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                    <h4 className="text-lg font-black text-slate-900 tracking-tight">Affordability Analysis</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                       <Input label="Monthly Net Income" placeholder="R" />
-                       <Input label="Monthly Expenses" placeholder="R" />
-                       <Input label="Existing Debt Repayments" placeholder="R" />
-                       <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10">
-                          <p className="text-[10px] font-black text-primary uppercase mb-1">Calculated DTI</p>
-                          <p className="text-2xl font-black text-primary">32.4%</p>
-                       </div>
-                    </div>
-                 </motion.div>
-              )}
+           {activeModal === 'hold' && (
+             <Input 
+               label="Hold Reason" 
+               isTextArea 
+               placeholder="Specify what documents or info is missing..."
+               value={decisionData.holdReason}
+               onChange={(e) => setDecisionData({...decisionData, holdReason: e.target.value})}
+             />
+           )}
 
-              {step === 4 && (
-                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                    <h4 className="text-lg font-black text-slate-900 tracking-tight">Banking & Disbursement</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                       <Input label="Bank Name" />
-                       <Input label="Account Number" />
-                       <Input label="Account Type" />
-                       <Input label="Branch Code" />
-                    </div>
-                 </motion.div>
-              )}
+           <Input 
+             label="Admin Notes (Internal)" 
+             isTextArea 
+             placeholder="Private notes for records..."
+             value={decisionData.adminNotes}
+             onChange={(e) => setDecisionData({...decisionData, adminNotes: e.target.value})}
+           />
 
-              {step === 5 && (
-                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                    <h4 className="text-lg font-black text-slate-900 tracking-tight">Review & Documents</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                       <UploadCardSimple label="South African ID" icon={ShieldCheck} />
-                       <UploadCardSimple label="Last 3 Months Payslips" icon={FileText} />
-                       <UploadCardSimple label="Bank Statement" icon={Wallet} />
-                       <UploadCardSimple label="Proof of Residence" icon={MapPin} />
-                    </div>
-                    <div className="p-4 bg-slate-900 text-white rounded-[2rem] flex items-center justify-between">
-                       <div>
-                          <p className="text-sm font-black">Final Application Audit</p>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Ready for Review Stage</p>
-                       </div>
-                       <CheckCircle size={24} className="text-accent" />
-                    </div>
-                 </motion.div>
-              )}
-           </div>
-
-           <div className="flex gap-4 pt-6 border-t border-slate-50">
-              {step > 1 && <Button variant="ghost" onClick={() => setStep(step - 1)} className="flex-1">Previous</Button>}
-              <Button onClick={() => step < 5 ? setStep(step + 1) : closeModal()} className="flex-1 py-4 font-black uppercase tracking-widest text-xs shadow-lg shadow-primary/20">
-                 {step === 5 ? "Submit Application" : "Next Step"}
+           <div className="flex gap-4 pt-4 border-t border-slate-50">
+              <Button variant="ghost" onClick={() => setActiveModal(null)} className="flex-1 py-4 font-black uppercase tracking-widest text-[10px]">Cancel</Button>
+              <Button 
+                onClick={activeModal === 'approve' ? handleApprove : activeModal === 'reject' ? handleReject : handleHold}
+                variant={activeModal === 'approve' ? 'primary' : activeModal === 'reject' ? 'danger' : 'secondary'}
+                disabled={isSubmitting}
+                className={cn(
+                  "flex-1 py-4 font-black uppercase tracking-widest text-[10px] shadow-lg",
+                  activeModal === 'approve' ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20" : 
+                  activeModal === 'reject' ? "bg-rose-600 hover:bg-rose-700 shadow-rose-600/20" : 
+                  "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20 text-white"
+                )}
+              >
+                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : `Confirm ${activeModal ? activeModal.charAt(0).toUpperCase() + activeModal.slice(1) : ''}`}
               </Button>
            </div>
         </div>
       </Modal>
 
-      {/* APPROVAL MODAL */}
-      <Modal isOpen={activeModal === 'approve'} onClose={closeModal} title="Approve Application" maxWidth="max-w-md">
-         <div className="space-y-6 text-center">
-            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-100 shadow-sm">
-               <BadgeCheck size={28} />
-            </div>
-            <div>
-               <h4 className="text-xl font-black text-slate-900 tracking-tight">Confirm Loan Approval?</h4>
-               <p className="text-sm text-slate-500 mt-2">You are approving <span className="font-bold text-slate-900">{selectedApp?.borrower}</span>'s request for <span className="font-bold text-primary">R {selectedApp?.amount.toLocaleString()}</span>.</p>
-            </div>
-            <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4 text-left">
-               <ReviewRow label="Approved Amount" value={`R ${selectedApp?.amount.toLocaleString()}`} />
-               <ReviewRow label="Repayment Term" value="12 Months" />
-               <ReviewRow label="Monthly EMI" value="R 2,450.00" />
-            </div>
-            <div className="flex gap-3 pt-2">
-               <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button onClick={closeModal} className="flex-1 bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-100">Confirm Approval</Button>
-            </div>
-         </div>
-      </Modal>
-
-      {/* REJECT MODAL */}
-      <Modal isOpen={activeModal === 'reject'} onClose={closeModal} title="Reject Application" maxWidth="max-w-md">
-         <div className="space-y-6">
-            <div className="text-center">
-               <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-rose-100 shadow-sm">
-                  <XCircle size={28} />
-               </div>
-               <h4 className="text-xl font-black text-slate-900 tracking-tight">Decline Application?</h4>
-            </div>
-            <div className="space-y-1.5">
-               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Rejection Reason</label>
-               <select className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm">
-                  <option>Poor Credit Score</option>
-                  <option>Insufficient Income</option>
-                  <option>Incomplete Documentation</option>
-                  <option>High Debt-to-Income Ratio</option>
-                  <option>Other</option>
-               </select>
-            </div>
-            <Input label="Additional Notes" isTextArea placeholder="Enter internal notes for rejection..." />
-            <div className="flex gap-3 pt-2">
-               <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button variant="danger" onClick={closeModal} className="flex-1 shadow-lg shadow-rose-200">Confirm Reject</Button>
-            </div>
-         </div>
-      </Modal>
-
-      {/* HOLD MODAL */}
-      <Modal isOpen={activeModal === 'hold'} onClose={closeModal} title="Put Application on Hold" maxWidth="max-w-md">
-         <div className="space-y-6">
-            <div className="text-center">
-               <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-amber-100 shadow-sm">
-                  <PauseCircle size={28} />
-               </div>
-               <h4 className="text-xl font-black text-slate-900 tracking-tight">Suspend Review?</h4>
-            </div>
-            <div className="space-y-1.5">
-               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Hold Category</label>
-               <select className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm">
-                  <option>Awaiting Client Documents</option>
-                  <option>Further Income Investigation</option>
-                  <option>Collateral Appraisal Pending</option>
-                  <option>System Maintenance</option>
-               </select>
-            </div>
-            <Input label="Notes for Borrower" isTextArea placeholder="This will be visible to the borrower..." />
-            <div className="flex gap-3 pt-2">
-               <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button onClick={closeModal} className="flex-1 bg-amber-600 hover:bg-amber-700 shadow-lg shadow-amber-100 border-none">Confirm Hold</Button>
-            </div>
-         </div>
-      </Modal>
-
-      {/* REVIEWER MODAL */}
-      <Modal isOpen={activeModal === 'reviewer'} onClose={closeModal} title="Assign Reviewer" maxWidth="max-w-md">
-         <div className="space-y-6">
-            <div className="space-y-3">
-               <ReviewerItem name="Zanele Khoza" role="Verification Officer" active="12" onClick={closeModal} />
-               <ReviewerItem name="Kobus Marais" role="Loan Reviewer" active="8" onClick={closeModal} />
-               <ReviewerItem name="Ayanda Dlamini" role="Collections Staff" active="5" onClick={closeModal} />
-            </div>
-            <Input label="Assignment Notes" isTextArea placeholder="Special instructions for the reviewer..." />
-            <div className="flex gap-3 pt-2">
-               <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button onClick={closeModal} className="flex-1 shadow-lg shadow-primary/20">Assign Reviewer</Button>
-            </div>
-         </div>
-      </Modal>
-
       {/* EXPORT MODAL */}
-      <Modal isOpen={activeModal === 'export'} onClose={closeModal} title="Export Application Data" maxWidth="max-w-md">
+      <Modal isOpen={activeModal === 'export'} onClose={() => setActiveModal(null)} title="Export Data" maxWidth="max-w-md">
          <div className="space-y-6">
-            <p className="text-sm text-slate-500 font-medium text-center px-4">Choose format for loan application batch export.</p>
-            <div className="grid grid-cols-3 gap-3">
-               <ExportCard label="PDF" icon={FileText} />
-               <ExportCard label="CSV" icon={CreditCard} />
-               <ExportCard label="Excel" icon={Activity} />
+            <p className="text-sm text-slate-500 font-medium text-center">Choose your export format for the current applications list.</p>
+            <div className="grid grid-cols-2 gap-3">
+               <ExportCard label="PDF Report" icon={FileText} active={exportFormat === 'pdf'} onClick={() => setExportFormat('pdf')} />
+               <ExportCard label="CSV Data" icon={CreditCard} active={exportFormat === 'csv'} onClick={() => setExportFormat('csv')} />
             </div>
-            <Button className="w-full py-4 shadow-lg shadow-primary/20">Generate Export</Button>
+            <Button onClick={handleExport} className="w-full py-4 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-primary/20">Download Export</Button>
          </div>
       </Modal>
-
-      {/* DELETE MODAL */}
-      <Modal isOpen={activeModal === 'delete'} onClose={closeModal} title="Delete Application" maxWidth="max-w-md">
-         <div className="space-y-6 text-center">
-            <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-rose-100 shadow-sm">
-               <Trash2 size={28} />
-            </div>
-            <div>
-               <h4 className="text-xl font-black text-slate-900 tracking-tight">Discard Application?</h4>
-               <p className="text-sm text-slate-500 mt-2">You are about to permanently remove <span className="font-bold text-slate-900">{selectedApp?.id}</span>. This action is irreversible.</p>
-            </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col gap-3 text-left">
-               <Checkbox label="I understand this will delete all uploaded docs" />
-               <Checkbox label="I confirm this application was created in error" />
-            </div>
-            <div className="flex gap-3 pt-2">
-               <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
-               <Button variant="danger" onClick={closeModal} className="flex-1 shadow-lg shadow-rose-200">Permanently Delete</Button>
-            </div>
-         </div>
-      </Modal>
-
-      {/* VIEW DRAWER */}
-      <Drawer 
-         isOpen={activeDrawer === 'view'} 
-         onClose={closeDrawer} 
-         title="Application Review"
-         width="max-w-2xl"
-      >
-         {selectedApp && (
-            <div className="space-y-10">
-               {/* Header Card */}
-               <div className="flex items-center gap-6 p-6 bg-slate-900 text-white rounded-[2rem] shadow-xl">
-                  <div className="w-20 h-20 rounded-3xl bg-primary flex items-center justify-center text-3xl font-black">
-                     {selectedApp.borrower.charAt(0)}
-                  </div>
-                  <div className="flex-1">
-                     <h2 className="text-2xl font-black tracking-tight">{selectedApp.borrower}</h2>
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">App ID: {selectedApp.id}</p>
-                     <div className="flex items-center gap-2 mt-4">
-                        <StatusBadge status={selectedApp.status} className="bg-white/10 text-white border-white/20" />
-                        <span className="text-xl font-black text-accent ml-2">R {selectedApp.amount.toLocaleString()}</span>
-                     </div>
-                  </div>
-               </div>
-
-               {/* Affordability Summary */}
-               <div className="space-y-5">
-                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                     <Wallet size={14} className="text-primary" /> Affordability Analysis
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                     <SummaryCard title="Monthly Income" value="R 32,500" color="text-emerald-600" />
-                     <SummaryCard title="Monthly Expenses" value="R 12,400" color="text-rose-500" />
-                     <SummaryCard title="Estimated EMI" value="R 2,450" color="text-primary" />
-                     <SummaryCard title="Status" value={selectedApp.affordability} color={selectedApp.affordability === 'Eligible' ? 'text-emerald-600' : 'text-amber-500'} />
-                  </div>
-               </div>
-
-               {/* Documents Section */}
-               <div className="space-y-5">
-                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                     <FileText size={14} className="text-accent" /> Uploaded Documents
-                  </h4>
-                  <div className="space-y-3">
-                     <DocCard name="Borrower Identity (ID)" status="Verified" />
-                     <DocCard name="Proof of Income (Payslip)" status="Verified" />
-                     <DocCard name="Bank Statement (3 Months)" status="Under Review" />
-                     <DocCard name="Proof of Residence" status="Verified" />
-                  </div>
-               </div>
-
-               {/* Employment Info */}
-               <div className="space-y-5">
-                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                     <Briefcase size={14} className="text-slate-400" /> Employment Details
-                  </h4>
-                  <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-4">
-                     <ReviewRow label="Employer" value="Global Tech Solutions" />
-                     <ReviewRow label="Occupation" value="Senior Systems Analyst" />
-                     <ReviewRow label="Years of Service" value="4 Years" />
-                  </div>
-               </div>
-
-               <div className="pt-6 border-t border-slate-100 flex gap-4 sticky bottom-0 bg-white">
-                  <Button variant="danger" onClick={() => openModal('reject', selectedApp)} className="flex-1">Decline</Button>
-                  <Button onClick={() => openModal('approve', selectedApp)} className="flex-[2] shadow-lg shadow-primary/20">Finalize Approval</Button>
-               </div>
-            </div>
-         )}
-      </Drawer>
     </div>
   );
 };
 
 // --- HELPER COMPONENTS ---
 
-const TableAction = ({ icon: Icon, color, onClick, tooltip }) => (
+const InfoBox = ({ icon: Icon, label, value, fullWidth = false }) => (
+  <div className={cn("p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-start gap-3 text-left", fullWidth ? "col-span-2" : "")}>
+    <div className="p-2 bg-white rounded-xl text-primary border border-slate-100 shadow-sm">
+      <Icon size={16} />
+    </div>
+    <div>
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{label}</p>
+      <p className="text-sm font-bold text-slate-900 break-all">{value || 'N/A'}</p>
+    </div>
+  </div>
+);
+
+const DetailItem = ({ label, value, isBold, isPrimary }) => (
+  <div className="space-y-1">
+    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
+    <p className={cn(
+      "text-sm font-bold",
+      isBold ? "text-slate-900 font-black" : "text-slate-700",
+      isPrimary ? "text-primary font-black" : ""
+    )}>{value || 'N/A'}</p>
+  </div>
+);
+
+const ExportCard = ({ label, icon: Icon, active, onClick }) => (
   <button 
      onClick={onClick}
-     className={cn("p-2 rounded-xl transition-all", color)}
-     title={tooltip}
+     className={cn(
+        "flex flex-col items-center justify-center p-5 border rounded-2xl transition-all group",
+        active 
+           ? "bg-primary/5 border-primary shadow-sm" 
+           : "bg-slate-50 border-slate-100 hover:border-slate-200"
+     )}
   >
-     <Icon size={18} />
+     <Icon size={24} className={cn("mb-3", active ? "text-primary" : "text-slate-400 group-hover:text-slate-500")} />
+     <span className={cn("text-[10px] font-black uppercase tracking-widest", active ? "text-primary" : "text-slate-500")}>{label}</span>
   </button>
-);
-
-const DropdownItem = ({ icon: Icon, label, onClick, color }) => (
-   <button 
-      onClick={(e) => {
-         e.stopPropagation();
-         onClick();
-      }}
-      className={cn(
-         "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-all",
-         color || "text-slate-600 hover:bg-slate-50 hover:text-primary"
-      )}
-   >
-      <Icon size={16} />
-      {label}
-   </button>
-);
-
-const ReviewRow = ({ label, value }) => (
-  <div className="flex items-center justify-between py-1">
-     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">{label}</span>
-     <span className="text-sm font-black text-slate-900">{value}</span>
-  </div>
-);
-
-const SummaryCard = ({ title, value, color }) => (
-   <div className="p-4 bg-white border border-slate-100 rounded-2xl shadow-sm text-center group hover:border-primary transition-all">
-      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{title}</p>
-      <p className={cn("text-lg font-black", color)}>{value}</p>
-   </div>
-);
-
-const DocCard = ({ name, status }) => (
-   <div className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl shadow-sm group hover:border-primary transition-all">
-      <div className="flex items-center gap-3">
-         <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all"><FileText size={18} /></div>
-         <div>
-            <p className="text-xs font-black text-slate-900">{name}</p>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{status}</p>
-         </div>
-      </div>
-      <div className="flex items-center gap-2">
-         <button className="p-2 text-slate-400 hover:text-primary transition-colors"><Eye size={16} /></button>
-         <button className="p-2 text-slate-400 hover:text-primary transition-colors"><DownloadCloud size={16} /></button>
-      </div>
-   </div>
-);
-
-const ReviewerItem = ({ name, role, active, onClick }) => (
-   <div 
-      onClick={onClick}
-      className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between group hover:border-primary transition-all cursor-pointer"
-   >
-      <div className="flex items-center gap-3">
-         <div className="w-10 h-10 bg-primary/5 text-primary rounded-xl flex items-center justify-center font-black group-hover:bg-primary group-hover:text-white transition-all">{name.charAt(0)}</div>
-         <div>
-            <p className="text-sm font-black text-slate-900">{name}</p>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{role}</p>
-         </div>
-      </div>
-      <div className="text-right">
-         <p className="text-xs font-black text-primary">{active} Active</p>
-         <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Reviews</p>
-      </div>
-   </div>
-);
-
-const ExportCard = ({ label, icon: Icon }) => (
-  <button className="flex flex-col items-center justify-center p-5 bg-slate-50 border border-slate-100 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all group">
-     <Icon size={24} className="text-slate-400 group-hover:text-primary mb-3" />
-     <span className="text-[10px] font-black text-slate-500 group-hover:text-primary uppercase tracking-widest">{label}</span>
-  </button>
-);
-
-const Checkbox = ({ label }) => (
-  <label className="flex items-center gap-3 group cursor-pointer">
-    <div className="w-5 h-5 rounded-md border-2 border-slate-200 flex items-center justify-center transition-all group-hover:border-primary">
-      <div className="w-2.5 h-2.5 bg-primary rounded-sm opacity-0 group-hover:opacity-20 transition-opacity" />
-    </div>
-    <span className="text-xs font-medium text-slate-600 group-hover:text-slate-900 transition-colors">{label}</span>
-  </label>
-);
-
-const UploadCardSimple = ({ label, icon: Icon }) => (
-  <div className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between group hover:border-primary transition-all cursor-pointer">
-     <div className="flex items-center gap-3">
-        <div className="p-2 bg-slate-50 rounded-lg text-slate-400 group-hover:bg-primary group-hover:text-white transition-all"><Icon size={16} /></div>
-        <span className="text-xs font-bold text-slate-700">{label}</span>
-     </div>
-     <FileUp size={16} className="text-slate-300 group-hover:text-primary transition-colors" />
-  </div>
 );
 
 export default Applications;

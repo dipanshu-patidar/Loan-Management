@@ -14,6 +14,8 @@ const borrowerRoutes = require('./routes/borrowerRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
+const loanApplicationRoutes = require('./routes/loanApplicationRoutes');
+const activeLoanRoutes = require('./routes/admin/activeLoanRoutes');
 
 const app = express();
 
@@ -47,6 +49,8 @@ app.use('/api/admin/borrowers', borrowerRoutes);
 app.use('/api/admin/agents', adminAgentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/staff', staffRoutes);
+app.use('/api/admin/loan-applications', loanApplicationRoutes);
+app.use('/api/admin/active-loans', activeLoanRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 

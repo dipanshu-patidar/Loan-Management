@@ -12,10 +12,16 @@ connectDB();
 
 const PORT = process.env.PORT || 5000;
 
+const { initSocket } = require('./socket/socketServer');
+
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
   console.log(`✅ ImageKit initialized`);
 });
+
+// Initialize Socket.IO
+initSocket(server);
+console.log(`📡 Socket.IO initialized`);
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err, promise) => {

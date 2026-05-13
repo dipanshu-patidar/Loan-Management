@@ -19,6 +19,7 @@ const activeLoanRoutes = require('./routes/admin/activeLoanRoutes');
 const paymentRoutes = require('./routes/admin/paymentRoutes');
 const duePaymentRoutes = require('./routes/admin/duePaymentRoutes');
 const reportRoutes = require('./routes/admin/reportRoutes');
+const communicationRoutes = require('./routes/admin/communicationRoutes');
 
 const app = express();
 
@@ -42,7 +43,8 @@ app.use(cors());
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 mins
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 2000, // Increased scale to support rapid real-time message flows and dashboard syncing
+  message: 'Too many requests from this IP, please try again after 10 minutes'
 });
 app.use(limiter);
 
@@ -57,6 +59,7 @@ app.use('/api/admin/active-loans', activeLoanRoutes);
 app.use('/api/admin/payments', paymentRoutes);
 app.use('/api/admin/due-payments', duePaymentRoutes);
 app.use('/api/admin/reports', reportRoutes);
+app.use('/api/admin/communications', communicationRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 

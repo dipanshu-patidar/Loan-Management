@@ -66,7 +66,10 @@ exports.register = asyncHandler(async (req, res) => {
         fullName: user.fullName,
         email: user.email,
         role: user.role,
-        operationalStatus: user.operationalStatus
+        operationalStatus: user.operationalStatus,
+        profilePhoto: user.profilePhoto,
+        phoneNumber: user.phoneNumber,
+        primaryBranch: user.primaryBranch,
       },
       token,
     }, 201);
@@ -138,6 +141,9 @@ exports.login = asyncHandler(async (req, res) => {
       fullName: user.fullName,
       email: user.email,
       role: user.role,
+      profilePhoto: user.profilePhoto,
+      phoneNumber: user.phoneNumber,
+      primaryBranch: user.primaryBranch,
     },
     token,
   });

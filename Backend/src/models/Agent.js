@@ -118,6 +118,14 @@ const agentSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    suspendedAt: {
+      type: Date,
+      default: null,
+    },
+    activatedAt: {
+      type: Date,
+      default: null,
+    },
     isDeleted: {
       type: Boolean,
       default: false,

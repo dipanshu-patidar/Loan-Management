@@ -401,8 +401,8 @@ const Borrowers = () => {
       </section>
 
       {/* 4. BORROWERS TABLE */}
-      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft overflow-hidden">
-        <div className="overflow-x-auto">
+      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft">
+        <div className="overflow-visible">
            <table className="w-full text-left">
               <thead>
                  <tr className="border-b border-slate-50 bg-slate-50/50">
@@ -431,8 +431,8 @@ const Borrowers = () => {
                           <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">No Borrowers Found</p>
                        </td>
                     </tr>
-                 ) : borrowers.map((borrower) => (
-                    <tr key={borrower._id} className="group hover:bg-slate-50/50 transition-all cursor-pointer" onClick={() => openDrawer(borrower)}>
+                 ) : borrowers.map((borrower, index) => (
+                    <tr key={borrower._id} className={cn("group hover:bg-slate-50/50 transition-all cursor-pointer", openMenuId === borrower._id && "relative z-[100]")} onClick={() => openDrawer(borrower)}>
                        <td className="px-8 py-5">
                           <div className="flex items-center gap-4">
                              {borrower.profilePhoto && borrower.profilePhoto !== 'no-photo.jpg' ? (
@@ -492,7 +492,10 @@ const Borrowers = () => {
                                          initial={{ opacity: 0, scale: 0.95, y: 10 }}
                                          animate={{ opacity: 1, scale: 1, y: 0 }}
                                          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                         className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 z-50"
+                                         className={cn(
+                                            "absolute right-0 w-52 bg-white rounded-2xl shadow-2xl border border-slate-100 p-2 z-[101]",
+                                            index >= borrowers.length - 2 && borrowers.length > 2 ? "bottom-full mb-2" : "top-full mt-2"
+                                         )}
                                       >
                                          <DropdownItem 
                                             icon={Lock} 

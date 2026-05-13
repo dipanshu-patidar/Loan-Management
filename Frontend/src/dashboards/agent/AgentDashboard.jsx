@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Users, TrendingUp, Wallet, Clock, 
   ArrowRight, Phone, MessageSquare, Eye, 
   Search, Bell, Filter, Calendar, 
   CheckCircle2, AlertCircle, ChevronRight,
-  TrendingDown, DollarSign, Briefcase, UserPlus
+  TrendingDown, DollarSign, Briefcase, UserPlus,
+  Loader2, ShieldAlert, EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
@@ -12,49 +13,40 @@ import StatCard from '../../components/StatCard';
 import Button from '../../ui/Button';
 import StatusBadge from '../../components/StatusBadge';
 import { useNavigate } from 'react-router-dom';
+import agentService from '../../services/agentService';
+import { toast } from 'react-hot-toast';
 
 const AgentDashboard = () => {
   const navigate = useNavigate();
   const [isFollowUpOpen, setIsFollowUpOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [agentProfile, setAgentProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  const fetchProfile = async () => {
+    try {
+      setLoading(true);
+      const response = await agentService.getMyProfile();
+      setAgentProfile(response.data);
+    } catch (error) {
+      console.error('Failed to fetch profile:', error);
+      toast.error('Failed to load dashboard profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isInactive = agentProfile?.accountStatus === 'Inactive';
 
   const assignedClients = [
-    { 
-      id: 'BR-101', 
-      name: 'Michael Chen', 
-      amount: 'R12,500', 
-      emiStatus: 'Paid', 
-      dueDate: '2026-05-15', 
-      status: 'Active',
-      phone: '+27 71 222 3333'
-    },
-    { 
-      id: 'BR-102', 
-      name: 'Sarah Williams', 
-      amount: 'R8,000', 
-      emiStatus: 'Pending', 
-      dueDate: '2026-05-10', 
-      status: 'Active',
-      phone: '+27 82 444 5555'
-    },
-    { 
-      id: 'BR-103', 
-      name: 'David Gumede', 
-      amount: 'R5,000', 
-      emiStatus: 'Overdue', 
-      dueDate: '2026-05-01', 
-      status: 'Overdue',
-      phone: '+27 61 777 8888'
-    },
-    { 
-      id: 'BR-104', 
-      name: 'Linda Mbeki', 
-      amount: 'R20,000', 
-      emiStatus: 'N/A', 
-      dueDate: 'N/A', 
-      status: 'Pending',
-      phone: '+27 73 999 0000'
-    },
+    { id: 'BR-101', name: 'Michael Chen', amount: 'R12,500', emiStatus: 'Paid', dueDate: '2026-05-15', status: 'Active', phone: '+27 71 222 3333' },
+    { id: 'BR-102', name: 'Sarah Williams', amount: 'R8,000', emiStatus: 'Pending', dueDate: '2026-05-10', status: 'Active', phone: '+27 82 444 5555' },
+    { id: 'BR-103', name: 'David Gumede', amount: 'R5,000', emiStatus: 'Overdue', dueDate: '2026-05-01', status: 'Overdue', phone: '+27 61 777 8888' },
+    { id: 'BR-104', name: 'Linda Mbeki', amount: 'R20,000', emiStatus: 'N/A', dueDate: 'N/A', status: 'Pending', phone: '+27 73 999 0000' },
   ];
 
   const recentActivities = [
@@ -63,23 +55,66 @@ const AgentDashboard = () => {
     { id: 3, type: 'alert', title: 'Overdue EMI Alert', desc: 'David Gumede is 8 days overdue.', time: 'Yesterday', icon: AlertCircle, color: 'rose' },
   ];
 
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
+        <Loader2 className="w-10 h-10 text-primary animate-spin" />
+        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Initializing Dashboard...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-8 pb-10">
+    <div className="space-y-6 pb-10">
+      {/* ⚠️ INACTIVE WARNING BANNER */}
+      <AnimatePresence>
+        {isInactive && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            className="bg-amber-50 border border-amber-200 rounded-[1.5rem] p-5 flex items-center gap-4 text-amber-800 shadow-sm"
+          >
+            <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center shrink-0 border border-amber-200 shadow-inner">
+              <ShieldAlert size={24} />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-black tracking-tight uppercase">Operational Restrictions Active</p>
+              <p className="text-xs font-bold opacity-70 mt-0.5">Your account is currently inactive. Features like adding borrowers and processing collections are disabled.</p>
+            </div>
+            <Button variant="secondary" className="bg-white border-amber-200 text-amber-800 font-bold text-[10px] px-4 py-2">Contact Support</Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 1. WELCOME SECTION */}
       <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-premium relative overflow-hidden group">
         <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl group-hover:bg-primary/10 transition-all duration-700" />
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
           <div className="space-y-2">
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Welcome Back, Agent Smith</h1>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+              Welcome Back, {agentProfile?.fullName.split(' ')[0] || 'Agent'}
+            </h1>
             <p className="text-slate-500 font-medium max-w-lg leading-relaxed">
-              You have <span className="text-primary font-bold">4 active follow-ups</span> today. Your performance is <span className="text-emerald-500 font-bold">up 12%</span> this month.
+              {isInactive ? (
+                <span className="text-amber-600 font-bold">Your account is currently restricted. Some actions are disabled.</span>
+              ) : (
+                <>You have <span className="text-primary font-bold">4 active follow-ups</span> today. Your performance is <span className="text-emerald-500 font-bold">up 12%</span> this month.</>
+              )}
             </p>
             <div className="flex flex-wrap gap-3 mt-6">
               <Button onClick={() => navigate('/agent/clients')} className="font-bold flex items-center gap-2 px-6 shadow-lg shadow-primary/20">
                 <Users size={18} /> View Clients
               </Button>
-              <Button variant="secondary" onClick={() => setIsFollowUpOpen(true)} className="font-bold flex items-center gap-2 border-slate-200 bg-white">
-                <Clock size={18} /> Follow Up Payments
+              <Button 
+                variant="secondary" 
+                onClick={() => !isInactive && setIsFollowUpOpen(true)} 
+                disabled={isInactive}
+                className={cn(
+                  "font-bold flex items-center gap-2 border-slate-200 bg-white",
+                  isInactive && "opacity-50 cursor-not-allowed grayscale"
+                )}
+              >
+                <Clock size={18} /> {isInactive ? "Follow-Up Restricted" : "Follow Up Payments"}
               </Button>
               <Button variant="secondary" onClick={() => navigate('/agent/earnings')} className="font-bold flex items-center gap-2 border-slate-200 bg-white">
                 <Wallet size={18} /> View Earnings
@@ -89,7 +124,7 @@ const AgentDashboard = () => {
           <div className="flex items-center gap-8 lg:pr-8">
              <div className="text-center">
                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Portfolio Value</p>
-               <p className="text-2xl font-black text-slate-900">R245,800</p>
+               <p className="text-2xl font-black text-slate-900">R{agentProfile?.totalCollections?.toLocaleString() || '0'}</p>
              </div>
              <div className="w-px h-12 bg-slate-100 hidden sm:block" />
              <div className="text-center">
@@ -102,9 +137,9 @@ const AgentDashboard = () => {
 
       {/* 📈 ANALYTICS CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Assigned Clients" value="42" icon={Users} color="navy" trend="+3 New" />
+        <StatCard title="Assigned Clients" value={agentProfile?.assignedBorrowers?.length || 0} icon={Users} color="navy" trend="+3 New" />
         <StatCard title="Active Loans" value="38" icon={Briefcase} color="blue" trend="92% Active" />
-        <StatCard title="Monthly Commission" value="R8,450" icon={TrendingUp} color="emerald" trend="R1.2k Pending" />
+        <StatCard title="Monthly Commission" value={`R${agentProfile?.totalCommissionEarned?.toLocaleString() || '0'}`} icon={TrendingUp} color="emerald" trend="R1.2k Pending" />
         <StatCard title="Pending Follow-Ups" value="04" icon={Clock} color="rose" trend="High Priority" />
       </div>
 
@@ -175,7 +210,7 @@ const AgentDashboard = () => {
                       <td className="px-8 py-5 text-right">
                         <div className="flex items-center justify-end gap-2">
                            <button className="p-2 text-slate-400 hover:text-primary hover:bg-white rounded-xl transition-all shadow-sm border border-transparent hover:border-slate-100"><Eye size={16} /></button>
-                           <button className="p-2 text-slate-400 hover:text-primary hover:bg-white rounded-xl transition-all shadow-sm border border-transparent hover:border-slate-100"><MessageSquare size={16} /></button>
+                           <button className="p-2 text-slate-400 hover:text-primary hover:bg-white rounded-xl transition-all shadow-sm border border-transparent hover:border-slate-100" disabled={isInactive}><MessageSquare size={16} /></button>
                         </div>
                       </td>
                     </motion.tr>
@@ -200,10 +235,10 @@ const AgentDashboard = () => {
               </div>
               
               <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-                <EarningsItem label="Total Earned" value="R52,400" />
-                <EarningsItem label="Pending" value="R1,200" isHighlight />
-                <EarningsItem label="Paid" value="R51,200" />
-                <EarningsItem label="This Month" value="R8,450" />
+                <EarningsItem label="Total Earned" value={`R${agentProfile?.totalCommissionEarned?.toLocaleString() || '0'}`} />
+                <EarningsItem label="Pending" value="R0" isHighlight />
+                <EarningsItem label="Paid" value={`R${agentProfile?.totalCommissionEarned?.toLocaleString() || '0'}`} />
+                <EarningsItem label="This Month" value="R0" />
               </div>
             </div>
           </section>

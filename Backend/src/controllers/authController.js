@@ -95,6 +95,9 @@ exports.login = asyncHandler(async (req, res) => {
   }
 
   if (user.isFrozen) {
+    if (user.statusReason === 'Your account has been suspended') {
+      return sendError(res, 'Your account has been suspended', 403);
+    }
     const reason = user.statusReason ? `: ${user.statusReason}` : '';
     return sendError(res, `Your account is frozen${reason}. Please contact support to unfreeze.`, 403);
   }

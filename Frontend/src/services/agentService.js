@@ -34,6 +34,36 @@ const agentService = {
     const response = await api.delete(`/admin/agents/${id}`);
     return response.data;
   },
+
+  getAgentClients: async (id) => {
+    const response = await api.get(`/admin/agents/${id}/clients`);
+    return response.data;
+  },
+
+  updateAgentCommission: async (id, commissionData) => {
+    const response = await api.put(`/admin/agents/${id}/commission`, commissionData);
+    return response.data;
+  },
+
+  suspendAgent: async (id) => {
+    const response = await api.put(`/admin/agents/${id}/suspend`);
+    return response.data;
+  },
+
+  activateAgent: async (id) => {
+    const response = await api.put(`/admin/agents/${id}/activate`);
+    return response.data;
+  },
+
+  deactivateAgent: async (id) => {
+    const response = await api.put(`/admin/agents/${id}/deactivate`);
+    return response.data;
+  },
+
+  getMyProfile: async () => {
+    const response = await api.get('/agent/profile');
+    return response.data;
+  },
 };
 
 export default agentService;

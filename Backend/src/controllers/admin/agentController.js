@@ -1,5 +1,6 @@
 const Agent = require('../../models/Agent');
 const User = require('../../models/User');
+const Loan = require('../../models/Loan');
 const asyncHandler = require('../../utils/asyncHandler');
 const { sendSuccess, sendError } = require('../../utils/responseHandler');
 const imagekit = require('../../config/imagekit');
@@ -215,10 +216,10 @@ exports.updateAgent = asyncHandler(async (req, res) => {
     if (password) userUpdate.password = password;
     
     // Status sync
-    if (accountStatus === 'Active') {
+    if (accountStatus === 'Active' || accountStatus === 'Inactive') {
       userUpdate.isActive = true;
       userUpdate.isFrozen = false;
-    } else if (accountStatus === 'Suspended' || accountStatus === 'Inactive') {
+    } else if (accountStatus === 'Suspended') {
       userUpdate.isFrozen = true;
     }
 
@@ -266,4 +267,139 @@ exports.deleteAgent = asyncHandler(async (req, res) => {
   await Agent.findByIdAndDelete(req.params.id);
 
   sendSuccess(res, 'Agent and associated user deleted permanently');
+});
+
+// @desc    Get all borrowers assigned to an agent
+// @route   GET /api/admin/agents/:id/clients
+// @access  Private/Admin
+exports.getAgentClients = asyncHandler(async (req, res) => {
+  const agent = await Agent.findById(req.params.id).populate({
+    path: 'assignedBorrowers',
+    match: { isDeleted: false }
+  });
+
+  if (!agent) {
+    return sendError(res, 'Agent not found', 404);
+  }
+
+  // Enrich borrower data with loan info
+  const enrichedBorrowers = await Promise.all(agent.assignedBorrowers.map(async (borrower) => {
+    const loans = await Loan.find({ borrowerId: borrower._id });
+    const activeLoans = loans.filter(l => l.status === 'active');
+    
+    // Determine EMI Status (if any active loan has overdue repayment)
+    let emiStatus = 'Good';
+    activeLoans.forEach(loan => {
+      const hasOverdue = loan.repaymentSchedule.some(s => s.status === 'overdue');
+      if (hasOverdue) emiStatus = 'Overdue';
+    });
+
+    return {
+      _id: borrower._id,
+      fullName: borrower.fullName,
+      email: borrower.email,
+      phoneNumber: borrower.phoneNumber,
+      profilePhoto: borrower.profilePhoto,
+      accountStatus: borrower.accountStatus,
+      borrowerCode: borrower.borrowerCode,
+      activeLoansCount: activeLoans.length,
+      loanStatus: activeLoans.length > 0 ? 'Active' : 'No Active Loans',
+      emiStatus
+    };
+  }));
+
+  sendSuccess(res, 'Agent clients retrieved successfully', enrichedBorrowers);
+});
+
+// @desc    Update agent commission settings
+// @route   PUT /api/admin/agents/:id/commission
+// @access  Private/Admin
+exports.updateAgentCommission = asyncHandler(async (req, res) => {
+  const { baseCommission, recoveryBonus, commissionTier, internalNotes } = req.body;
+
+  const agent = await Agent.findById(req.params.id);
+  if (!agent) {
+    return sendError(res, 'Agent not found', 404);
+  }
+
+  // Update fields
+  if (baseCommission !== undefined) agent.baseCommission = baseCommission;
+  if (recoveryBonus !== undefined) agent.recoveryBonus = recoveryBonus;
+  if (commissionTier !== undefined) agent.commissionTier = commissionTier;
+  if (internalNotes !== undefined) agent.internalNotes = internalNotes;
+
+  await agent.save();
+
+  sendSuccess(res, 'Commission updated successfully', agent);
+});
+
+// @desc    Suspend agent
+// @route   PUT /api/admin/agents/:id/suspend
+// @access  Private/Admin
+exports.suspendAgent = asyncHandler(async (req, res) => {
+  const agent = await Agent.findById(req.params.id);
+  if (!agent) {
+    return sendError(res, 'Agent not found', 404);
+  }
+
+  agent.accountStatus = 'Suspended';
+  agent.suspendedAt = new Date();
+  await agent.save();
+
+  // Sync with User
+  const user = await User.findById(agent.userId);
+  if (user) {
+    user.isFrozen = true;
+    user.statusReason = 'Your account has been suspended';
+    await user.save();
+  }
+
+  sendSuccess(res, 'Agent suspended successfully', agent);
+});
+
+// @desc    Activate agent
+// @route   PUT /api/admin/agents/:id/activate
+// @access  Private/Admin
+exports.activateAgent = asyncHandler(async (req, res) => {
+  const agent = await Agent.findById(req.params.id);
+  if (!agent) {
+    return sendError(res, 'Agent not found', 404);
+  }
+
+  agent.accountStatus = 'Active';
+  agent.activatedAt = new Date();
+  await agent.save();
+
+  // Sync with User
+  const user = await User.findById(agent.userId);
+  if (user) {
+    user.isFrozen = false;
+    user.statusReason = '';
+    await user.save();
+  }
+
+  sendSuccess(res, 'Agent activated successfully', agent);
+});
+
+// @desc    Deactivate agent
+// @route   PUT /api/admin/agents/:id/deactivate
+// @access  Private/Admin
+exports.deactivateAgent = asyncHandler(async (req, res) => {
+  const agent = await Agent.findById(req.params.id);
+  if (!agent) {
+    return sendError(res, 'Agent not found', 404);
+  }
+
+  agent.accountStatus = 'Inactive';
+  await agent.save();
+
+  // Sync with User - Inactive agents can still login
+  const user = await User.findById(agent.userId);
+  if (user) {
+    user.isFrozen = false;
+    user.statusReason = '';
+    await user.save();
+  }
+
+  sendSuccess(res, 'Agent marked as inactive successfully', agent);
 });

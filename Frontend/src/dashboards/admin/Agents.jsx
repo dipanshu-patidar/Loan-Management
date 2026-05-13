@@ -8,6 +8,8 @@ import {
   UserCheck, History, ArrowRight, X, Loader2, Camera, EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { cn } from '../../utils/cn';
 import StatCard from '../../components/StatCard';
 import StatusBadge from '../../components/StatusBadge';
@@ -26,6 +28,7 @@ const Agents = () => {
   const [activeDrawer, setActiveDrawer] = useState(null); // 'view', 'clients'
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [step, setStep] = useState(1);
+  const [exportFormat, setExportFormat] = useState('pdf');
   const [openMenuId, setOpenMenuId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('Filter by Status');
@@ -198,6 +201,103 @@ const Agents = () => {
     }
   };
 
+  const handleDeactivateAgent = async () => {
+    try {
+       setIsSubmitting(true);
+       await agentService.deactivateAgent(selectedAgent._id);
+       toast.success('Agent marked as Inactive');
+       fetchAgents();
+       closeModal();
+    } catch (error) {
+       toast.error(error.response?.data?.message || 'Failed to deactivate agent');
+    } finally {
+       setIsSubmitting(false);
+    }
+  };
+
+  const handleSuspendAgent = async () => {
+    try {
+       setIsSubmitting(true);
+       // Suspend uses updateAgent with status 'Suspended'
+       await agentService.updateAgent(selectedAgent._id, { accountStatus: 'Suspended' });
+       toast.success('Agent account suspended');
+       fetchAgents();
+       closeModal();
+    } catch (error) {
+       toast.error(error.response?.data?.message || 'Failed to suspend agent');
+    } finally {
+       setIsSubmitting(false);
+    }
+  };
+
+  const handleActivateAgent = async () => {
+    try {
+       setIsSubmitting(true);
+       await agentService.updateAgent(selectedAgent._id, { accountStatus: 'Active' });
+       toast.success('Agent account activated');
+       fetchAgents();
+       closeModal();
+    } finally {
+       setIsSubmitting(false);
+    }
+  };
+
+  const handleExport = () => {
+    if (exportFormat === 'pdf') {
+      const doc = new jsPDF();
+      
+      doc.setFontSize(20);
+      doc.setTextColor(46, 58, 116);
+      doc.text("Loan Management System", 14, 15);
+      
+      doc.setFontSize(14);
+      doc.setTextColor(100, 100, 100);
+      doc.text("Agents Performance Report", 14, 25);
+      
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 32);
+
+      const tableColumn = ["ID", "Full Name", "Email", "Phone", "Region", "Earnings", "Status"];
+      const tableRows = filteredAgents.map(a => [
+        a.employeeId || 'N/A',
+        a.fullName,
+        a.email,
+        a.phoneNumber,
+        a.assignedRegion,
+        `R ${a.totalCommissionEarned?.toLocaleString() || '0'}`,
+        a.accountStatus
+      ]);
+
+      autoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 40,
+        theme: 'grid',
+        headStyles: { fillColor: [46, 58, 116], textColor: [255, 255, 255], fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 3 },
+      });
+
+      doc.save(`Agents_Report_${new Date().getTime()}.pdf`);
+      toast.success('PDF Report generated successfully!');
+    } else if (exportFormat === 'csv') {
+      const headers = ["Agent ID,Full Name,Email,Phone,Region,Earnings,Status\n"];
+      const rows = filteredAgents.map(a => 
+        `${a.employeeId || 'N/A'},"${a.fullName}",${a.email},${a.phoneNumber},${a.assignedRegion},${a.totalCommissionEarned || 0},${a.accountStatus}`
+      ).join("\n");
+      
+      const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Agents_Data_${new Date().getTime()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success('CSV Data exported successfully!');
+    }
+    closeModal();
+  };
+
   const filteredAgents = agents.filter(agent => {
     const matchesSearch = 
       agent.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -262,8 +362,8 @@ const Agents = () => {
       </section>
 
       {/* 4. AGENTS TABLE */}
-      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft overflow-hidden">
-        <div className="overflow-x-auto">
+      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft">
+        <div className="overflow-visible">
            {loading ? (
              <div className="flex flex-col items-center justify-center py-20 gap-4">
                 <Loader2 className="w-10 h-10 text-primary animate-spin" />
@@ -291,8 +391,8 @@ const Agents = () => {
                        </td>
                     </tr>
                  ) : (
-                  filteredAgents.map((agent) => (
-                    <tr key={agent._id} className="group hover:bg-slate-50/50 transition-all">
+                  filteredAgents.map((agent, index) => (
+                    <tr key={agent._id} className={cn("group hover:bg-slate-50/50 transition-all", openMenuId === agent._id && "relative z-[100]")}>
                        <td className="px-8 py-5">
                           <div className="flex items-center gap-4">
                              <div className="w-11 h-11 rounded-2xl bg-primary/5 overflow-hidden flex items-center justify-center font-black text-sm border border-primary/10">
@@ -349,7 +449,10 @@ const Agents = () => {
                                          initial={{ opacity: 0, scale: 0.95, y: 10 }}
                                          animate={{ opacity: 1, scale: 1, y: 0 }}
                                          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                         className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 z-50"
+                                         className={cn(
+                                            "absolute right-0 w-56 bg-white rounded-2xl shadow-2xl border border-slate-100 p-2 z-[101]",
+                                            index >= filteredAgents.length - 2 && filteredAgents.length > 2 ? "bottom-full mb-2" : "top-full mt-2"
+                                         )}
                                       >
                                          <DropdownItem 
                                             icon={Users} 
@@ -362,12 +465,24 @@ const Agents = () => {
                                             onClick={() => openModal('commission', agent)} 
                                          />
                                          <div className="my-1 border-t border-slate-50" />
-                                         <DropdownItem 
-                                            icon={ShieldAlert} 
-                                            label={agent.accountStatus === 'Suspended' ? 'Unsuspend Agent' : 'Suspend Agent'} 
-                                            color="text-amber-600 hover:bg-amber-50"
-                                            onClick={() => openModal('edit', agent)} 
-                                         />
+                                         {agent.accountStatus === 'Active' && (
+                                            <>
+                                               <DropdownItem icon={EyeOff} label="Mark Inactive" color="text-slate-600 hover:bg-slate-50" onClick={() => openModal('deactivate', agent)} />
+                                               <DropdownItem icon={ShieldAlert} label="Suspend Agent" color="text-amber-600 hover:bg-amber-50" onClick={() => openModal('suspend', agent)} />
+                                            </>
+                                         )}
+                                         {agent.accountStatus === 'Inactive' && (
+                                            <>
+                                               <DropdownItem icon={CheckCircle2} label="Activate Agent" color="text-emerald-600 hover:bg-emerald-50" onClick={() => openModal('activate', agent)} />
+                                               <DropdownItem icon={ShieldAlert} label="Suspend Agent" color="text-amber-600 hover:bg-amber-50" onClick={() => openModal('suspend', agent)} />
+                                            </>
+                                         )}
+                                         {agent.accountStatus === 'Suspended' && (
+                                            <>
+                                               <DropdownItem icon={CheckCircle2} label="Activate Agent" color="text-emerald-600 hover:bg-emerald-50" onClick={() => openModal('activate', agent)} />
+                                               <DropdownItem icon={ShieldAlert} label="Suspend Agent" color="text-amber-600 opacity-50 cursor-not-allowed" onClick={() => {}} />
+                                            </>
+                                         )}
                                       </motion.div>
                                    )}
                                 </AnimatePresence>
@@ -375,7 +490,7 @@ const Agents = () => {
                           </div>
                        </td>
                     </tr>
-                 )))}
+                  )))}
               </tbody>
             </table>
            )}
@@ -783,10 +898,6 @@ const Agents = () => {
                <h4 className="text-xl font-black text-slate-900 tracking-tight">Delete Agent Account?</h4>
                <p className="text-sm text-slate-500 mt-2">You are about to permanently delete <span className="font-bold text-slate-900">{selectedAgent?.fullName}</span>. This action will unassign all their borrowers.</p>
             </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col gap-3 text-left">
-               <Checkbox label="I understand this agent will lose system access" checked />
-               <Checkbox label="I have unassigned or reassigned all active clients" checked />
-            </div>
             <div className="flex gap-3 pt-2">
                <Button variant="ghost" onClick={closeModal} disabled={isSubmitting} className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest">Cancel</Button>
                <Button variant="danger" onClick={handleDelete} disabled={isSubmitting} className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-rose-200">
@@ -941,6 +1052,86 @@ const Agents = () => {
             </div>
          )}
       </Drawer>
+      {/* SUSPEND MODAL */}
+      <Modal isOpen={activeModal === 'suspend'} onClose={closeModal} title="Confirm Suspension" maxWidth="max-w-md">
+         <div className="space-y-6 text-center">
+            <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-amber-100 shadow-sm">
+               <ShieldAlert size={28} />
+            </div>
+            <div>
+               <h4 className="text-xl font-black text-slate-900 tracking-tight">Suspend Agent?</h4>
+               <p className="text-sm text-slate-500 mt-2">Are you sure you want to suspend this agent? They will lose all access immediately.</p>
+            </div>
+            <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 space-y-3 text-left">
+               <ReviewRow label="Agent Name" value={selectedAgent?.fullName} />
+               <ReviewRow label="Agent ID" value={selectedAgent?.employeeId} />
+            </div>
+            <div className="flex gap-3 pt-2">
+               <Button variant="ghost" onClick={closeModal} disabled={isSubmitting} className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest">Cancel</Button>
+               <Button variant="danger" onClick={handleSuspendAgent} disabled={isSubmitting} className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-rose-200">
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Confirm Suspension"}
+               </Button>
+            </div>
+         </div>
+      </Modal>
+
+      {/* ACTIVATE MODAL */}
+      <Modal isOpen={activeModal === 'activate'} onClose={closeModal} title="Activate Agent" maxWidth="max-w-md">
+         <div className="space-y-6 text-center">
+            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-100 shadow-sm">
+               <CheckCircle2 size={28} />
+            </div>
+            <div>
+               <h4 className="text-xl font-black text-slate-900 tracking-tight">Activate Agent Account?</h4>
+               <p className="text-sm text-slate-500 mt-2">This will restore the agent's access to the system immediately.</p>
+            </div>
+            <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 space-y-3 text-left">
+               <ReviewRow label="Agent Name" value={selectedAgent?.fullName} />
+               <ReviewRow label="Target Status" value="Active" />
+            </div>
+            <div className="flex gap-3 pt-2">
+               <Button variant="ghost" onClick={closeModal} disabled={isSubmitting} className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest">Cancel</Button>
+               <Button onClick={handleActivateAgent} disabled={isSubmitting} className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-emerald-100">
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Restore Access"}
+               </Button>
+            </div>
+         </div>
+      </Modal>
+
+      {/* DEACTIVATE MODAL */}
+      <Modal isOpen={activeModal === 'deactivate'} onClose={closeModal} title="Deactivate Agent" maxWidth="max-w-md">
+         <div className="space-y-6 text-center">
+            <div className="w-16 h-16 bg-slate-50 text-slate-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-slate-100 shadow-sm">
+               <EyeOff size={28} />
+            </div>
+            <div>
+               <h4 className="text-xl font-black text-slate-900 tracking-tight">Mark Agent as Inactive?</h4>
+               <p className="text-sm text-slate-500 mt-2">Agent will still be able to login but operational features will be restricted.</p>
+            </div>
+            <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 space-y-3 text-left">
+               <ReviewRow label="Agent Name" value={selectedAgent?.fullName} />
+               <ReviewRow label="Target Status" value="Inactive" />
+            </div>
+            <div className="flex gap-3 pt-2">
+               <Button variant="ghost" onClick={closeModal} disabled={isSubmitting} className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest">Cancel</Button>
+               <Button onClick={handleDeactivateAgent} disabled={isSubmitting} className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest">
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Confirm Inactive"}
+               </Button>
+            </div>
+         </div>
+      </Modal>
+
+      {/* EXPORT MODAL */}
+      <Modal isOpen={activeModal === 'export'} onClose={closeModal} title="Export Agents Data" maxWidth="max-w-md">
+         <div className="space-y-6">
+            <p className="text-sm text-slate-500 font-medium">Choose your export format for the current filtered list.</p>
+            <div className="grid grid-cols-2 gap-3">
+               <ExportCard label="PDF Report" icon={FileText} active={exportFormat === 'pdf'} onClick={() => setExportFormat('pdf')} />
+               <ExportCard label="CSV Data" icon={CreditCard} active={exportFormat === 'csv'} onClick={() => setExportFormat('csv')} />
+            </div>
+            <Button onClick={handleExport} className="w-full py-4 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-primary/20">Download Export</Button>
+         </div>
+      </Modal>
     </div>
   );
 };
@@ -980,10 +1171,18 @@ const ReviewRow = ({ label, value }) => (
   </div>
 );
 
-const ExportCard = ({ label, icon: Icon }) => (
-  <button className="flex flex-col items-center justify-center p-5 bg-slate-50 border border-slate-100 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all group">
-     <Icon size={24} className="text-slate-400 group-hover:text-primary mb-3" />
-     <span className="text-[10px] font-black text-slate-500 group-hover:text-primary uppercase tracking-widest">{label}</span>
+const ExportCard = ({ label, icon: Icon, active, onClick }) => (
+  <button 
+     onClick={onClick}
+     className={cn(
+        "flex flex-col items-center justify-center p-5 border rounded-2xl transition-all group",
+        active 
+           ? "bg-primary/5 border-primary shadow-sm" 
+           : "bg-slate-50 border-slate-100 hover:border-slate-200"
+     )}
+  >
+     <Icon size={24} className={cn("mb-3", active ? "text-primary" : "text-slate-400 group-hover:text-slate-500")} />
+     <span className={cn("text-[10px] font-black uppercase tracking-widest", active ? "text-primary" : "text-slate-500")}>{label}</span>
   </button>
 );
 

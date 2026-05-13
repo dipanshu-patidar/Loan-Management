@@ -16,6 +16,7 @@ const agentRoutes = require('./routes/agentRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const loanApplicationRoutes = require('./routes/loanApplicationRoutes');
 const activeLoanRoutes = require('./routes/admin/activeLoanRoutes');
+const paymentRoutes = require('./routes/admin/paymentRoutes');
 
 const app = express();
 
@@ -51,6 +52,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/admin/staff', staffRoutes);
 app.use('/api/admin/loan-applications', loanApplicationRoutes);
 app.use('/api/admin/active-loans', activeLoanRoutes);
+app.use('/api/admin/payments', paymentRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 

@@ -33,28 +33,56 @@ const initSocket = (server) => {
   io.on('connection', (socket) => {
     // console.log(`User connected: ${socket.user.email} (${socket.user._id})`);
     
-    // Broadcast user online status
+    // Broadcast user online status (Both original & explicit prompt names)
     socket.broadcast.emit('online_status', { userId: socket.user._id, status: 'online' });
+    socket.broadcast.emit('userOnline', { userId: socket.user._id, role: socket.user.role, name: socket.user.fullName });
 
+    // Original listeners
     socket.on('join_room', (roomId) => {
       socket.join(roomId);
     });
 
-    socket.on('typing', ({ roomId, userId, userName }) => {
-      socket.to(roomId).emit('typing', { userId, userName });
+    // Explicit prompt listeners
+    socket.on('joinConversation', (conversationId) => {
+      socket.join(conversationId);
+    });
+
+    // Typing indicators
+    socket.on('typing', ({ roomId, conversationId, userId, userName }) => {
+      const targetId = roomId || conversationId;
+      if (targetId) {
+        socket.to(targetId).emit('typing', { userId, userName });
+        socket.to(targetId).emit('userTyping', { conversationId: targetId, userId, userName, isTyping: true });
+      }
+    });
+
+    socket.on('stopTyping', ({ roomId, conversationId, userId }) => {
+      const targetId = roomId || conversationId;
+      if (targetId) {
+        socket.to(targetId).emit('stop_typing', { userId });
+        socket.to(targetId).emit('userTyping', { conversationId: targetId, userId, isTyping: false });
+      }
     });
 
     socket.on('stop_typing', ({ roomId, userId }) => {
-      socket.to(roomId).emit('stop_typing', { userId });
+      if (roomId) {
+        socket.to(roomId).emit('stop_typing', { userId });
+      }
     });
 
+    // Mark read
     socket.on('mark_read', ({ roomId, userId }) => {
       socket.to(roomId).emit('mark_read', { userId });
+    });
+
+    socket.on('markRead', ({ conversationId, userId }) => {
+      socket.to(conversationId).emit('unreadUpdated', { conversationId, userId });
     });
 
     socket.on('disconnect', () => {
       // console.log(`User disconnected: ${socket.user.email}`);
       socket.broadcast.emit('online_status', { userId: socket.user._id, status: 'offline' });
+      socket.broadcast.emit('userOffline', { userId: socket.user._id });
     });
   });
 

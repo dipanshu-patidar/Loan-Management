@@ -27,6 +27,8 @@ const adminProfileRoutes = require('./routes/admin/profileRoutes');
 const adminDashboardRoutes = require('./routes/admin/dashboardRoutes');
 const staffLoanRequestRoutes = require('./routes/staff/loanRequestRoutes');
 const staffLoanReviewRoutes = require('./routes/staff/loanReviewRoutes');
+const staffPaymentVerificationRoutes = require('./routes/staff/paymentVerificationRoutes');
+const staffCommunicationRoutes = require('./routes/staff/communicationRoutes');
 
 const app = express();
 
@@ -74,6 +76,8 @@ app.use('/api/admin/profile', adminProfileRoutes);
 app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/staff/loan-requests', staffLoanRequestRoutes);
 app.use('/api/staff/loan-review', staffLoanReviewRoutes);
+app.use('/api/staff/payment-verification', staffPaymentVerificationRoutes);
+app.use('/api/staff/communications', staffCommunicationRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 

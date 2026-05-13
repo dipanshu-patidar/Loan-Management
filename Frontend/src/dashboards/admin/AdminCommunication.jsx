@@ -20,6 +20,19 @@ import { initiateSocketConnection, getSocket, disconnectSocket } from '../../soc
 import { toast } from 'react-hot-toast';
 import api from '../../services/api'; // To fetch users for individual dropdown
 
+const formatDetailedDate = (dateInput) => {
+  if (!dateInput) return '';
+  const date = new Date(dateInput);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfToday);
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+
+  if (date >= startOfToday) return 'Today';
+  if (date >= startOfYesterday) return 'Yesterday';
+  return date.toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
 const AdminCommunication = () => {
   const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
@@ -73,21 +86,59 @@ const AdminCommunication = () => {
     if (token) {
       const socket = initiateSocketConnection(token);
 
-      socket.on('receive_message', (newMessage) => {
+      // Normalise message payloads from both Admin controller (raw Mongo schema)
+      // and Staff controller (formatted DTO with messageId/message fields).
+      const handleIncomingMessage = (payload) => {
+        if (!payload) return;
+
+        // Bridge between the two schema formats
+        const normalizedMessage = {
+          _id: payload._id || payload.messageId,
+          messageId: payload.messageId || payload._id,
+          conversationId: payload.conversationId?.toString() || payload.conversationId,
+          senderId: typeof payload.senderId === 'object'
+            ? payload.senderId
+            : { _id: payload.senderId, fullName: payload.senderName || 'User' },
+          messageText: payload.messageText || payload.message || '',
+          message: payload.messageText || payload.message || '',
+          messageType: payload.messageType || 'text',
+          isRead: false,
+          createdAt: payload.createdAt || new Date()
+        };
+
         setSelectedChat((currentSelected) => {
-          if (currentSelected && currentSelected._id === newMessage.conversationId) {
-            setMessages((prev) => {
-              // Strict Duplication Guard on Socket delivery
-              if (prev.some(msg => msg._id === newMessage._id)) return prev;
-              return [...prev, newMessage];
-            });
-            communicationService.markAsRead(newMessage.conversationId);
+          if (currentSelected) {
+            const selectedId = (currentSelected._id || currentSelected.conversationId)?.toString();
+            const incomingId = normalizedMessage.conversationId?.toString();
+
+            if (selectedId && incomingId && selectedId === incomingId) {
+              setMessages((prev) => {
+                // De-duplicate by _id or messageId with string coercion
+                const incomingKey = normalizedMessage._id?.toString() || normalizedMessage.messageId?.toString();
+                if (prev.some(msg => {
+                  const existingKey = msg._id?.toString() || msg.messageId?.toString();
+                  return existingKey && incomingKey && existingKey === incomingKey;
+                })) return prev;
+                return [...prev, normalizedMessage];
+              });
+              communicationService.markAsRead(normalizedMessage.conversationId);
+            }
           }
           return currentSelected;
         });
 
         fetchConversations();
-      });
+      };
+
+      // Listen to both naming conventions from Admin and Staff controllers
+      socket.on('receive_message', handleIncomingMessage);
+      socket.on('receiveMessage', handleIncomingMessage);
+
+      // Also listen for targeted personal events (emitted by staff controller)
+      if (currentUser?._id) {
+        socket.on(`receive_message_${currentUser._id}`, handleIncomingMessage);
+        socket.on(`receiveMessage_${currentUser._id}`, handleIncomingMessage);
+      }
 
       socket.on('online_status', ({ userId, status }) => {
         setOnlineUsers((prev) => {
@@ -513,61 +564,64 @@ const AdminCommunication = () => {
                       </div>
                     ) : (
                       <>
-                        <div className="flex justify-center">
-                          <span className="px-4 py-1.5 bg-white border border-slate-100 rounded-full text-[9px] font-black text-slate-400 uppercase tracking-widest shadow-sm">
-                            SECURED ENCRYPTED CHannel
-                          </span>
-                        </div>
-
                         {messages.map((msg, i) => {
                           const isMe = msg.senderId?._id === currentUser?._id;
+                          const showDateDivider = i === 0 || formatDetailedDate(messages[i - 1].createdAt) !== formatDetailedDate(msg.createdAt);
                           
                           return (
-                            <motion.div 
-                              key={msg._id || i} 
-                              initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              className={cn(
-                                "flex flex-col gap-2 max-w-[80%]",
-                                isMe ? "ml-auto items-end" : "mr-auto items-start"
+                            <React.Fragment key={msg._id || i}>
+                              {showDateDivider && (
+                                <div className="flex justify-center my-6">
+                                  <span className="px-4 py-1.5 bg-white border border-slate-100 rounded-full text-[8px] font-black text-slate-400 uppercase tracking-widest shadow-sm">
+                                    {formatDetailedDate(msg.createdAt)}
+                                  </span>
+                                </div>
                               )}
-                            >
-                              {!isMe && (
-                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">
-                                  {msg.senderId?.fullName || 'Unknown Sender'}
-                                </span>
-                              )}
-                              
-                              <div 
-                                onContextMenu={(e) => {
-                                  if (isMe) handleRightClick(e, msg);
-                                }}
+                              <motion.div 
+                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
                                 className={cn(
-                                  "p-5 rounded-[2rem] text-sm font-medium shadow-sm leading-relaxed relative select-none cursor-pointer",
-                                  isMe 
-                                    ? "bg-primary text-white rounded-tr-none shadow-primary/10" 
-                                    : "bg-white text-slate-700 border border-slate-100 rounded-tl-none",
-                                  msg.messageType === 'compliance_notice' && "border-2 border-rose-300 bg-rose-50/40",
-                                  msg.messageType === 'reminder' && "border-2 border-amber-300 bg-amber-50/40"
+                                  "flex flex-col gap-2 max-w-[80%]",
+                                  isMe ? "ml-auto items-end" : "mr-auto items-start"
                                 )}
-                                title={isMe ? "Right-click to retract message" : ""}
                               >
-                                {msg.messageText}
-                              </div>
-                              
-                              <div className="flex items-center gap-2 mt-2 px-1">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                                {isMe && (
-                                  msg.isRead ? (
-                                    <CheckCheck size={12} className="text-primary" />
-                                  ) : (
-                                    <Check size={12} className="text-slate-300" />
-                                  )
+                                {!isMe && (
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">
+                                    {msg.senderId?.fullName || 'Unknown Sender'}
+                                  </span>
                                 )}
-                              </div>
-                            </motion.div>
+                                
+                                <div 
+                                  onContextMenu={(e) => {
+                                    if (isMe) handleRightClick(e, msg);
+                                  }}
+                                  className={cn(
+                                    "p-5 rounded-[2rem] text-sm font-medium shadow-sm leading-relaxed relative select-none cursor-pointer",
+                                    isMe 
+                                      ? "bg-primary text-white rounded-tr-none shadow-primary/10" 
+                                      : "bg-white text-slate-700 border border-slate-100 rounded-tl-none",
+                                    msg.messageType === 'compliance_notice' && "border-2 border-rose-300 bg-rose-50/40",
+                                    msg.messageType === 'reminder' && "border-2 border-amber-300 bg-amber-50/40"
+                                  )}
+                                  title={isMe ? "Right-click to retract message" : ""}
+                                >
+                                  {msg.messageText}
+                                </div>
+                                
+                                <div className="flex items-center gap-2 mt-2 px-1">
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                  {isMe && (
+                                    msg.isRead ? (
+                                      <CheckCheck size={12} className="text-primary" />
+                                    ) : (
+                                      <Check size={12} className="text-slate-300" />
+                                    )
+                                  )}
+                                </div>
+                              </motion.div>
+                            </React.Fragment>
                           );
                         })}
                       </>

@@ -29,6 +29,7 @@ const staffLoanRequestRoutes = require('./routes/staff/loanRequestRoutes');
 const staffLoanReviewRoutes = require('./routes/staff/loanReviewRoutes');
 const staffPaymentVerificationRoutes = require('./routes/staff/paymentVerificationRoutes');
 const staffCommunicationRoutes = require('./routes/staff/communicationRoutes');
+const staffProfileRoutes = require('./routes/staff/profileRoutes');
 
 const app = express();
 
@@ -78,6 +79,7 @@ app.use('/api/staff/loan-requests', staffLoanRequestRoutes);
 app.use('/api/staff/loan-review', staffLoanReviewRoutes);
 app.use('/api/staff/payment-verification', staffPaymentVerificationRoutes);
 app.use('/api/staff/communications', staffCommunicationRoutes);
+app.use('/api/staff/profile', staffProfileRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 

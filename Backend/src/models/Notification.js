@@ -1,54 +1,71 @@
 const mongoose = require('mongoose');
 
 const notificationSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  message: { type: String, required: true },
+  receiverId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  receiverRole: {
+    type: String,
+    enum: ['admin', 'staff', 'agent', 'borrower'],
+    required: true
+  },
+  senderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  senderRole: {
+    type: String,
+    enum: ['admin', 'staff', 'agent', 'borrower', 'system']
+  },
   notificationType: {
     type: String,
     enum: [
-      'New Application',
-      'Overdue Alert',
-      'Payment Notification',
-      'Approval Alert',
-      'Loan Approved',
-      'Loan Rejected',
-      'EMI Reminder',
-      'Borrower Registered',
-      'Staff Alert',
-      'Agent Alert',
-      'System Alert'
+      'NewLoanRequest',
+      'ReviewAssigned',
+      'PaymentVerification',
+      'PaymentRejected',
+      'NewMessage',
+      'BorrowerReply',
+      'AdminMessage',
+      'OverdueAlert',
+      'LoanApproved',
+      'LoanRejected'
     ],
     required: true
   },
+  title: {
+    type: String,
+    required: true
+  },
+  message: {
+    type: String,
+    required: true
+  },
+  relatedId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: false
+  },
+  relatedModel: {
+    type: String,
+    required: false
+  },
+  isRead: {
+    type: Boolean,
+    default: false
+  },
   priority: {
     type: String,
-    enum: ['Normal', 'Important', 'Urgent'],
-    default: 'Normal'
-  },
-  status: {
-    type: String,
-    enum: ['Read', 'Unread'],
-    default: 'Unread'
-  },
-  
-  // Entity relations for quick lookup/populated drawers
-  borrowerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Borrower' },
-  loanId: { type: mongoose.Schema.Types.ObjectId, ref: 'ActiveLoan' }, // Can adapt depending on schema
-  applicationId: { type: mongoose.Schema.Types.ObjectId, ref: 'LoanApplication' },
-  paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
+    enum: ['normal', 'important', 'urgent'],
+    default: 'normal'
+  }
+}, { 
+  timestamps: true 
+});
 
-  senderRole: { type: String },
-  receiverRole: { type: String, default: 'admin' },
-  receiverId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-
-  quickActionType: { type: String }, // for front-end redirection logic helpers
-  
-  isRead: { type: Boolean, default: false },
-  isDeleted: { type: Boolean, default: false }
-}, { timestamps: true });
-
-// Add indexes for performance
-notificationSchema.index({ receiverRole: 1, isDeleted: 1, status: 1 });
+// Indexes for performance
+notificationSchema.index({ receiverId: 1, isRead: 1 });
 notificationSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Notification', notificationSchema);

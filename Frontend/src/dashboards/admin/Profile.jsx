@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, Mail, Phone, MapPin, Calendar, 
   Lock, Camera, CheckCircle2, X, Save, Key,
-  ShieldCheck, Building2, BadgeCheck
+  ShieldCheck, Building2, BadgeCheck, Eye, EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -11,6 +11,7 @@ import Button from '../../ui/Button';
 import Input from '../../ui/Input';
 import StatusBadge from '../../components/StatusBadge';
 import profileService from '../../services/profileService';
+import staffProfileService from '../../services/staffProfileService';
 
 const Profile = () => {
   // Core States
@@ -19,6 +20,11 @@ const Profile = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [activeTab, setActiveTab] = useState('personal');
+  
+  // Password Visibility States
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   
   // Model States
   const [profileData, setProfileData] = useState({
@@ -30,7 +36,10 @@ const Profile = () => {
     primaryBranch: '',
     role: '',
     profilePhoto: '',
-    accountStatus: 'Active'
+    accountStatus: 'Active',
+    employeeId: '',
+    designation: '',
+    joiningDate: ''
   });
 
   // Original data backup for discard functionality
@@ -47,8 +56,14 @@ const Profile = () => {
   const isAgent = window.location.pathname.includes('/agent');
   const isBorrower = window.location.pathname.includes('/borrower');
 
+  // Role based service selection
+  const getService = () => {
+    if (isStaff) return staffProfileService;
+    return profileService;
+  };
+
   const roleTitle = profileData.fullName || (isBorrower ? 'Borrower' : (isAgent ? 'Field Agent' : (isStaff ? 'Branch Staff' : 'Administrator')));
-  const roleSubtitle = isBorrower ? 'Verified Borrower' : (isAgent ? 'Portfolio Specialist' : (isStaff ? 'Operational Specialist' : 'Senior Administrator'));
+  const roleSubtitle = isStaff ? (profileData.designation || 'Operational Specialist') : (isBorrower ? 'Verified Borrower' : (isAgent ? 'Portfolio Specialist' : 'Senior Administrator'));
   const locationLabel = isBorrower ? 'Residential Area' : 'Primary Branch';
 
   // Helper to format dates from Mongo to YYYY-MM-DD for Input compatibility
@@ -63,7 +78,15 @@ const Profile = () => {
   const loadProfile = async () => {
     try {
       setLoading(true);
-      const response = await profileService.getAdminProfile();
+      const service = getService();
+      
+      let response;
+      if (isStaff) {
+        response = await service.getStaffProfile();
+      } else {
+        response = await service.getAdminProfile();
+      }
+
       if (response.data) {
         const data = response.data;
         const formatted = {
@@ -73,9 +96,12 @@ const Profile = () => {
           dateOfBirth: formatDate(data.dateOfBirth),
           address: data.address || '',
           primaryBranch: data.primaryBranch || '',
-          role: data.role || 'admin',
+          role: data.role || (isStaff ? 'Staff' : 'admin'),
           profilePhoto: data.profilePhoto || '',
-          accountStatus: data.operationalStatus || (data.isActive ? 'Active' : 'Inactive')
+          accountStatus: data.accountStatus || data.operationalStatus || (data.isActive ? 'Active' : 'Inactive'),
+          employeeId: data.employeeId || '',
+          designation: data.designation || '',
+          joiningDate: data.joiningDate || ''
         };
         setProfileData(formatted);
         originalDataRef.current = formatted;
@@ -108,14 +134,26 @@ const Profile = () => {
     if (e) e.preventDefault();
     try {
       setSaving(true);
+      const service = getService();
       
-      const res = await profileService.updateAdminProfile({
+      const updatePayload = {
         fullName: profileData.fullName,
         phoneNumber: profileData.phoneNumber,
         dateOfBirth: profileData.dateOfBirth || null,
         address: profileData.address,
-        primaryBranch: profileData.primaryBranch
-      });
+      };
+
+      // Admin can update branch, staff cannot
+      if (!isStaff) {
+        updatePayload.primaryBranch = profileData.primaryBranch;
+      }
+
+      let res;
+      if (isStaff) {
+        res = await service.updateStaffProfile(updatePayload);
+      } else {
+        res = await service.updateAdminProfile(updatePayload);
+      }
 
       if (res.success) {
         toast.success('Profile updated successfully!');
@@ -133,7 +171,7 @@ const Profile = () => {
         window.dispatchEvent(new Event('profileUpdate'));
       }
     } catch (err) {
-      const errMsg = err.response?.data?.message || 'Unable to commit profile changes';
+      const errMsg = err.message || err.response?.data?.message || 'Unable to commit profile changes';
       toast.error(errMsg);
     } finally {
       setSaving(false);
@@ -152,12 +190,24 @@ const Profile = () => {
       return;
     }
 
+    // Max 5MB
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size exceeds 5MB limit');
+      return;
+    }
+
     try {
       setUploadingPhoto(true);
       const formData = new FormData();
       formData.append('profilePhoto', file);
 
-      const res = await profileService.updateProfilePhoto(formData);
+      const service = getService();
+      let res;
+      if (isStaff) {
+        res = await service.uploadStaffProfilePhoto(formData);
+      } else {
+        res = await service.updateProfilePhoto(formData);
+      }
       
       if (res.success) {
         const newPhotoUrl = res.data.profilePhoto;
@@ -176,7 +226,7 @@ const Profile = () => {
         toast.success('Profile photo updated');
       }
     } catch (err) {
-      toast.error('Failed to upload image to server');
+      toast.error(err.message || 'Failed to upload image to server');
     } finally {
       setUploadingPhoto(false);
     }
@@ -212,16 +262,26 @@ const Profile = () => {
 
     try {
       setChangingPassword(true);
-      await profileService.changePassword({
-        currentPassword: currentPassword || '',
-        newPassword,
-        confirmPassword
-      });
+      const service = getService();
+      
+      if (isStaff) {
+        await service.changeStaffPassword({
+          currentPassword: currentPassword || '',
+          newPassword,
+          confirmPassword
+        });
+      } else {
+        await service.changePassword({
+          currentPassword: currentPassword || '',
+          newPassword,
+          confirmPassword
+        });
+      }
       
       toast.success('Password updated successfully');
       setPwdData({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (err) {
-      const msg = err.response?.data?.message || 'Password update failed';
+      const msg = err.message || err.response?.data?.message || 'Password update failed';
       toast.error(msg);
     } finally {
       setChangingPassword(false);
@@ -387,6 +447,24 @@ const Profile = () => {
                              onChange={(e) => setProfileData(prev => ({ ...prev, dateOfBirth: e.target.value }))}
                              icon={Calendar} 
                            />
+                           {isStaff && (
+                             <Input 
+                               label="Employee ID" 
+                               value={profileData.employeeId} 
+                               readOnly 
+                               className="bg-slate-50 opacity-80 cursor-not-allowed"
+                               icon={BadgeCheck} 
+                             />
+                           )}
+                           {isStaff && (
+                             <Input 
+                               label="Designation" 
+                               value={profileData.designation} 
+                               readOnly 
+                               className="bg-slate-50 opacity-80 cursor-not-allowed"
+                               icon={ShieldCheck} 
+                             />
+                           )}
                            <div className="md:col-span-2">
                               <Input 
                                 label="Address" 
@@ -394,13 +472,15 @@ const Profile = () => {
                                 value={profileData.address} 
                                 onChange={(e) => setProfileData(prev => ({ ...prev, address: e.target.value }))}
                                 icon={MapPin} 
-                                placeholder="Residential or office street address..."
+                                placeholder="Residential or street address..."
                               />
                            </div>
                            <Input 
                              label={locationLabel} 
                              value={profileData.primaryBranch} 
-                             onChange={(e) => setProfileData(prev => ({ ...prev, primaryBranch: e.target.value }))}
+                             onChange={(e) => !isStaff && setProfileData(prev => ({ ...prev, primaryBranch: e.target.value }))}
+                             readOnly={isStaff}
+                             className={cn(isStaff && "bg-slate-50 opacity-80 cursor-not-allowed")}
                              icon={isBorrower ? MapPin : Building2} 
                              placeholder="Branch Location"
                            />
@@ -441,30 +521,57 @@ const Profile = () => {
                            <div className="grid grid-cols-1 gap-6">
                               <Input 
                                 label="Current Password" 
-                                type="password" 
+                                type={showCurrent ? 'text' : 'password'} 
                                 value={pwdData.currentPassword}
                                 onChange={(e) => setPwdData(prev => ({ ...prev, currentPassword: e.target.value }))}
                                 placeholder="••••••••" 
                                 icon={Lock} 
+                                rightElement={
+                                  <button 
+                                    type="button" 
+                                    onClick={() => setShowCurrent(!showCurrent)}
+                                    className="text-slate-400 hover:text-primary transition-colors focus:outline-none"
+                                  >
+                                    {showCurrent ? <EyeOff size={18} /> : <Eye size={18} /> }
+                                  </button>
+                                }
                               />
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                  <Input 
                                    label="New Password" 
-                                   type="password" 
+                                   type={showNew ? 'text' : 'password'} 
                                    value={pwdData.newPassword}
                                    onChange={(e) => setPwdData(prev => ({ ...prev, newPassword: e.target.value }))}
                                    placeholder="Min 6 characters" 
                                    icon={Key} 
                                    required
+                                   rightElement={
+                                     <button 
+                                       type="button" 
+                                       onClick={() => setShowNew(!showNew)}
+                                       className="text-slate-400 hover:text-primary transition-colors focus:outline-none"
+                                     >
+                                       {showNew ? <EyeOff size={18} /> : <Eye size={18} /> }
+                                     </button>
+                                   }
                                  />
                                  <Input 
                                    label="Confirm New Password" 
-                                   type="password" 
+                                   type={showConfirm ? 'text' : 'password'} 
                                    value={pwdData.confirmPassword}
                                    onChange={(e) => setPwdData(prev => ({ ...prev, confirmPassword: e.target.value }))}
                                    placeholder="Repeat new password" 
                                    icon={ShieldCheck} 
                                    required
+                                   rightElement={
+                                     <button 
+                                       type="button" 
+                                       onClick={() => setShowConfirm(!showConfirm)}
+                                       className="text-slate-400 hover:text-primary transition-colors focus:outline-none"
+                                     >
+                                       {showConfirm ? <EyeOff size={18} /> : <Eye size={18} /> }
+                                     </button>
+                                   }
                                  />
                               </div>
                            </div>

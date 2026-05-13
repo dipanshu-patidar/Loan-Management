@@ -70,37 +70,42 @@ exports.createBorrower = async (req, res, next) => {
     }
 
     // 2.5 Create User for authentication
-    const user = await User.create({
-      fullName,
-      email,
-      phone: phoneNumber,
-      password,
-      role: 'borrower',
-      profilePhoto: profilePhotoUrl,
-    });
+    let user;
+    let borrower;
+    try {
+      user = await User.create({
+        fullName,
+        email,
+        phone: phoneNumber,
+        password,
+        role: 'borrower',
+        profilePhoto: profilePhotoUrl,
+      });
 
-    // 2.7 Cleanup empty fields to avoid casting errors (e.g. empty ObjectId)
-    Object.keys(req.body).forEach(key => {
-      if (req.body[key] === '' || req.body[key] === 'null') {
-        req.body[key] = null;
-      }
-    });
+      // 2.7 Cleanup empty fields to avoid casting errors (e.g. empty ObjectId)
+      Object.keys(req.body).forEach(key => {
+        if (req.body[key] === '' || req.body[key] === 'null') {
+          req.body[key] = null;
+        }
+      });
 
-    // 3. Create Borrower
-    const borrower = await Borrower.create({
-      ...req.body,
-      userId: user._id,
-      profilePhoto: profilePhotoUrl,
-      profilePhotoFileId: req.body.profilePhotoFileId,
-      monthlyNetSalary: Number(req.body.monthlyNetSalary) || 0,
-      yearsOfService: Number(req.body.yearsOfService) || 0,
-      createdBy: req.user._id, // From protect middleware
-    });
+      // 3. Create Borrower
+      borrower = await Borrower.create({
+        ...req.body,
+        userId: user._id,
+        profilePhoto: profilePhotoUrl,
+        profilePhotoFileId: req.body.profilePhotoFileId,
+        monthlyNetSalary: Number(req.body.monthlyNetSalary) || 0,
+        yearsOfService: Number(req.body.yearsOfService) || 0,
+        createdBy: req.user._id, // From protect middleware
+      });
 
-    if (borrower) {
       return sendSuccess(res, 'Borrower created successfully', borrower, 201);
-    } else {
-      return sendError(res, 'Invalid borrower data', 400);
+    } catch (createError) {
+      // Cleanup: If any record was created but the process failed later, delete them
+      if (user) await User.findByIdAndDelete(user._id).catch(() => {});
+      if (borrower) await Borrower.findByIdAndDelete(borrower._id).catch(() => {});
+      throw createError;
     }
   } catch (error) {
     next(error);

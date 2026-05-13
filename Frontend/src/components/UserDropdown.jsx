@@ -7,6 +7,9 @@ const UserDropdown = ({ role }) => {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
 
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const initials = user.fullName ? user.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : (role ? role.substring(0, 2).toUpperCase() : '??');
+
   return (
     <div className="relative">
       <button 
@@ -14,11 +17,11 @@ const UserDropdown = ({ role }) => {
         className="flex items-center gap-3 p-1.5 hover:bg-slate-50 rounded-xl transition-all"
       >
         <div className="w-9 h-9 bg-accent/10 rounded-lg flex items-center justify-center text-accent font-bold">
-          {role === 'admin' ? 'AD' : role === 'staff' ? 'ST' : role === 'agent' ? 'AG' : 'BR'}
+          {initials}
         </div>
         <div className="hidden sm:block text-left">
           <p className="text-sm font-bold text-slate-800 leading-none">
-            {role === 'admin' ? 'Point.47 Admin' : role === 'staff' ? 'Branch Staff' : role === 'agent' ? 'Field Agent' : 'Borrower'}
+            {user.fullName || (role === 'admin' ? 'Admin' : 'Staff Member')}
           </p>
           <p className="text-[10px] text-slate-400 font-semibold uppercase mt-1 tracking-wider">{role}</p>
         </div>

@@ -52,6 +52,7 @@ exports.register = asyncHandler(async (req, res) => {
         fullName: user.fullName,
         email: user.email,
         role: user.role,
+        operationalStatus: user.operationalStatus
       },
       token,
     }, 201);
@@ -91,7 +92,11 @@ exports.login = asyncHandler(async (req, res) => {
 
   // Check if user is active
   if (!user.isActive) {
-    return sendError(res, 'Your account is inactive. Please contact support.', 403);
+    // If it's a staff/agent and they are suspended, provide the specific message
+    const message = (user.role === 'staff' || user.role === 'agent') 
+      ? 'Your account has been suspended' 
+      : 'Your account is inactive. Please contact support.';
+    return sendError(res, message, 403);
   }
 
   if (user.isFrozen) {

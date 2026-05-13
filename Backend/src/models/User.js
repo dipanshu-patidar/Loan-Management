@@ -51,6 +51,11 @@ const userSchema = new mongoose.Schema(
     statusReason: {
       type: String,
     },
+    operationalStatus: {
+      type: String,
+      enum: ['Active', 'Inactive', 'Suspended'],
+      default: 'Active',
+    },
   },
   {
     timestamps: true,

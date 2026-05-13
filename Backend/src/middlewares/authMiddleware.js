@@ -34,6 +34,11 @@ const protect = asyncHandler(async (req, res, next) => {
         return sendError(res, 'User not found', 404);
     }
 
+    // Check if user is suspended/inactive at authentication level
+    if (!req.user.isActive) {
+      return sendError(res, 'Your account has been suspended', 403);
+    }
+
     next();
   } catch (err) {
     return sendError(res, 'Not authorized: Invalid or expired token', 401);

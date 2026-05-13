@@ -46,7 +46,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin/borrowers', borrowerRoutes);
 app.use('/api/admin/agents', adminAgentRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/staff', staffRoutes);
+app.use('/api/admin/staff', staffRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 

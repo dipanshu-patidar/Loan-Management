@@ -24,6 +24,9 @@ const LoanReview = () => {
   const [isRejectionModalOpen, setIsRejectionModalOpen] = useState(false);
   const [isRequestDocsModalOpen, setIsRequestDocsModalOpen] = useState(false);
 
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+  const isInactive = currentUser.operationalStatus === 'Inactive';
+
   const reviews = [
     { 
       id: 'APP-001', 
@@ -276,14 +279,37 @@ const LoanReview = () => {
               </div>
 
               <div className="p-8 border-t border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-                <Button className="w-full font-black uppercase tracking-widest text-[10px] py-4 bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20" onClick={() => setIsApprovalModalOpen(true)}>
+                <Button 
+                  className={cn(
+                    "w-full font-black uppercase tracking-widest text-[10px] py-4",
+                    isInactive ? "bg-slate-300 cursor-not-allowed opacity-70" : "bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20"
+                  )} 
+                  onClick={() => !isInactive && setIsApprovalModalOpen(true)}
+                  title={isInactive ? "Your account is inactive" : "Approve Recommendation"}
+                >
                   Approve Recommendation
                 </Button>
                 <div className="grid grid-cols-2 gap-3">
-                  <Button variant="secondary" className="font-black uppercase tracking-widest text-[8px] py-4 border-rose-100 text-rose-500" onClick={() => setIsRejectionModalOpen(true)}>
+                  <Button 
+                    variant="secondary" 
+                    className={cn(
+                      "font-black uppercase tracking-widest text-[8px] py-4",
+                      isInactive ? "border-slate-100 text-slate-300 cursor-not-allowed" : "border-rose-100 text-rose-500"
+                    )}
+                    onClick={() => !isInactive && setIsRejectionModalOpen(true)}
+                    title={isInactive ? "Your account is inactive" : "Reject"}
+                  >
                     Reject
                   </Button>
-                  <Button variant="secondary" className="font-black uppercase tracking-widest text-[8px] py-4 border-slate-200" onClick={() => setIsRequestDocsModalOpen(true)}>
+                  <Button 
+                    variant="secondary" 
+                    className={cn(
+                      "font-black uppercase tracking-widest text-[8px] py-4",
+                      isInactive ? "border-slate-100 text-slate-300 cursor-not-allowed" : "border-slate-200"
+                    )}
+                    onClick={() => !isInactive && setIsRequestDocsModalOpen(true)}
+                    title={isInactive ? "Your account is inactive" : "Request Docs"}
+                  >
                     Request Docs
                   </Button>
                 </div>

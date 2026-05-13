@@ -60,41 +60,48 @@ exports.createAgent = asyncHandler(async (req, res) => {
     profilePhotoFileId = uploadResponse.fileId;
   }
 
-  // Create User for authentication
-  const user = await User.create({
-    fullName,
-    email,
-    phone: phoneNumber,
-    password,
-    role: 'agent',
-    profilePhoto: profilePhoto || 'no-photo.jpg',
-  });
+  let user;
+  let agent;
+  try {
+    // Create User for authentication
+    user = await User.create({
+      fullName,
+      email,
+      phone: phoneNumber,
+      password,
+      role: 'agent',
+      profilePhoto: profilePhoto || 'no-photo.jpg',
+    });
 
-  // Create Agent Profile
-  const agent = await Agent.create({
-    userId: user._id,
-    fullName,
-    email,
-    password, 
-    phoneNumber,
-    idNumber,
-    physicalAddress,
-    profilePhoto,
-    profilePhotoFileId,
-    assignedRegion,
-    joiningDate,
-    reportingManager,
-    baseCommission,
-    recoveryBonus,
-    commissionTier,
-    role,
-    internalNotes,
-    createdBy: req.user._id,
-  });
+    // Create Agent Profile
+    agent = await Agent.create({
+      userId: user._id,
+      fullName,
+      email,
+      password, 
+      phoneNumber,
+      idNumber,
+      physicalAddress,
+      profilePhoto,
+      profilePhotoFileId,
+      assignedRegion,
+      joiningDate,
+      reportingManager,
+      baseCommission,
+      recoveryBonus,
+      commissionTier,
+      role,
+      internalNotes,
+      createdBy: req.user._id,
+    });
 
-  sendSuccess(res, 'Agent created successfully', {
-    agent
-  }, 201);
+    sendSuccess(res, 'Agent created successfully', { agent }, 201);
+  } catch (error) {
+    // Cleanup: If any record was created but the process failed later, delete them
+    if (user) await User.findByIdAndDelete(user._id).catch(() => {});
+    if (agent) await Agent.findByIdAndDelete(agent._id).catch(() => {});
+    throw error;
+  }
 });
 
 // @desc    Get all agents

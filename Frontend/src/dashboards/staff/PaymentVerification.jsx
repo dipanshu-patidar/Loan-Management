@@ -270,10 +270,25 @@ const PaymentVerification = () => {
               </div>
 
               <div className="p-8 border-t border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-                <Button className="w-full font-black uppercase tracking-widest text-[10px] py-4 bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20" onClick={() => setIsVerifyModalOpen(true)}>
+                <Button 
+                  className={cn(
+                    "w-full font-black uppercase tracking-widest text-[10px] py-4",
+                    isInactive ? "bg-slate-300 cursor-not-allowed opacity-70" : "bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20"
+                  )} 
+                  onClick={() => !isInactive && setIsVerifyModalOpen(true)}
+                  title={isInactive ? "Your account is inactive" : "Verify Payment"}
+                >
                   Verify Payment
                 </Button>
-                <Button variant="secondary" className="w-full font-black uppercase tracking-widest text-[10px] py-4 border-rose-100 text-rose-500" onClick={() => setIsRejectionModalOpen(true)}>
+                <Button 
+                  variant="secondary" 
+                  className={cn(
+                    "w-full font-black uppercase tracking-widest text-[10px] py-4",
+                    isInactive ? "border-slate-100 text-slate-300 cursor-not-allowed" : "border-rose-100 text-rose-500"
+                  )}
+                  onClick={() => !isInactive && setIsRejectionModalOpen(true)}
+                  title={isInactive ? "Your account is inactive" : "Reject Proof"}
+                >
                   Reject Proof
                 </Button>
               </div>

@@ -100,6 +100,20 @@ exports.createBorrower = async (req, res, next) => {
         createdBy: req.user._id, // From protect middleware
       });
 
+      // Create admin real-time notification
+      try {
+        const { createNotification } = require('../utils/notificationHelper');
+        await createNotification({
+          title: 'Borrower Onboarded',
+          message: `New borrower profile manually created for ${borrower.fullName}.`,
+          notificationType: 'Borrower Registered',
+          priority: 'Important',
+          borrowerId: borrower._id
+        });
+      } catch (notifErr) {
+        console.error('Failed to log borrower registration notification:', notifErr.message);
+      }
+
       return sendSuccess(res, 'Borrower created successfully', borrower, 201);
     } catch (createError) {
       // Cleanup: If any record was created but the process failed later, delete them

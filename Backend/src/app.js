@@ -20,6 +20,9 @@ const paymentRoutes = require('./routes/admin/paymentRoutes');
 const duePaymentRoutes = require('./routes/admin/duePaymentRoutes');
 const reportRoutes = require('./routes/admin/reportRoutes');
 const communicationRoutes = require('./routes/admin/communicationRoutes');
+const settingsRoutes = require('./routes/admin/settingsRoutes');
+const notificationRoutes = require('./routes/admin/notificationRoutes');
+const navbarNotificationRoutes = require('./routes/admin/navbarNotificationRoutes');
 
 const app = express();
 
@@ -60,6 +63,9 @@ app.use('/api/admin/payments', paymentRoutes);
 app.use('/api/admin/due-payments', duePaymentRoutes);
 app.use('/api/admin/reports', reportRoutes);
 app.use('/api/admin/communications', communicationRoutes);
+app.use('/api/admin/settings', settingsRoutes);
+app.use('/api/admin/notifications', notificationRoutes);
+app.use('/api/admin/navbar-notifications', navbarNotificationRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 

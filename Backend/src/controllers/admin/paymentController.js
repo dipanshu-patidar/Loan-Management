@@ -133,6 +133,20 @@ const verifyPayment = asyncHandler(async (req, res) => {
   await activeLoan.save();
   await payment.save();
 
+  // Trigger admin notification for incoming verified cashflow
+  try {
+    const { createNotification } = require('../../utils/notificationHelper');
+    await createNotification({
+      title: 'Payment Verified',
+      message: `Payment of R ${payment.paymentAmount} for Loan ${payment.loanCode} has been verified successfully.`,
+      notificationType: 'Payment Notification',
+      priority: 'Important',
+      borrowerId: payment.borrowerId,
+      loanId: payment.loanId,
+      paymentId: payment._id
+    });
+  } catch (err) {}
+
   sendSuccess(res, 'Payment verified successfully', { payment, activeLoan });
 });
 

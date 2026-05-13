@@ -1,35 +1,186 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Settings2, Save, RotateCcw, Percent, 
   DollarSign, Clock, AlertCircle, Briefcase,
   ChevronRight, Activity, ShieldCheck, CheckCircle2,
   Calculator, Info, Zap, Bell, ToggleLeft as Toggle,
   Wallet, TrendingUp, History, ShieldAlert, FileText,
-  Landmark, UserCheck, CheckCircle, XCircle
+  Landmark, UserCheck, CheckCircle, XCircle, Calendar, Loader2, AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
 import Button from '../../ui/Button';
 import Input from '../../ui/Input';
+import Modal from '../../ui/Modal';
+import settingsService from '../../services/settingsService';
+import { toast } from 'react-hot-toast';
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState('general'); // 'general' or 'eligibility'
+  const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [showToast, setShowToast] = useState(false);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
-  const handleSave = () => {
+  // Real Dynamic Form Data mapped to schema
+  const [formData, setFormData] = useState({
+    defaultInterestRate: 12.5,
+    minInterestRate: 8.0,
+    maxInterestRate: 25.0,
+    interestType: 'Reducing Balance',
+    processingFeeType: 'Fixed Amount',
+    processingFeeValue: 250,
+    autoApplyProcessingFee: true,
+    gracePeriodDays: 3,
+    lateFeeAmount: 150,
+    allowGracePeriod: true,
+    autoApplyLateFee: true,
+    graceReminders: true,
+    minimumLoanAmount: 1000,
+    maximumLoanAmount: 100000,
+    minimumAge: 18,
+    minimumMonthlyIncome: 5000,
+    employmentType: 'Both',
+    eligibleMinimumPrincipal: 1000,
+    eligibleMaximumPrincipal: 50000,
+    allowedRepaymentDurations: '3, 6, 12, 18, 24',
+    idVerificationRequired: true,
+    bankStatementReview: true,
+    payslipVerification: true,
+    proofOfAddressAudit: true,
+    manualStaffDecision: true,
+    creditBureauIntegration: false,
+    enableAutoApprovalLogic: false
+  });
+
+  // Dynamic preview state from server
+  const [previewData, setPreviewData] = useState({
+    monthlyRepayment: 938,
+    minPrincipal: 1000,
+    maxPrincipal: 50000,
+    baseInterest: '12.5%',
+    processingFee: 'R 250',
+    penaltyGrace: '3 Days',
+    logicSummary: {
+      interestBasis: 'Reducing Balance',
+      feeFrequency: 'Once per approved loan',
+      penaltyBasis: 'Automated Overdue Run',
+      reviewFlow: 'Manual Verification Gate'
+    }
+  });
+
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // 1. Initial data fetch
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        setLoading(true);
+        const res = await settingsService.getSettings();
+        if (res.data.data) {
+          setFormData(res.data.data);
+          // Populate preview initially
+          fetchLivePreview(res.data.data);
+        }
+      } catch (err) {
+        toast.error('Failed to load configurations');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadSettings();
+  }, []);
+
+  // 2. Calculate Live Preview with debounce
+  const fetchLivePreview = async (currentData) => {
+    try {
+      setPreviewLoading(true);
+      const res = await settingsService.calculateLivePreview(currentData);
+      if (res.data.data) {
+        setPreviewData(res.data.data);
+      }
+    } catch (err) {
+      // silent error for continuous typing
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // Setup debounced trigger for preview updates on form changes
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const delay = setTimeout(() => {
+      fetchLivePreview(formData);
+    }, 500);
+    return () => clearTimeout(delay);
+  }, [
+    formData.defaultInterestRate, 
+    formData.interestType, 
+    formData.eligibleMinimumPrincipal,
+    formData.eligibleMaximumPrincipal,
+    formData.processingFeeValue,
+    formData.processingFeeType,
+    formData.gracePeriodDays,
+    formData.autoApplyLateFee,
+    formData.enableAutoApprovalLogic
+  ]);
+
+  // Input handlers
+  const handleInputChange = (key, val) => {
+    setFormData(prev => ({ ...prev, [key]: val }));
+  };
+
+  const handleSave = async () => {
     setIsSaving(true);
-    setTimeout(() => {
+    try {
+      if (activeTab === 'general') {
+        await settingsService.updateGeneralSettings(formData);
+        toast.success('General configurations applied');
+      } else {
+        await settingsService.updateEligibilityRules(formData);
+        await settingsService.updateDocumentRules(formData);
+        toast.success('Eligibility & documentation protocols locked');
+      }
+    } catch (err) {
+      toast.error('Failed to apply configurations');
+    } finally {
       setIsSaving(false);
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 3000);
-    }, 1500);
+    }
+  };
+
+  const handleReset = async () => {
+    try {
+      setLoading(true);
+      const res = await settingsService.resetSettings();
+      if (res.data.data) {
+        setFormData(res.data.data);
+        fetchLivePreview(res.data.data);
+        toast.success('Protocols reset to safe system defaults');
+      }
+    } catch (err) {
+      toast.error('Failed to reset system settings');
+    } finally {
+      setIsResetModalOpen(false);
+      setLoading(false);
+    }
   };
 
   const tabs = [
     { id: 'general', label: 'General Settings', icon: Settings2 },
     { id: 'eligibility', label: 'Eligibility Rules', icon: ShieldCheck },
   ];
+
+  if (loading) {
+    return (
+      <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
+        <Loader2 size={42} className="text-primary animate-spin opacity-80" />
+        <p className="text-xs font-black tracking-widest text-slate-400 uppercase">Querying MongoDB Config Cluster...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-24 relative">
@@ -42,7 +193,11 @@ const Settings = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-           <Button variant="secondary" className="flex items-center gap-2 font-bold px-6 border-slate-200">
+           <Button 
+             onClick={() => setIsResetModalOpen(true)} 
+             variant="secondary" 
+             className="flex items-center gap-2 font-bold px-6 border-slate-200"
+           >
              <RotateCcw size={18} /> Reset
            </Button>
            <Button 
@@ -51,11 +206,11 @@ const Settings = () => {
               className="flex items-center gap-2 font-bold px-8 shadow-lg shadow-primary/20 bg-primary"
            >
              {isSaving ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <Loader2 className="w-5 h-5 animate-spin" />
              ) : (
                 <Save size={18} />
              )}
-             {isSaving ? 'Saving...' : 'Save Settings'}
+             {isSaving ? 'Applying...' : 'Save Settings'}
            </Button>
         </div>
       </header>
@@ -67,7 +222,7 @@ const Settings = () => {
                key={tab.id}
                onClick={() => setActiveTab(tab.id)}
                className={cn(
-                  "flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all",
+                  "flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer",
                   activeTab === tab.id 
                      ? "bg-white text-primary shadow-sm" 
                      : "text-slate-400 hover:text-slate-600"
@@ -96,16 +251,38 @@ const Settings = () => {
                         {/* GENERAL SETTINGS CONTENT */}
                         <SettingsSection title="Interest Settings" icon={Percent}>
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <Input label="Default Interest Rate (%)" type="number" defaultValue="12.5" icon={Percent} />
+                              <Input 
+                                label="Default Interest Rate (%)" 
+                                type="number" 
+                                value={formData.defaultInterestRate} 
+                                onChange={(e) => handleInputChange('defaultInterestRate', Number(e.target.value))}
+                                icon={Percent} 
+                              />
                               <div className="space-y-2">
                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Interest Type</label>
-                                 <select className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner">
-                                    <option>Reducing Balance</option>
-                                    <option>Flat Rate</option>
+                                 <select 
+                                   value={formData.interestType}
+                                   onChange={(e) => handleInputChange('interestType', e.target.value)}
+                                   className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner cursor-pointer"
+                                 >
+                                    <option value="Reducing Balance">Reducing Balance</option>
+                                    <option value="Flat Rate">Flat Rate</option>
                                  </select>
                               </div>
-                              <Input label="Min Interest (%)" type="number" defaultValue="8" icon={TrendingUp} />
-                              <Input label="Max Interest (%)" type="number" defaultValue="25" icon={TrendingUp} />
+                              <Input 
+                                label="Min Interest (%)" 
+                                type="number" 
+                                value={formData.minInterestRate} 
+                                onChange={(e) => handleInputChange('minInterestRate', Number(e.target.value))}
+                                icon={TrendingUp} 
+                              />
+                              <Input 
+                                label="Max Interest (%)" 
+                                type="number" 
+                                value={formData.maxInterestRate} 
+                                onChange={(e) => handleInputChange('maxInterestRate', Number(e.target.value))}
+                                icon={TrendingUp} 
+                              />
                            </div>
                         </SettingsSection>
 
@@ -113,32 +290,86 @@ const Settings = () => {
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                               <div className="space-y-2">
                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fee Type</label>
-                                 <select className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner">
-                                    <option>Fixed Amount</option>
-                                    <option>Percentage</option>
+                                 <select 
+                                   value={formData.processingFeeType}
+                                   onChange={(e) => handleInputChange('processingFeeType', e.target.value)}
+                                   className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner cursor-pointer"
+                                 >
+                                    <option value="Fixed Amount">Fixed Amount</option>
+                                    <option value="Percentage">Percentage</option>
                                  </select>
                               </div>
-                              <Input label="Processing Fee Value (R)" defaultValue="250" icon={Landmark} />
+                              <Input 
+                                label={`Processing Fee Value (${formData.processingFeeType === 'Fixed Amount' ? 'R' : '%'})`} 
+                                type="number"
+                                value={formData.processingFeeValue} 
+                                onChange={(e) => handleInputChange('processingFeeValue', Number(e.target.value))}
+                                icon={Landmark} 
+                              />
                            </div>
-                           <ToggleSwitch label="Auto Apply Processing Fee" description="Automatically add fee to new loan applications" checked />
+                           <ToggleSwitch 
+                             label="Auto Apply Processing Fee" 
+                             description="Automatically add fee to new loan applications" 
+                             checked={formData.autoApplyProcessingFee} 
+                             onChange={(checked) => handleInputChange('autoApplyProcessingFee', checked)}
+                           />
                         </SettingsSection>
 
                         <SettingsSection title="Repayment Governance" icon={Clock}>
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                              <Input label="Grace Period Days" type="number" defaultValue="3" icon={Clock} />
-                              <Input label="Late Fee Amount (R)" defaultValue="150" icon={AlertCircle} />
+                              <Input 
+                                label="Grace Period Days" 
+                                type="number" 
+                                value={formData.gracePeriodDays} 
+                                onChange={(e) => handleInputChange('gracePeriodDays', Number(e.target.value))}
+                                icon={Clock} 
+                              />
+                              <Input 
+                                label="Late Fee Amount (R)" 
+                                type="number"
+                                value={formData.lateFeeAmount} 
+                                onChange={(e) => handleInputChange('lateFeeAmount', Number(e.target.value))}
+                                icon={AlertCircle} 
+                              />
                            </div>
                            <div className="space-y-4">
-                              <ToggleSwitch label="Allow Grace Period" description="Enable grace period for all loan repayments" checked />
-                              <ToggleSwitch label="Auto Apply Late Fee" description="Charge fee immediately after grace expires" checked />
-                              <ToggleSwitch label="Grace Reminders" description="Notify borrower 24h before grace expires" />
+                              <ToggleSwitch 
+                                label="Allow Grace Period" 
+                                description="Enable grace period for all loan repayments" 
+                                checked={formData.allowGracePeriod} 
+                                onChange={(c) => handleInputChange('allowGracePeriod', c)}
+                              />
+                              <ToggleSwitch 
+                                label="Auto Apply Late Fee" 
+                                description="Charge fee immediately after grace expires" 
+                                checked={formData.autoApplyLateFee} 
+                                onChange={(c) => handleInputChange('autoApplyLateFee', c)}
+                              />
+                              <ToggleSwitch 
+                                label="Grace Reminders" 
+                                description="Notify borrower 24h before grace expires" 
+                                checked={formData.graceReminders}
+                                onChange={(c) => handleInputChange('graceReminders', c)}
+                              />
                            </div>
                         </SettingsSection>
 
                         <SettingsSection title="Loan Configuration" icon={Briefcase}>
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <Input label="System Minimum Amount" defaultValue="R 1,000" icon={Wallet} />
-                              <Input label="System Maximum Amount" defaultValue="R 100,000" icon={TrendingUp} />
+                              <Input 
+                                label="System Minimum Amount (R)" 
+                                type="number"
+                                value={formData.minimumLoanAmount} 
+                                onChange={(e) => handleInputChange('minimumLoanAmount', Number(e.target.value))}
+                                icon={Wallet} 
+                              />
+                              <Input 
+                                label="System Maximum Amount (R)" 
+                                type="number"
+                                value={formData.maximumLoanAmount} 
+                                onChange={(e) => handleInputChange('maximumLoanAmount', Number(e.target.value))}
+                                icon={TrendingUp} 
+                              />
                            </div>
                         </SettingsSection>
                      </>
@@ -159,13 +390,30 @@ const Settings = () => {
 
                         <SettingsSection title="Basic Eligibility" icon={UserCheck}>
                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                              <Input label="Minimum Age" type="number" defaultValue="18" icon={History} />
-                              <Input label="Min. Monthly Income" type="number" defaultValue="5000" icon={DollarSign} />
+                              <Input 
+                                label="Minimum Age" 
+                                type="number" 
+                                value={formData.minimumAge} 
+                                onChange={(e) => handleInputChange('minimumAge', Number(e.target.value))}
+                                icon={History} 
+                              />
+                              <Input 
+                                label="Min. Monthly Income (R)" 
+                                type="number" 
+                                value={formData.minimumMonthlyIncome} 
+                                onChange={(e) => handleInputChange('minimumMonthlyIncome', Number(e.target.value))}
+                                icon={DollarSign} 
+                              />
                               <div className="space-y-2">
                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Employment</label>
-                                 <select className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner">
-                                    <option>Employed / Self</option>
-                                    <option>Any Income Source</option>
+                                 <select 
+                                   value={formData.employmentType}
+                                   onChange={(e) => handleInputChange('employmentType', e.target.value)}
+                                   className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner cursor-pointer"
+                                 >
+                                    <option value="Employed">Employed</option>
+                                    <option value="Self Employed">Self Employed</option>
+                                    <option value="Both">Employed / Self Employed</option>
                                  </select>
                               </div>
                            </div>
@@ -173,22 +421,64 @@ const Settings = () => {
 
                         <SettingsSection title="Loan Scope Rules" icon={Wallet}>
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <Input label="Eligible Min Principal" defaultValue="1000" icon={DollarSign} />
-                              <Input label="Eligible Max Principal" defaultValue="50000" icon={TrendingUp} />
+                              <Input 
+                                label="Eligible Min Principal (R)" 
+                                type="number"
+                                value={formData.eligibleMinimumPrincipal} 
+                                onChange={(e) => handleInputChange('eligibleMinimumPrincipal', Number(e.target.value))}
+                                icon={DollarSign} 
+                              />
+                              <Input 
+                                label="Eligible Max Principal (R)" 
+                                type="number"
+                                value={formData.eligibleMaximumPrincipal} 
+                                onChange={(e) => handleInputChange('eligibleMaximumPrincipal', Number(e.target.value))}
+                                icon={TrendingUp} 
+                              />
                               <div className="md:col-span-2">
-                                 <Input label="Allowed Repayment Durations" defaultValue="3, 6, 12, 18, 24 Months" icon={CalendarRange} />
+                                 <Input 
+                                   label="Allowed Repayment Durations (Months)" 
+                                   placeholder="e.g., 3, 6, 12, 24"
+                                   value={formData.allowedRepaymentDurations} 
+                                   onChange={(e) => handleInputChange('allowedRepaymentDurations', e.target.value)}
+                                   icon={Calendar} 
+                                 />
                               </div>
                            </div>
                         </SettingsSection>
 
                         <SettingsSection title="Documentation & Verification" icon={ShieldCheck}>
                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
-                              <Checkbox label="ID Verification Required" checked />
-                              <Checkbox label="Payslip Verification" checked />
-                              <Checkbox label="Bank Statement Review" checked />
-                              <Checkbox label="Proof of Address Audit" checked />
-                              <Checkbox label="Credit Bureau Integration" />
-                              <Checkbox label="Manual Staff Decision" checked />
+                              <Checkbox 
+                                label="ID Verification Required" 
+                                checked={formData.idVerificationRequired} 
+                                onChange={(c) => handleInputChange('idVerificationRequired', c)}
+                              />
+                              <Checkbox 
+                                label="Payslip Verification" 
+                                checked={formData.payslipVerification} 
+                                onChange={(c) => handleInputChange('payslipVerification', c)}
+                              />
+                              <Checkbox 
+                                label="Bank Statement Review" 
+                                checked={formData.bankStatementReview} 
+                                onChange={(c) => handleInputChange('bankStatementReview', c)}
+                              />
+                              <Checkbox 
+                                label="Proof of Address Audit" 
+                                checked={formData.proofOfAddressAudit} 
+                                onChange={(c) => handleInputChange('proofOfAddressAudit', c)}
+                              />
+                              <Checkbox 
+                                label="Credit Bureau Integration" 
+                                checked={formData.creditBureauIntegration} 
+                                onChange={(c) => handleInputChange('creditBureauIntegration', c)}
+                              />
+                              <Checkbox 
+                                label="Manual Staff Decision" 
+                                checked={formData.manualStaffDecision} 
+                                onChange={(c) => handleInputChange('manualStaffDecision', c)}
+                              />
                            </div>
                            <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center justify-between">
                               <div className="flex items-center gap-4">
@@ -200,7 +490,10 @@ const Settings = () => {
                                     <p className="text-[10px] font-bold text-slate-400">Apply auto-approval if documentation scores 100%.</p>
                                  </div>
                               </div>
-                              <ToggleSwitch checked={false} />
+                              <ToggleSwitch 
+                                checked={formData.enableAutoApprovalLogic} 
+                                onChange={(c) => handleInputChange('enableAutoApprovalLogic', c)}
+                              />
                            </div>
                         </SettingsSection>
                      </>
@@ -218,33 +511,39 @@ const Settings = () => {
                   
                   <div className="relative z-10 flex items-center justify-between mb-8">
                      <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Live Logic Preview</h4>
-                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                     {previewLoading ? (
+                        <Loader2 size={14} className="text-primary animate-spin" />
+                     ) : (
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                     )}
                   </div>
 
                   <div className="relative z-10 space-y-8">
                      {/* EMI Preview */}
                      <div className="text-center">
-                        <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1">Monthly Repayment</p>
-                        <h2 className="text-4xl font-black text-white tracking-tight">R 1,250</h2>
-                        <p className="text-[9px] font-bold text-slate-600 mt-2 italic">Based on current General Settings</p>
+                        <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest mb-1">Sample Monthly Repayment</p>
+                        <h2 className="text-4xl font-black text-white tracking-tight">R {previewData.monthlyRepayment.toLocaleString()}</h2>
+                        <p className="text-[9px] font-bold text-slate-600 mt-2 italic">Calculated dynamically (Sample Principal: R 10,000 / 12m)</p>
                      </div>
 
                      {/* Breakdown */}
                      <div className="space-y-4 pt-6 border-t border-white/5">
-                        <PreviewRow label="Min Principal" value="R 1,000" />
-                        <PreviewRow label="Max Principal" value="R 50,000" />
-                        <PreviewRow label="Base Interest" value="12.5%" />
-                        <PreviewRow label="Processing Fee" value="+ R 250" />
-                        <PreviewRow label="Penalty Grace" value="3 Days" />
+                        <PreviewRow label="Min Principal" value={`R ${Number(previewData.minPrincipal).toLocaleString()}`} />
+                        <PreviewRow label="Max Principal" value={`R ${Number(previewData.maxPrincipal).toLocaleString()}`} />
+                        <PreviewRow label="Base Interest" value={previewData.baseInterest} />
+                        <PreviewRow label="Processing Fee" value={formData.autoApplyProcessingFee ? `+ ${previewData.processingFee}` : 'Disabled'} />
+                        <PreviewRow label="Penalty Grace" value={formData.allowGracePeriod ? previewData.penaltyGrace : '0 Days'} />
                      </div>
 
                      {/* Borrower Eligibility Snapshot */}
                      <div className="p-5 bg-white/5 rounded-2xl border border-white/5 space-y-3">
-                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Borrower Eligibility Info</p>
+                        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">Borrower Eligibility Snapshot</p>
                         <div className="flex flex-wrap gap-2">
-                           <SnapshotBadge label="Age 18+" />
-                           <SnapshotBadge label="Income R5k+" />
-                           <SnapshotBadge label="ID Verified" />
+                           <SnapshotBadge label={`Age ${formData.minimumAge}+`} />
+                           <SnapshotBadge label={`Income R${formData.minimumMonthlyIncome / 1000}k+`} />
+                           <SnapshotBadge label={formData.employmentType === 'Both' ? 'Any Income' : formData.employmentType} />
+                           {formData.idVerificationRequired && <SnapshotBadge label="ID Req" />}
+                           {formData.creditBureauIntegration && <SnapshotBadge label="Bureau Req" />}
                         </div>
                      </div>
                   </div>
@@ -256,35 +555,39 @@ const Settings = () => {
                      <Info size={16} className="text-primary" /> Logic Summary
                   </h4>
                   <div className="space-y-4">
-                     <LogicItem label="Interest Basis" value="Reducing Balance" />
-                     <LogicItem label="Fee Frequency" value="Once per loan" />
-                     <LogicItem label="Penalty Basis" value="Fixed System Fee" />
-                     <LogicItem label="Review Flow" value="Manual Staff Desk" />
+                     <LogicItem label="Interest Basis" value={previewData.logicSummary.interestBasis} />
+                     <LogicItem label="Fee Frequency" value={previewData.logicSummary.feeFrequency} />
+                     <LogicItem label="Penalty Basis" value={previewData.logicSummary.penaltyBasis} />
+                     <LogicItem label="Review Flow" value={previewData.logicSummary.reviewFlow} />
                   </div>
                </div>
             </div>
          </div>
       </div>
 
-      {/* Success Toast */}
+      {/* Confirmation Modals */}
       <AnimatePresence>
-         {showToast && (
-            <motion.div 
-               initial={{ opacity: 0, y: 50 }}
-               animate={{ opacity: 1, y: 0 }}
-               exit={{ opacity: 0, y: 50 }}
-               className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-8 py-5 rounded-[2rem] shadow-2xl z-[100] flex items-center gap-5 border border-white/10"
-            >
-               <div className="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                  <CheckCircle2 size={20} className="text-white" />
+         {isResetModalOpen && (
+            <Modal isOpen onClose={() => setIsResetModalOpen(false)} title="Factory Reset Protocol" maxWidth="max-w-md">
+               <div className="space-y-6 text-center py-2">
+                  <div className="w-16 h-16 rounded-[1.5rem] bg-rose-50 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+                     <AlertTriangle size={28} />
+                  </div>
+                  <div className="space-y-2">
+                     <h4 className="text-lg font-black text-slate-900 tracking-tight">Reset to Factory Safe defaults?</h4>
+                     <p className="text-xs text-slate-500 leading-relaxed px-4">
+                        This will wipe your custom configuration thresholds and restore system defaults (12.5% base interest, R250 setup fee). This will impact all NEW application flows instantly.
+                     </p>
+                  </div>
+                  <div className="flex gap-3 pt-4 border-t border-slate-50">
+                     <Button variant="secondary" onClick={() => setIsResetModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
+                     <Button onClick={handleReset} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[10px] shadow-lg shadow-rose-600/20 py-4">Confirm Reset</Button>
+                  </div>
                </div>
-               <div>
-                  <p className="text-sm font-black tracking-tight">System Settings Updated!</p>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Centralized logic applied successfully</p>
-               </div>
-            </motion.div>
+            </Modal>
          )}
       </AnimatePresence>
+
     </div>
   );
 };
@@ -305,8 +608,8 @@ const SettingsSection = ({ title, icon: Icon, children }) => (
    </section>
 );
 
-const ToggleSwitch = ({ label, description, checked }) => (
-   <div className="flex items-center justify-between group cursor-pointer">
+const ToggleSwitch = ({ label, description, checked, onChange }) => (
+   <div onClick={() => onChange && onChange(!checked)} className="flex items-center justify-between group cursor-pointer select-none">
       <div>
          {label && <p className="text-sm font-black text-slate-900 group-hover:text-primary transition-colors">{label}</p>}
          {description && <p className="text-[11px] font-medium text-slate-400 mt-0.5">{description}</p>}
@@ -323,8 +626,8 @@ const ToggleSwitch = ({ label, description, checked }) => (
    </div>
 );
 
-const Checkbox = ({ label, checked }) => (
-   <label className="flex items-center gap-3 cursor-pointer group">
+const Checkbox = ({ label, checked, onChange }) => (
+   <label onClick={() => onChange && onChange(!checked)} className="flex items-center gap-3 cursor-pointer group select-none">
       <div className={cn(
          "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
          checked ? "bg-primary border-primary shadow-sm" : "bg-white border-slate-200 group-hover:border-primary/40"
@@ -346,7 +649,7 @@ const PreviewRow = ({ label, value }) => (
 );
 
 const SnapshotBadge = ({ label }) => (
-   <div className="px-3 py-1.5 bg-white/5 border border-white/5 rounded-lg text-[8px] font-black uppercase tracking-widest text-white/60">
+   <div className="px-3 py-1.5 bg-white/5 border border-white/5 rounded-lg text-[8px] font-black uppercase tracking-widest text-white/60 whitespace-nowrap">
       {label}
    </div>
 );
@@ -357,8 +660,5 @@ const LogicItem = ({ label, value }) => (
       <span className="text-[11px] font-black text-slate-900">{value}</span>
    </div>
 );
-
-// Helper for CalendarRange if missing
-import { Calendar as CalendarRange } from 'lucide-react';
 
 export default Settings;

@@ -36,13 +36,27 @@ exports.register = asyncHandler(async (req, res) => {
 
   if (user) {
     // Create borrower profile (linked to user)
-    await Borrower.create({ 
+    const borrowerProfile = await Borrower.create({ 
       userId: user._id,
       fullName: user.fullName,
       email: user.email,
       phoneNumber: user.phone,
       accountStatus: 'Active'
     });
+
+    // Create admin real-time notification
+    try {
+      const { createNotification } = require('../utils/notificationHelper');
+      await createNotification({
+        title: 'Borrower Registered',
+        message: `A new borrower profile has been registered for ${user.fullName}.`,
+        notificationType: 'Borrower Registered',
+        priority: 'Normal',
+        borrowerId: borrowerProfile._id
+      });
+    } catch (notifErr) {
+      console.error('Failed to log borrower registration notification:', notifErr.message);
+    }
 
     const token = generateToken(user._id, user.role);
 

@@ -201,15 +201,20 @@ const approveApplication = asyncHandler(async (req, res) => {
     (Math.pow(1 + monthlyRate, duration) - 1)
   );
 
-  // Notify Borrower
+  // Notify Borrower & Create Admin Realtime Log
   const borrower = await Borrower.findById(application.borrowerId);
-  if (borrower && borrower.userId) {
-    await Notification.create({
-      receiverId: borrower.userId,
-      title: 'Loan Approved',
-      message: `Congratulations! Your loan application ${application.applicationId} for amount ${loanAmount} has been approved.`,
-      type: 'success',
-    });
+  if (borrower) {
+    try {
+      const { createNotification } = require('../utils/notificationHelper');
+      await createNotification({
+        title: 'Approval Alert',
+        message: `Loan application ${application.applicationId} for amount R ${loanAmount} has been APPROVED.`,
+        notificationType: 'Approval Alert',
+        priority: 'Important',
+        borrowerId: borrower._id,
+        applicationId: application._id
+      });
+    } catch (err) {}
   }
 
   const emiSchedule = [];
@@ -287,15 +292,20 @@ const rejectApplication = asyncHandler(async (req, res) => {
 
   await application.save();
 
-  // Notify Borrower
+  // Notify Borrower & Create Admin Realtime Log
   const borrower = await Borrower.findById(application.borrowerId);
-  if (borrower && borrower.userId) {
-    await Notification.create({
-      receiverId: borrower.userId,
-      title: 'Loan Rejected',
-      message: `We regret to inform you that your loan application ${application.applicationId} has been rejected. Reason: ${rejectionReason || 'Policy mismatch'}`,
-      type: 'error',
-    });
+  if (borrower) {
+    try {
+      const { createNotification } = require('../utils/notificationHelper');
+      await createNotification({
+        title: 'Approval Alert',
+        message: `Loan application ${application.applicationId} has been REJECTED. Reason: ${rejectionReason || 'Policy mismatch'}`,
+        notificationType: 'Approval Alert',
+        priority: 'Important',
+        borrowerId: borrower._id,
+        applicationId: application._id
+      });
+    } catch (err) {}
   }
 
   sendSuccess(res, 'Loan application rejected', application);
@@ -331,15 +341,20 @@ const holdApplication = asyncHandler(async (req, res) => {
 
   await application.save();
 
-  // Notify Borrower
+  // Notify Borrower & Create Admin Realtime Log
   const borrower = await Borrower.findById(application.borrowerId);
-  if (borrower && borrower.userId) {
-    await Notification.create({
-      receiverId: borrower.userId,
-      title: 'Loan Application on Hold',
-      message: `Your loan application ${application.applicationId} is currently on hold. Reason: ${holdReason || 'Awaiting further verification'}`,
-      type: 'warning',
-    });
+  if (borrower) {
+    try {
+      const { createNotification } = require('../utils/notificationHelper');
+      await createNotification({
+        title: 'Application Alert',
+        message: `Loan application ${application.applicationId} has been placed ON HOLD.`,
+        notificationType: 'System Alert',
+        priority: 'Normal',
+        borrowerId: borrower._id,
+        applicationId: application._id
+      });
+    } catch (err) {}
   }
 
   sendSuccess(res, 'Loan application put on hold', application);

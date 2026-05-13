@@ -34,6 +34,11 @@ const StatusBadge = ({ status, className }) => {
     recommended: 'bg-purple-50 text-purple-600 border-purple-100',
     hold: 'bg-yellow-50 text-yellow-600 border-yellow-100',
     'under review': 'bg-orange-50 text-orange-600 border-orange-100',
+    'pending verification': 'bg-indigo-50 text-indigo-600 border-indigo-100',
+    'pending review': 'bg-amber-50 text-amber-600 border-amber-100',
+    'reviewed': 'bg-teal-50 text-teal-600 border-teal-100',
+    'recommendation submitted': 'bg-purple-50 text-purple-600 border-purple-100',
+    'rejected recommendation': 'bg-rose-50 text-rose-600 border-rose-100',
   };
 
   const currentStyle = styles[status.toLowerCase()] || styles[status.toLowerCase().replace(/\s+/g, '')] || 'bg-slate-100 text-slate-600 border-slate-200';

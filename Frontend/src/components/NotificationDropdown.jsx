@@ -87,6 +87,11 @@ const NotificationDropdown = () => {
 
   // 1. Initial Rest Hydration
   const initializeData = async () => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.role !== 'admin') {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const [notifRes, countRes] = await Promise.all([
@@ -108,6 +113,9 @@ const NotificationDropdown = () => {
 
   // 2. Socket IO Integration
   useEffect(() => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.role !== 'admin') return;
+
     const token = localStorage.getItem('token');
     const socketInstance = initiateSocketConnection(token);
 

@@ -25,8 +25,8 @@ const Navbar = ({ toggleSidebar, role }) => {
       </div>
 
       <div className="flex items-center gap-2">
-        <NotificationDropdown />
-        <div className="h-8 w-px bg-slate-100 mx-2 hidden sm:block" />
+        {role === 'admin' && <NotificationDropdown />}
+        {role === 'admin' && <div className="h-8 w-px bg-slate-100 mx-2 hidden sm:block" />}
         <UserDropdown role={role} />
       </div>
     </nav>

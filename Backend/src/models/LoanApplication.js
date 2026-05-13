@@ -69,6 +69,42 @@ const loanApplicationSchema = new mongoose.Schema(
       bankStatement: String,
       proofOfAddress: String,
     },
+    
+    // Detailed Document Verifications
+    documentVerification: {
+      idProofStatus: { type: String, enum: ['Pending', 'Approved', 'Rejected', 'Reupload Requested'], default: 'Pending' },
+      idProofNotes: String,
+      payslipStatus: { type: String, enum: ['Pending', 'Approved', 'Rejected', 'Reupload Requested'], default: 'Pending' },
+      payslipNotes: String,
+      bankStatementStatus: { type: String, enum: ['Pending', 'Approved', 'Rejected', 'Reupload Requested'], default: 'Pending' },
+      bankStatementNotes: String,
+      proofOfAddressStatus: { type: String, enum: ['Pending', 'Approved', 'Rejected', 'Reupload Requested'], default: 'Pending' },
+      proofOfAddressNotes: String,
+    },
+
+    uploadedDocsStatus: {
+      type: String,
+      enum: ['Pending', 'Complete', 'Missing'],
+      default: 'Pending'
+    },
+
+    // Affordability and Review Stages
+    reviewStatus: {
+      type: String,
+      enum: ['Pending Review', 'Reviewed', 'Recommendation Submitted', 'Rejected Recommendation'],
+      default: 'Pending Review'
+    },
+    affordabilityStatus: {
+      type: String,
+      enum: ['Eligible', 'Moderate', 'Risky', 'Pending'],
+      default: 'Pending'
+    },
+
+    // Commentary and Feedback Lines
+    internalReviewNotes: String,
+    recommendationNotes: String,
+    adminComments: String,
+    rejectionReason: String,
 
     // Staff Review Section
     staffReview: {
@@ -120,7 +156,7 @@ const loanApplicationSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ['New', 'Under Review', 'Recommended', 'Hold', 'Approved', 'Rejected'],
+      enum: ['New', 'Under Review', 'Recommended', 'Hold', 'Approved', 'Rejected', 'Pending Review', 'Pending Verification', 'Reviewed'],
       default: 'New',
     },
     

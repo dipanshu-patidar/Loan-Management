@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { 
   CheckCircle2, AlertCircle, TrendingUp, 
   DollarSign, Briefcase, FileText, 
@@ -7,83 +8,131 @@ import {
   CheckCircle, XCircle, Activity,
   FileSearch, ChevronRight, Info,
   MessageSquare, ShieldQuestion,
-  History, Eye, Download, Search
+  History, Eye, Download, Search, Landmark, MapPin
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import toast from 'react-hot-toast';
 import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
 import { cn } from '../../utils/cn';
+import staffLoanRequestService from '../../services/staffLoanRequestService';
+
+const formatZAR = (amount) => {
+  return new Intl.NumberFormat('en-ZA', {
+    style: 'currency',
+    currency: 'ZAR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(amount || 0);
+};
 
 const EligibilityReview = () => {
-  const [activeModal, setActiveModal] = useState(null); // 'approve', 'reject', 'request', 'escalate', 'confirm'
-  const [currentStatus, setCurrentStatus] = useState('Under Review');
-  const [showToast, setShowToast] = useState(null);
-
-  const applicant = {
-    name: 'John Doe',
-    income: 25000,
-    requested: 15000,
-    status: 'Employed',
-    risk: 'Low',
-    scores: {
-       affordability: 85,
-       eligibility: 95
+  const { id } = useParams();
+  const navigate = useNavigate();
+  
+  const [activeModal, setActiveModal] = useState(null); // 'approve', 'reject', 'hold'
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  
+  const [application, setApplication] = useState(null);
+  const [reviewNotes, setReviewNotes] = useState('');
+  
+  // Load Application Details
+  const loadDetails = async () => {
+    try {
+      setLoading(true);
+      const res = await staffLoanRequestService.getLoanRequestById(id);
+      if (res.success) {
+        setApplication(res.data);
+      } else {
+        toast.error('Invalid response payload.');
+        navigate('/staff/loan-requests');
+      }
+    } catch (err) {
+      toast.error('Failed to load application review details.');
+      navigate('/staff/loan-requests');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const triggerToast = (msg) => {
-    setShowToast(msg);
-    setTimeout(() => setShowToast(null), 3000);
-  };
+  useEffect(() => {
+    if (id) {
+      loadDetails();
+    }
+  }, [id]);
 
-  const handleAction = (type) => {
-    setActiveModal(null);
-    if (type === 'approve') {
-      setCurrentStatus('Ready for Admin Approval');
-      triggerToast('Application marked as recommended for admin approval.');
-    } else if (type === 'reject') {
-      setCurrentStatus('Rejected Recommendation');
-      triggerToast('Application marked as rejected recommendation.');
-    } else if (type === 'request') {
-      triggerToast('Additional information request sent to borrower.');
-    } else if (type === 'escalate') {
-      setCurrentStatus('Admin Review Required');
-      triggerToast('Case escalated for admin review.');
-    } else if (type === 'confirm') {
-      setCurrentStatus('Verification Completed');
-      triggerToast('Borrower verification completed successfully.');
+  // Handle submission to back-end
+  const handleActionSubmit = async (recommendation) => {
+    setSubmitting(true);
+    try {
+      const payload = {
+        recommendation,
+        reviewNotes: reviewNotes.trim() || `${recommendation} suggested during eligibility assessment.`
+      };
+      const res = await staffLoanRequestService.submitReview(id, payload);
+      if (res.success) {
+        toast.success(`Assessment submitted: ${recommendation}`);
+        setActiveModal(null);
+        // Bounce back to the requests dashboard
+        setTimeout(() => {
+          navigate('/staff/loan-requests');
+        }, 1500);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to commit review.');
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4 text-slate-400 bg-white rounded-[2.5rem] border border-slate-100">
+        <div className="w-12 h-12 border-4 border-primary/10 border-t-primary rounded-full animate-spin" />
+        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Streaming Credit Files...</p>
+      </div>
+    );
+  }
+
+  if (!application) return null;
+
+  // Dynamic derived conditions
+  const monthlyIncome = application.employment?.monthlyIncome || 0;
+  const monthlyExpenses = application.affordability?.monthlyExpenses || 0;
+  const surplus = monthlyIncome - monthlyExpenses;
+  const requestedAmount = application.loanDetails?.requestedAmount || 0;
+  const estimatedEMI = application.loanDetails?.estimatedEMI || 0;
+  const dtiRatio = monthlyIncome > 0 ? Math.round((estimatedEMI / monthlyIncome) * 100) : 0;
+  
+  const isDtiGood = dtiRatio < 30;
+
+  // Workflow helper state
+  const currentStatus = application.status;
 
   return (
     <div className="space-y-8 pb-20">
       {/* HEADER */}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-premium">
         <div className="flex items-center gap-6">
-           <div className="w-16 h-16 bg-primary/5 text-primary rounded-[1.5rem] flex items-center justify-center">
+           <div className="w-16 h-16 bg-primary/5 text-primary rounded-[1.5rem] flex items-center justify-center shadow-sm border border-slate-100">
               <ShieldCheck size={32} />
            </div>
            <div>
-             <div className="flex items-center gap-2 text-primary mb-1">
-               <span className="text-[10px] font-black uppercase tracking-widest">Internal Review Mode</span>
-             </div>
-             <h1 className="text-2xl font-black text-slate-900 tracking-tight">Eligibility Verification</h1>
-             <p className="text-slate-500 font-medium text-sm">Reviewing application for <span className="text-slate-900 font-black">{applicant.name}</span></p>
+              <div className="flex items-center gap-2 text-primary mb-1">
+                <span className="text-[10px] font-black uppercase tracking-widest tracking-widest">Internal Review Desk</span>
+              </div>
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight">Eligibility Verification</h1>
+              <p className="text-slate-500 font-medium text-sm">Reviewing application for <span className="text-slate-900 font-black">{application.borrower?.fullName}</span></p>
            </div>
         </div>
         <div className="flex items-center gap-3">
            <Button 
             variant="secondary" 
-            onClick={() => setActiveModal('escalate')}
+            onClick={() => navigate('/staff/loan-requests')}
             className="bg-white border-slate-200 font-black text-[10px] uppercase tracking-widest px-6"
            >
-              Escalate Case
-           </Button>
-           <Button 
-            onClick={() => setActiveModal('confirm')}
-            className="font-black text-[10px] uppercase tracking-widest px-8 shadow-lg shadow-primary/20"
-           >
-              Confirm Verification
+              Cancel / Back
            </Button>
         </div>
       </header>
@@ -91,13 +140,13 @@ const EligibilityReview = () => {
       {/* WORKFLOW TRACKER */}
       <section className="bg-white p-6 rounded-3xl border border-slate-100 shadow-premium">
          <div className="flex items-center justify-between max-w-4xl mx-auto">
-            <WorkflowStep label="New Application" status="completed" />
+            <WorkflowStep label="New" status="completed" />
             <WorkflowConnector active />
-            <WorkflowStep label="Under Review" status={currentStatus === 'Under Review' ? 'active' : 'completed'} />
-            <WorkflowConnector active={currentStatus !== 'Under Review'} />
-            <WorkflowStep label="Verification Completed" status={currentStatus === 'Verification Completed' ? 'active' : currentStatus.includes('Admin') ? 'completed' : 'pending'} />
-            <WorkflowConnector active={currentStatus.includes('Admin')} />
-            <WorkflowStep label="Admin Approval" status={currentStatus === 'Ready for Admin Approval' ? 'active' : 'pending'} />
+            <WorkflowStep label="Pending Verification" status={['Pending Verification', 'Pending Review', 'Reviewed'].includes(currentStatus) ? 'completed' : 'active'} />
+            <WorkflowConnector active={['Pending Review', 'Reviewed'].includes(currentStatus)} />
+            <WorkflowStep label="Assessing" status={currentStatus === 'Reviewed' ? 'completed' : ['Pending Review', 'Under Review'].includes(currentStatus) ? 'active' : 'pending'} />
+            <WorkflowConnector active={currentStatus === 'Reviewed'} />
+            <WorkflowStep label="Reviewed" status={currentStatus === 'Reviewed' ? 'completed' : 'pending'} />
          </div>
       </section>
 
@@ -106,34 +155,56 @@ const EligibilityReview = () => {
         <div className="lg:col-span-8 space-y-8">
            
            {/* 1. ELIGIBILITY MATCH CARD */}
-           <ReviewCard title="Eligibility Condition Matching" icon={PieChart}>
+           <ReviewCard title="Eligibility Verification Criteria" icon={PieChart}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 <MatchItem label="Income Requirement Match" value="Matched" status="success" desc="Income R25k exceeds R5k min." />
-                 <MatchItem label="Loan Limit Match" value="Within Limits" status="success" desc="R15k is below R50k max." />
-                 <MatchItem label="Age Verification" value="Verified" status="success" desc="Applicant age 34 (18+)." />
-                 <MatchItem label="Employment Status" value="Qualified" status="success" desc="Full-time permanent." />
+                 <MatchItem 
+                   label="Income Threshold Match" 
+                   value={monthlyIncome > 5000 ? "Passed" : "Requires Review"} 
+                   status={monthlyIncome > 5000 ? "success" : "failed"}
+                   desc={`Earns ${formatZAR(monthlyIncome)} (Min R5,000 needed).`} 
+                 />
+                 <MatchItem 
+                   label="Loan Amount Range" 
+                   value={requestedAmount <= 100000 ? "Passed" : "Exceeds Limit"} 
+                   status={requestedAmount <= 100000 ? "success" : "failed"}
+                   desc={`Requested ${formatZAR(requestedAmount)} (Limit: R100,000).`} 
+                 />
+                 <MatchItem 
+                   label="Gender & Demographics" 
+                   value="Registered" 
+                   status="success" 
+                   desc={`Gender: ${application.borrower?.gender}. Verified DOB.`} 
+                 />
+                 <MatchItem 
+                   label="Employment Validation" 
+                   value="Permanent" 
+                   status="success" 
+                   desc={`${application.employment?.employerName || 'N/A'} (${application.employment?.yearsOfService || 0} years).`} 
+                 />
               </div>
            </ReviewCard>
 
            {/* 3. AFFORDABILITY ASSESSMENT */}
-           <ReviewCard title="Affordability Assessment" icon={TrendingUp}>
-              <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-8">
+           <ReviewCard title="Fintech Affordability Matrix" icon={TrendingUp}>
+              <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-8 shadow-inner">
                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
-                    <StatItem label="Monthly Income" value="R25,000" />
-                    <StatItem label="Est. Expenses" value="R8,500" />
-                    <StatItem label="Available Surplus" value="R16,500" highlighted />
+                    <StatItem label="Gross Monthly Income" value={formatZAR(monthlyIncome)} />
+                    <StatItem label="Estimated Expenses" value={formatZAR(monthlyExpenses)} />
+                    <StatItem label="Available Surplus" value={formatZAR(surplus)} highlighted />
                  </div>
                  
                  <div className="space-y-4 pt-4 border-t border-slate-200/50">
                     <div className="flex justify-between items-center">
-                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">EMI to Income Ratio</span>
-                       <span className="text-sm font-black text-emerald-500">5.0% (Very Good)</span>
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Installment to Income (DTI) Ratio</span>
+                       <span className={cn("text-sm font-black", isDtiGood ? "text-emerald-500" : "text-rose-500")}>
+                         {dtiRatio}% ({isDtiGood ? "Optimal / Secure" : "High Exposure"})
+                       </span>
                     </div>
                     <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
                        <motion.div 
                          initial={{ width: 0 }}
-                         animate={{ width: '5%' }}
-                         className="h-full bg-emerald-500 rounded-full"
+                         animate={{ width: `${Math.min(dtiRatio, 100)}%` }}
+                         className={cn("h-full rounded-full", isDtiGood ? "bg-emerald-500" : "bg-rose-500")}
                        />
                     </div>
                  </div>
@@ -141,12 +212,12 @@ const EligibilityReview = () => {
            </ReviewCard>
 
            {/* 4. DOCUMENT VERIFICATION */}
-           <ReviewCard title="Document Verification System" icon={FileText}>
+           <ReviewCard title="Uploaded Files Register" icon={FileText}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <DocVerifCard label="Identity Document" status="verified" icon={User} />
-                 <DocVerifCard label="Latest Payslip" status="verified" icon={DollarSign} />
-                 <DocVerifCard label="Bank Statement" status="verified" icon={Landmark} />
-                 <DocVerifCard label="Proof of Address" status="pending" icon={MapPin} />
+                 <DocVerifCard label="Identity Document" status={application.documentVerification?.idProofStatus || 'Pending'} icon={User} fileUrl={application.documents?.idDocument} />
+                 <DocVerifCard label="Latest Payslip" status={application.documentVerification?.payslipStatus || 'Pending'} icon={DollarSign} fileUrl={application.documents?.payslip} />
+                 <DocVerifCard label="Bank Statement" status={application.documentVerification?.bankStatementStatus || 'Pending'} icon={Landmark} fileUrl={application.documents?.bankStatement} />
+                 <DocVerifCard label="Proof of Address" status={application.documentVerification?.proofOfAddressStatus || 'Pending'} icon={MapPin} fileUrl={application.documents?.proofOfAddress} />
               </div>
            </ReviewCard>
         </div>
@@ -157,54 +228,65 @@ const EligibilityReview = () => {
               {/* 2. RISK PROFILE SECTION */}
               <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-premium space-y-8">
                  <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
-                    <ShieldAlert size={20} className="text-primary" /> Risk Profile
+                    <ShieldAlert size={20} className="text-primary" /> Risk Engine Check
                  </h3>
                  
                  <div className="flex flex-col items-center text-center space-y-6">
-                    <div className="w-32 h-32 rounded-full border-[10px] border-emerald-50 flex flex-col items-center justify-center relative">
-                       <div className="absolute inset-0 rounded-full border-[10px] border-emerald-500 border-t-transparent animate-spin-slow opacity-20" />
-                       <span className="text-3xl font-black text-emerald-500">Low</span>
-                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Risk Category</span>
+                    <div className={cn(
+                      "w-32 h-32 rounded-full border-[10px] flex flex-col items-center justify-center relative shadow-sm",
+                      isDtiGood ? "border-emerald-50 text-emerald-500" : "border-rose-50 text-rose-500"
+                    )}>
+                       <span className="text-3xl font-black">{isDtiGood ? "Low" : "High"}</span>
+                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Calculated Risk</span>
                     </div>
                  </div>
 
                  <div className="grid grid-cols-2 gap-4">
-                    <DecisionMetric label="Credit Score" value="740" icon={Activity} />
-                    <DecisionMetric label="DTI Ratio" value="18%" icon={PieChart} />
+                    <DecisionMetric label="Loan Purpose" value={application.loanDetails?.loanType} icon={Activity} />
+                    <DecisionMetric label="Installments" value={`${application.loanDetails?.loanDuration} Mo`} icon={PieChart} />
                  </div>
               </div>
 
               {/* 5. REVIEWER DECISION BOX */}
               <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white space-y-6 shadow-premium">
                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Current Application Status</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Workflow Location</p>
                     <div className="flex items-center gap-2">
                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                       <span className="text-sm font-black">{currentStatus}</span>
+                       <span className="text-sm font-black tracking-wide">{currentStatus}</span>
                     </div>
                  </div>
                  
                  <div className="space-y-3">
                     <Button 
                      onClick={() => setActiveModal('approve')}
-                     className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-emerald-500/20"
+                     disabled={currentStatus === 'Reviewed'}
+                     className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
                     >
-                       Approve Application
+                       Recommend Approval
                     </Button>
                     <Button 
                      onClick={() => setActiveModal('reject')}
-                     className="w-full bg-rose-500 hover:bg-rose-600 text-white font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-rose-500/20"
+                     disabled={currentStatus === 'Reviewed'}
+                     className="w-full bg-rose-500 hover:bg-rose-600 text-white font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-rose-500/20 disabled:opacity-50"
                     >
-                       Reject Application
+                       Recommend Rejection
                     </Button>
                     <Button 
-                     onClick={() => setActiveModal('request')}
+                     onClick={() => setActiveModal('hold')}
+                     disabled={currentStatus === 'Reviewed'}
                      variant="secondary" 
-                     className="w-full bg-white/10 border-white/10 text-white font-black uppercase tracking-widest text-[10px] py-4"
+                     className="w-full bg-white/10 border-white/10 text-white font-black uppercase tracking-widest text-[10px] py-4 hover:bg-white/20 disabled:opacity-50"
                     >
-                       Request More Info
+                       Put Case On Hold
                     </Button>
                  </div>
+                 {currentStatus === 'Reviewed' && (
+                   <div className="p-4 bg-white/5 rounded-2xl border border-white/10 text-center">
+                     <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Recommendation Locked</p>
+                     <p className="text-[9px] text-white/60 mt-0.5">File passed onto Administrator queue.</p>
+                   </div>
+                 )}
               </div>
            </div>
         </div>
@@ -214,32 +296,35 @@ const EligibilityReview = () => {
       <AnimatePresence>
          {/* APPROVE MODAL */}
          {activeModal === 'approve' && (
-            <Modal isOpen onClose={() => setActiveModal(null)} title="Confirm Approval Recommendation">
+            <Modal isOpen onClose={() => setActiveModal(null)} title="Recommend Approval Confirmation">
                <div className="space-y-6">
                   <div className="p-6 bg-emerald-50 rounded-2xl border border-emerald-100">
                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-4">Approval Summary</p>
                      <div className="grid grid-cols-2 gap-4">
                         <div>
                            <p className="text-[9px] font-bold text-slate-400">Borrower</p>
-                           <p className="text-sm font-black text-slate-900">{applicant.name}</p>
+                           <p className="text-sm font-black text-slate-900">{application.borrower?.fullName}</p>
                         </div>
                         <div>
                            <p className="text-[9px] font-bold text-slate-400">Loan Amount</p>
-                           <p className="text-sm font-black text-slate-900">R15,000</p>
+                           <p className="text-sm font-black text-slate-900">{formatZAR(requestedAmount)}</p>
                         </div>
                      </div>
                   </div>
                   <div className="space-y-3">
-                     <div className="flex items-center gap-2 text-[11px] font-bold text-slate-600">
-                        <CheckCircle2 size={16} className="text-emerald-500" /> All eligibility rules matched
-                     </div>
-                     <div className="flex items-center gap-2 text-[11px] font-bold text-slate-600">
-                        <CheckCircle2 size={16} className="text-emerald-500" /> Documents verified manually
-                     </div>
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Assessor Decision Notes</label>
+                     <textarea 
+                       className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none min-h-[100px]"
+                       placeholder="Write detailed motivation why the Admin should approve this profile..."
+                       value={reviewNotes}
+                       onChange={(e) => setReviewNotes(e.target.value)}
+                     />
                   </div>
                   <div className="flex gap-3 pt-4">
-                     <Button variant="secondary" onClick={() => setActiveModal(null)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button onClick={() => handleAction('approve')} className="flex-1 bg-emerald-500 font-black uppercase text-[10px]">Confirm Approval</Button>
+                     <Button variant="secondary" onClick={() => setActiveModal(null)} disabled={submitting} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
+                     <Button onClick={() => handleActionSubmit('Recommend Approval')} disabled={submitting} className="flex-1 bg-emerald-500 font-black uppercase text-[10px]">
+                       {submitting ? "Saving..." : "Submit Recommendation"}
+                     </Button>
                   </div>
                </div>
             </Modal>
@@ -247,126 +332,56 @@ const EligibilityReview = () => {
 
          {/* REJECT MODAL */}
          {activeModal === 'reject' && (
-            <Modal isOpen onClose={() => setActiveModal(null)} title="Reject Application Recommendation">
+            <Modal isOpen onClose={() => setActiveModal(null)} title="Recommend Rejection Confirmation">
                <div className="space-y-6">
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Rejection Reason</label>
-                     <select className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none">
-                        <option>Low Affordability</option>
-                        <option>Document Mismatch</option>
-                        <option>Eligibility Failed</option>
-                        <option>High Risk</option>
-                        <option>Incomplete Information</option>
-                     </select>
+                  <div className="p-6 bg-rose-50 rounded-2xl border border-rose-100">
+                     <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-2">Attention Required</p>
+                     <p className="text-xs font-medium text-rose-800">You are recommending absolute rejection of this file. Provide detailed feedback below.</p>
                   </div>
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reviewer Notes</label>
-                     <textarea className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none min-h-[100px]" placeholder="Add detailed rejection reasons..."></textarea>
-                  </div>
-                  <div className="flex gap-3 pt-4">
-                     <Button variant="secondary" onClick={() => setActiveModal(null)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button onClick={() => handleAction('reject')} className="flex-1 bg-rose-500 font-black uppercase text-[10px]">Submit Rejection</Button>
-                  </div>
-               </div>
-            </Modal>
-         )}
-
-         {/* REQUEST INFO MODAL */}
-         {activeModal === 'request' && (
-            <Modal isOpen onClose={() => setActiveModal(null)} title="Request Additional Information">
-               <div className="space-y-6">
                   <div className="space-y-3">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Missing Documents</label>
-                     <div className="grid grid-cols-2 gap-3">
-                        <Checkbox label="Recent Payslip" />
-                        <Checkbox label="RSA ID Document" />
-                        <Checkbox label="Bank Statement" checked />
-                        <Checkbox label="Address Proof" checked />
-                     </div>
-                  </div>
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Message to Borrower</label>
-                     <textarea className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none min-h-[100px]" defaultValue="Hi, please provide the latest 3 months bank statements for affordability verification."></textarea>
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Rejection Motivation Notes</label>
+                     <textarea 
+                       className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none min-h-[100px]"
+                       placeholder="Provide rejection rationale (e.g. DTI Ratio failure, fake documents, etc.)..."
+                       value={reviewNotes}
+                       onChange={(e) => setReviewNotes(e.target.value)}
+                     />
                   </div>
                   <div className="flex gap-3 pt-4">
-                     <Button variant="secondary" onClick={() => setActiveModal(null)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button onClick={() => handleAction('request')} className="flex-1 font-black uppercase text-[10px]">Send Request</Button>
+                     <Button variant="secondary" onClick={() => setActiveModal(null)} disabled={submitting} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
+                     <Button onClick={() => handleActionSubmit('Recommend Rejection')} disabled={submitting} className="flex-1 bg-rose-500 font-black uppercase text-[10px]">
+                       {submitting ? "Saving..." : "Submit Rejection"}
+                     </Button>
                   </div>
                </div>
             </Modal>
          )}
 
-         {/* ESCALATE MODAL */}
-         {activeModal === 'escalate' && (
-            <Modal isOpen onClose={() => setActiveModal(null)} title="Escalate to Admin Review">
+         {/* HOLD MODAL */}
+         {activeModal === 'hold' && (
+            <Modal isOpen onClose={() => setActiveModal(null)} title="Place Case On Hold">
                <div className="space-y-6">
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Escalation Category</label>
-                     <select className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none">
-                        <option>Fraud Suspicion</option>
-                        <option>Income Mismatch</option>
-                        <option>Manual Admin Review</option>
-                        <option>Suspicious Documents</option>
-                        <option>High Risk Profile</option>
-                     </select>
+                  <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100">
+                     <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-2">Verification Waitlist</p>
+                     <p className="text-xs font-medium text-amber-800">Marking as Hold pauses standard escalations. Specify outstanding queries below.</p>
                   </div>
-                  <div className="space-y-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reviewer Observations</label>
-                     <textarea className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none min-h-[100px]" placeholder="Explain why this case needs admin attention..."></textarea>
+                  <div className="space-y-3">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Assessor Observations</label>
+                     <textarea 
+                       className="w-full bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-sm font-bold text-slate-700 outline-none min-h-[100px]"
+                       placeholder="Write the reason why review is suspended..."
+                       value={reviewNotes}
+                       onChange={(e) => setReviewNotes(e.target.value)}
+                     />
                   </div>
                   <div className="flex gap-3 pt-4">
-                     <Button variant="secondary" onClick={() => setActiveModal(null)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button onClick={() => handleAction('escalate')} className="flex-1 bg-amber-500 font-black uppercase text-[10px]">Submit Escalation</Button>
+                     <Button variant="secondary" onClick={() => setActiveModal(null)} disabled={submitting} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
+                     <Button onClick={() => handleActionSubmit('Put On Hold')} disabled={submitting} className="flex-1 bg-amber-500 font-black uppercase text-[10px]">
+                       {submitting ? "Saving..." : "Pause Processing"}
+                     </Button>
                   </div>
                </div>
             </Modal>
-         )}
-
-         {/* CONFIRM VERIFICATION MODAL */}
-         {activeModal === 'confirm' && (
-            <Modal isOpen onClose={() => setActiveModal(null)} title="Confirm Verification Completion">
-               <div className="space-y-6">
-                  <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 text-center">
-                     <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-primary mx-auto mb-4 shadow-sm border border-slate-100">
-                        <ShieldCheck size={32} />
-                     </div>
-                     <h3 className="text-lg font-black text-slate-900 tracking-tight">Ready to Verify?</h3>
-                     <p className="text-xs font-medium text-slate-500 mt-1">This will mark the borrower as fully verified within the system.</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                     <div className="flex items-center gap-2 p-3 bg-emerald-50/50 rounded-xl border border-emerald-100">
-                        <CheckCircle2 size={14} className="text-emerald-500" /> <span className="text-[9px] font-black uppercase tracking-widest">Affordability</span>
-                     </div>
-                     <div className="flex items-center gap-2 p-3 bg-emerald-50/50 rounded-xl border border-emerald-100">
-                        <CheckCircle2 size={14} className="text-emerald-500" /> <span className="text-[9px] font-black uppercase tracking-widest">Documents</span>
-                     </div>
-                  </div>
-                  <div className="flex gap-3 pt-4">
-                     <Button variant="secondary" onClick={() => setActiveModal(null)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button onClick={() => handleAction('confirm')} className="flex-1 bg-primary font-black uppercase text-[10px]">Confirm Verification</Button>
-                  </div>
-               </div>
-            </Modal>
-         )}
-      </AnimatePresence>
-
-      {/* TOASTS */}
-      <AnimatePresence>
-         {showToast && (
-            <motion.div 
-               initial={{ opacity: 0, y: 50 }}
-               animate={{ opacity: 1, y: 0 }}
-               exit={{ opacity: 0, y: 50 }}
-               className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-8 py-5 rounded-[2rem] shadow-2xl z-[100] flex items-center gap-5 border border-white/10"
-            >
-               <div className="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                  <CheckCircle2 size={20} className="text-white" />
-               </div>
-               <div>
-                  <p className="text-sm font-black tracking-tight">{showToast}</p>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Operational Update</p>
-               </div>
-            </motion.div>
          )}
       </AnimatePresence>
     </div>
@@ -412,7 +427,7 @@ const ReviewCard = ({ title, icon: Icon, children }) => (
       className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-hidden"
    >
       <div className="px-8 py-6 border-b border-slate-50 flex items-center gap-4 bg-slate-50/20">
-         <div className="w-10 h-10 rounded-xl bg-primary/5 text-primary flex items-center justify-center">
+         <div className="w-10 h-10 rounded-xl bg-primary/5 text-primary flex items-center justify-center border border-primary/10 shadow-sm">
             <Icon size={20} />
          </div>
          <h3 className="text-md font-black text-slate-900 tracking-tight">{title}</h3>
@@ -424,10 +439,10 @@ const ReviewCard = ({ title, icon: Icon, children }) => (
 );
 
 const MatchItem = ({ label, value, status, desc }) => (
-   <div className="p-5 bg-white border border-slate-100 rounded-2xl flex items-start gap-4 hover:border-primary/20 transition-all group">
+   <div className="p-5 bg-white border border-slate-100 rounded-2xl flex items-start gap-4 hover:border-primary/20 transition-all group shadow-sm">
       <div className={cn(
-         "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-         status === 'success' ? "bg-emerald-50 text-emerald-500" : "bg-rose-50 text-rose-500"
+         "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm border",
+         status === 'success' ? "bg-emerald-50 text-emerald-500 border-emerald-100" : "bg-rose-50 text-rose-500 border-rose-100"
       )}>
          {status === 'success' ? <CheckCircle size={20} /> : <XCircle size={20} />}
       </div>
@@ -446,52 +461,48 @@ const StatItem = ({ label, value, highlighted }) => (
    </div>
 );
 
-const DocVerifCard = ({ label, status, icon: Icon }) => (
-   <div className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between group hover:border-primary/20 transition-all">
+const DocVerifCard = ({ label, status, icon: Icon, fileUrl }) => (
+   <div className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between group hover:border-primary/20 transition-all shadow-sm">
       <div className="flex items-center gap-3">
-         <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:text-primary transition-colors">
+         <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:text-primary transition-colors border border-slate-100 shadow-sm">
             <Icon size={20} />
          </div>
          <div>
             <p className="text-xs font-bold text-slate-700">{label}</p>
             <div className="flex items-center gap-1.5 mt-1">
-               <div className={cn("w-1.5 h-1.5 rounded-full", status === 'verified' ? 'bg-emerald-500' : 'bg-amber-500')} />
+               <div className={cn(
+                 "w-1.5 h-1.5 rounded-full", 
+                 status === 'Approved' ? 'bg-emerald-500' : 
+                 status === 'Rejected' ? 'bg-rose-500' :
+                 'bg-amber-500'
+               )} />
                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{status}</span>
             </div>
          </div>
       </div>
       <div className="flex items-center gap-2">
-         <button className="p-2 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-all"><Eye size={16} /></button>
-         <button className="p-2 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-all"><Download size={16} /></button>
+         {fileUrl ? (
+           <>
+             <a href={fileUrl} target="_blank" rel="noreferrer" className="p-2 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-all border border-slate-100"><Eye size={16} /></a>
+             <a href={fileUrl} download target="_blank" rel="noreferrer" className="p-2 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg transition-all border border-slate-100"><Download size={16} /></a>
+           </>
+         ) : (
+           <span className="text-[8px] font-black text-rose-400 uppercase">No File</span>
+         )}
       </div>
    </div>
 );
 
 const DecisionMetric = ({ label, value, icon: Icon }) => (
-   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
-      <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-primary shadow-sm">
+   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3 shadow-sm">
+      <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-primary border border-slate-100 shadow-sm">
          <Icon size={16} />
       </div>
       <div>
          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none">{label}</p>
-         <p className="text-sm font-black text-slate-900 mt-1">{value}</p>
+         <p className="text-sm font-black text-slate-900 mt-1 truncate max-w-[100px]" title={value}>{value}</p>
       </div>
    </div>
 );
-
-const Checkbox = ({ label, checked }) => (
-   <label className="flex items-center gap-3 cursor-pointer group p-3 bg-white border border-slate-100 rounded-xl hover:border-primary/20">
-      <div className={cn(
-         "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
-         checked ? "bg-primary border-primary shadow-sm" : "bg-white border-slate-200"
-      )}>
-         {checked && <CheckCircle2 size={12} className="text-white" />}
-      </div>
-      <span className="text-[11px] font-bold text-slate-700">{label}</span>
-   </label>
-);
-
-// Landmarks import for missing icon
-import { Landmark, MapPin } from 'lucide-react';
 
 export default EligibilityReview;

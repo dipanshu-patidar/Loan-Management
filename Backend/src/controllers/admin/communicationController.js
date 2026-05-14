@@ -4,6 +4,7 @@ const Message = require('../../models/Message');
 const User = require('../../models/User');
 const { getIO } = require('../../socket/socketServer');
 const { sendSuccess, sendError } = require('../../utils/responseHandler');
+const { createNotification } = require('../../utils/notificationHelper');
 
 /**
  * @desc    Get all conversations for admin
@@ -151,12 +152,39 @@ const sendMessage = asyncHandler(async (req, res) => {
 
   await message.populate('senderId', 'fullName role profilePhoto');
 
-  // Emit via Socket.io
-  const io = getIO();
-  io.to(conversation._id.toString()).emit('receive_message', message);
-  
-  // Also emit to user specifically if they are not in the room yet
-  io.emit(`receive_message_${receiverId}`, message);
+  // Create notification for receiver
+  try {
+    const receiverUser = await User.findById(receiverId);
+    if (receiverUser) {
+      await createNotification({
+        receiverId,
+        receiverRole: receiverUser.role,
+        senderId: req.user._id,
+        senderRole: req.user.role,
+        notificationType: 'AdminMessage',
+        title: 'New Message from Admin',
+        message: messageText.length > 50 ? messageText.substring(0, 47) + '...' : messageText,
+        relatedId: conversation._id,
+        relatedModel: 'Conversation',
+        priority: 'normal'
+      });
+    }
+  } catch (notifErr) {
+    console.error('Failed to create message notification:', notifErr);
+  }
+
+  // Broadcast via Socket
+  try {
+    const io = getIO();
+    io.to(conversationId.toString()).emit('receiveMessage', message);
+    io.to(conversationId.toString()).emit('receive_message', message);
+    // Also emit to user specific channel for notifications/sidebar updates
+    io.emit(`receiveMessage_${receiverId}`, message);
+    // Emit to sender too
+    io.emit(`receiveMessage_${req.user._id}`, message);
+  } catch (err) {
+    console.error('Admin socket emit failed:', err);
+  }
 
   sendSuccess(res, 'Message sent successfully', { message });
 });
@@ -220,6 +248,22 @@ const broadcastMessage = asyncHandler(async (req, res) => {
     const io = getIO();
     io.to(conversation._id.toString()).emit('receive_message', message);
     io.emit(`receive_message_${user._id}`, message);
+
+    // Create notification for broadcast
+    try {
+      await createNotification({
+        receiverId: user._id,
+        receiverRole: user.role,
+        senderId: req.user._id,
+        senderRole: 'admin',
+        notificationType: 'AdminMessage',
+        title: 'New Broadcast Message',
+        message: messageText.length > 50 ? messageText.substring(0, 47) + '...' : messageText,
+        relatedId: conversation._id,
+        relatedModel: 'Conversation',
+        priority: 'important'
+      });
+    } catch (notifErr) {}
   }
 
   sendSuccess(res, 'Broadcast sent successfully');

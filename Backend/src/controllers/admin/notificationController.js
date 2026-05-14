@@ -24,7 +24,7 @@ const getNotifications = asyncHandler(async (req, res) => {
 
   // Filter conditions
   if (status && status !== 'Status') {
-    query.status = status;
+    query.isRead = status === 'Read';
   }
   if (type && type !== 'Alert Type') {
     query.notificationType = type;
@@ -32,21 +32,19 @@ const getNotifications = asyncHandler(async (req, res) => {
 
   // Find notifications
   let notifications = await Notification.find(query)
-    .populate('borrowerId', 'fullName email profilePicture')
-    .populate('applicationId', 'applicationId loanAmount status')
-    .populate('paymentId', 'transactionId amount status paymentMethod')
+    .populate('senderId', 'fullName email profilePhoto')
     .sort({ createdAt: -1 });
 
-  // Apply client search filter if present (by message or borrower name)
+  // Apply client search filter if present (by message or sender name)
   if (search) {
     const lowSearch = search.toLowerCase();
     notifications = notifications.filter(n => {
       const msgMatch = n.message.toLowerCase().includes(lowSearch);
       const typeMatch = n.notificationType.toLowerCase().includes(lowSearch);
-      const borrowerMatch = n.borrowerId && n.borrowerId.fullName 
-        ? n.borrowerId.fullName.toLowerCase().includes(lowSearch) 
+      const senderMatch = n.senderId && n.senderId.fullName 
+        ? n.senderId.fullName.toLowerCase().includes(lowSearch) 
         : false;
-      return msgMatch || typeMatch || borrowerMatch;
+      return msgMatch || typeMatch || senderMatch;
     });
   }
 
@@ -75,13 +73,13 @@ const getUnreadCount = asyncHandler(async (req, res) => {
   const query = { receiverRole: 'admin', isDeleted: false };
   
   // Total unread
-  const unreadTotal = await Notification.countDocuments({ ...query, status: 'Unread' });
+  const unreadTotal = await Notification.countDocuments({ ...query, isRead: false });
   
   // Analytical Cards breakdown counts (all time active/undeleted alerts by type)
-  const newApps = await Notification.countDocuments({ ...query, notificationType: 'New Application' });
-  const overdueAlerts = await Notification.countDocuments({ ...query, notificationType: 'Overdue Alert' });
-  const payments = await Notification.countDocuments({ ...query, notificationType: 'Payment Notification' });
-  const approvals = await Notification.countDocuments({ ...query, notificationType: 'Approval Alert' });
+  const newApps = await Notification.countDocuments({ ...query, notificationType: 'NewLoanRequest' });
+  const overdueAlerts = await Notification.countDocuments({ ...query, notificationType: 'OverdueAlert' });
+  const payments = await Notification.countDocuments({ ...query, notificationType: 'PaymentVerification' });
+  const approvals = await Notification.countDocuments({ ...query, notificationType: 'ReviewAssigned' });
 
   sendSuccess(res, 'Notification counts fetched', {
     unreadCount: unreadTotal,
@@ -101,10 +99,7 @@ const getUnreadCount = asyncHandler(async (req, res) => {
  */
 const getNotificationById = asyncHandler(async (req, res) => {
   const notification = await Notification.findOne({ _id: req.params.id, isDeleted: false })
-    .populate('borrowerId')
-    .populate('applicationId')
-    .populate('paymentId')
-    .populate('loanId');
+    .populate('senderId', 'fullName role profilePhoto');
 
   if (!notification) {
     return sendError(res, 'Notification not found or retracted', 404);
@@ -121,9 +116,9 @@ const getNotificationById = asyncHandler(async (req, res) => {
 const markAsRead = asyncHandler(async (req, res) => {
   const notification = await Notification.findByIdAndUpdate(
     req.params.id,
-    { status: 'Read', isRead: true },
+    { isRead: true },
     { new: true }
-  ).populate('borrowerId applicationId paymentId');
+  ).populate('senderId', 'fullName role profilePhoto');
 
   if (!notification) {
     return sendError(res, 'Notification not found', 404);
@@ -145,8 +140,8 @@ const markAsRead = asyncHandler(async (req, res) => {
  */
 const markAllAsRead = asyncHandler(async (req, res) => {
   await Notification.updateMany(
-    { receiverRole: 'admin', isDeleted: false, status: 'Unread' },
-    { status: 'Read', isRead: true }
+    { receiverRole: 'admin', isDeleted: false, isRead: false },
+    { isRead: true }
   );
 
   // Broadcast to sockets

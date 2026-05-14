@@ -27,6 +27,10 @@ const getIconByType = (type) => {
       return { icon: ShieldAlert, color: 'text-amber-500', bg: 'bg-amber-50' };
     case 'Borrower Registered':
       return { icon: UserPlus, color: 'text-purple-500', bg: 'bg-purple-50' };
+    case 'NewMessage':
+    case 'BorrowerReply':
+    case 'AdminMessage':
+      return { icon: MessageSquare, color: 'text-indigo-600', bg: 'bg-indigo-50' };
     default:
       return { icon: Bell, color: 'text-slate-400', bg: 'bg-slate-50' };
   }
@@ -45,6 +49,10 @@ const getRouteByNotificationType = (type) => {
       return '/admin/payment-history';
     case 'Borrower Registered':
       return '/admin/borrowers';
+    case 'NewMessage':
+    case 'BorrowerReply':
+    case 'AdminMessage':
+      return '/admin/communication';
     default:
       return '/admin/notifications';
   }
@@ -114,7 +122,7 @@ const NotificationDropdown = () => {
   // 2. Socket IO Integration
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
-    if (user.role !== 'admin') return;
+    if (user.role?.toLowerCase() !== 'admin') return;
 
     const token = localStorage.getItem('token');
     const socketInstance = initiateSocketConnection(token);
@@ -123,17 +131,37 @@ const NotificationDropdown = () => {
       socketInstance.on('notification:new', (newNotif) => {
         // Append to dropdown top
         setNotifications(prev => [newNotif, ...prev.slice(0, 9)]);
-        // Increment unread badge
-        setUnreadCount(prev => prev + 1);
+        
+        // Visual indicator
+        toast.success(`Alert: ${newNotif.title}`, {
+          icon: '🔔',
+          duration: 4000,
+          position: 'top-right'
+        });
+      });
+
+      // Synchronize unread count from server-side source of truth
+      socketInstance.on('unread:updated', (payload) => {
+        if (payload && typeof payload.unreadCount === 'number') {
+          setUnreadCount(payload.unreadCount);
+        }
+      });
+
+      // Handle real-time updates (marking as read elsewhere)
+      socketInstance.on('notification:updated', (updatedNotif) => {
+        setNotifications(prev => 
+          prev.map(n => n._id === updatedNotif._id ? updatedNotif : n)
+        );
       });
 
       socketInstance.on('notification:read', (payload) => {
+        console.log('[Socket] Received notification:read:', payload);
         if (payload.scope === 'all') {
-          setNotifications(prev => prev.map(n => ({ ...n, status: 'Read', isRead: true })));
+          setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
           setUnreadCount(0);
         } else if (payload.id) {
           setNotifications(prev => 
-            prev.map(n => n._id === payload.id ? { ...n, status: 'Read', isRead: true } : n)
+            prev.map(n => n._id === payload.id ? { ...n, isRead: true } : n)
           );
           setUnreadCount(prev => Math.max(0, prev - 1));
         }
@@ -150,6 +178,8 @@ const NotificationDropdown = () => {
     return () => {
       if (socketInstance) {
         socketInstance.off('notification:new');
+        socketInstance.off('unread:updated');
+        socketInstance.off('notification:updated');
         socketInstance.off('notification:read');
         socketInstance.off('notification:update');
       }
@@ -161,11 +191,11 @@ const NotificationDropdown = () => {
     setIsOpen(false);
     const redirectRoute = getRouteByNotificationType(notif.notificationType);
 
-    if (notif.status === 'Unread') {
+    if (!notif.isRead) {
       try {
         // Instantly mutate local state
         setNotifications(prev => 
-          prev.map(n => n._id === notif._id ? { ...n, status: 'Read', isRead: true } : n)
+          prev.map(n => n._id === notif._id ? { ...n, isRead: true } : n)
         );
         setUnreadCount(prev => Math.max(0, prev - 1));
         // Trigger API
@@ -181,7 +211,7 @@ const NotificationDropdown = () => {
   const handleMarkAllRead = async () => {
     try {
       // Optimistic local update
-      setNotifications(prev => prev.map(n => ({ ...n, status: 'Read', isRead: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       setUnreadCount(0);
       
       await navbarNotificationService.markAllAsRead();
@@ -263,7 +293,7 @@ const NotificationDropdown = () => {
               ) : (
                 notifications.map((notif) => {
                   const { icon: Icon, color, bg } = getIconByType(notif.notificationType);
-                  const isUnread = notif.status === 'Unread';
+                  const isUnread = !notif.isRead;
                   
                   return (
                     <div 

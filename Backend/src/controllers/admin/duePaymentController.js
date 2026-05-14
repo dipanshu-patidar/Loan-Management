@@ -2,6 +2,8 @@ const asyncHandler = require('express-async-handler');
 const DuePayment = require('../../models/DuePayment');
 const ActiveLoan = require('../../models/ActiveLoan');
 const { sendSuccess, sendError } = require('../../utils/responseHandler');
+const { createNotification } = require('../../utils/notificationHelper');
+const Borrower = require('../../models/Borrower');
 
 /**
  * Utility function to sync Due Payments from ActiveLoans
@@ -82,6 +84,26 @@ const syncDuePayments = async () => {
           },
           { upsert: true }
         );
+
+        // Trigger notification if newly overdue
+        if (dueStatus === 'Overdue') {
+          try {
+            const borrower = await Borrower.findById(loan.borrowerId);
+            if (borrower && borrower.assignedStaff) {
+              await createNotification({
+                receiverId: borrower.assignedStaff,
+                receiverRole: 'staff',
+                senderRole: 'system',
+                notificationType: 'OverdueAlert',
+                title: 'Loan Payment Overdue',
+                message: `Payment for Loan ${loan.loanCode} (${borrower.fullName}) is now ${overdueDays} days overdue.`,
+                relatedId: loan._id,
+                relatedModel: 'ActiveLoan',
+                priority: overdueDays > 7 ? 'urgent' : 'important'
+              });
+            }
+          } catch (notifErr) {}
+        }
       }
     }
     

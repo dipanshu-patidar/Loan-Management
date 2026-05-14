@@ -31,7 +31,9 @@ const initSocket = (server) => {
   });
 
   io.on('connection', (socket) => {
-    // console.log(`User connected: ${socket.user.email} (${socket.user._id})`);
+    // Join a room named after the user's ID for targeted notifications
+    socket.join(socket.user._id.toString());
+    // console.log(`User joined personal room: ${socket.user._id}`);
     
     // Broadcast user online status (Both original & explicit prompt names)
     socket.broadcast.emit('online_status', { userId: socket.user._id, status: 'online' });

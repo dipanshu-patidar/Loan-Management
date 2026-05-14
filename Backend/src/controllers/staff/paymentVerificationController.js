@@ -238,25 +238,29 @@ const verifyPayment = asyncHandler(async (req, res) => {
   try {
     // Notify Borrower
     await createNotification({
+      receiverId: payment.borrowerId,
+      receiverRole: 'borrower',
+      senderId: req.user._id,
+      senderRole: 'staff',
+      notificationType: 'PaymentVerification',
       title: 'Payment Verified',
       message: `Your payment of R ${payment.paymentAmount} for Loan ${payment.loanCode} has been successfully verified.`,
-      notificationType: 'Payment Notification',
-      priority: 'Normal',
-      borrowerId: payment.borrowerId,
-      receiverRole: 'borrower',
-      loanId: payment.loanId,
-      paymentId: payment._id
+      relatedId: payment._id,
+      relatedModel: 'Payment',
+      priority: 'normal'
     });
 
     // Notify Admin
     await createNotification({
+      receiverRole: 'admin',
+      senderId: req.user._id,
+      senderRole: 'staff',
+      notificationType: 'PaymentVerification',
       title: 'Incoming Collection Verified',
       message: `Staff ${req.user.fullName} has verified a payment of R ${payment.paymentAmount} for Loan ${payment.loanCode}.`,
-      notificationType: 'Payment Notification',
-      priority: 'Important',
-      borrowerId: payment.borrowerId,
-      loanId: payment.loanId,
-      paymentId: payment._id
+      relatedId: payment._id,
+      relatedModel: 'Payment',
+      priority: 'important'
     });
   } catch (notifErr) {
     console.error('Notification dispatch error:', notifErr);
@@ -305,25 +309,29 @@ const rejectPayment = asyncHandler(async (req, res) => {
   try {
     // Notify Borrower
     await createNotification({
+      receiverId: payment.borrowerId,
+      receiverRole: 'borrower',
+      senderId: req.user._id,
+      senderRole: 'staff',
+      notificationType: 'PaymentRejected',
       title: 'Payment Proof Rejected',
       message: `Your payment proof for R ${payment.paymentAmount} was rejected: ${rejectionReason}. Please upload a valid proof.`,
-      notificationType: 'Payment Notification',
-      priority: 'Important',
-      borrowerId: payment.borrowerId,
-      receiverRole: 'borrower',
-      loanId: payment.loanId,
-      paymentId: payment._id
+      relatedId: payment._id,
+      relatedModel: 'Payment',
+      priority: 'important'
     });
 
     // Notify Admin
     await createNotification({
-      title: 'Payment Proof Rejected',
+      receiverRole: 'admin',
+      senderId: req.user._id,
+      senderRole: 'staff',
+      notificationType: 'PaymentRejected',
+      title: 'Payment Proof Rejected by Staff',
       message: `Staff ${req.user.fullName} rejected payment proof for transaction ${payment.transactionId}. Reason: ${rejectionReason}`,
-      notificationType: 'Payment Notification',
-      priority: 'Normal',
-      borrowerId: payment.borrowerId,
-      loanId: payment.loanId,
-      paymentId: payment._id
+      relatedId: payment._id,
+      relatedModel: 'Payment',
+      priority: 'normal'
     });
   } catch (notifErr) {}
 

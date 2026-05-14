@@ -30,6 +30,9 @@ const staffLoanReviewRoutes = require('./routes/staff/loanReviewRoutes');
 const staffPaymentVerificationRoutes = require('./routes/staff/paymentVerificationRoutes');
 const staffCommunicationRoutes = require('./routes/staff/communicationRoutes');
 const staffProfileRoutes = require('./routes/staff/profileRoutes');
+const staffNotificationRoutes = require('./routes/staff/notificationRoutes');
+const staffDashboardRoutes = require('./routes/staff/dashboardRoutes');
+const borrowerPaymentRoutes = require('./routes/borrower/paymentRoutes');
 
 const app = express();
 
@@ -80,6 +83,9 @@ app.use('/api/staff/loan-review', staffLoanReviewRoutes);
 app.use('/api/staff/payment-verification', staffPaymentVerificationRoutes);
 app.use('/api/staff/communications', staffCommunicationRoutes);
 app.use('/api/staff/profile', staffProfileRoutes);
+app.use('/api/staff/notifications', staffNotificationRoutes);
+app.use('/api/staff/dashboard', staffDashboardRoutes);
+app.use('/api/borrower/payments', borrowerPaymentRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 
@@ -91,4 +97,5 @@ app.get('/', (req, res) => {
 // Error handler
 app.use(errorHandler);
 
+module.exports = app;
 module.exports = app;

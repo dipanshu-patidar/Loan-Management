@@ -50,7 +50,7 @@ export const STAFF_MENU = [
   { label: 'Loan Requests', path: '/staff/loan-requests', icon: Clock },
   { label: 'Loan Review', path: '/staff/loan-review', icon: FileCheck },
   { label: 'Payment Verification', path: '/staff/payment-verification', icon: ShieldCheck },
-  { label: 'Communication Logs', path: '/staff/logs', icon: MessageSquare },
+  { label: 'Communication', path: '/staff/communications', icon: MessageSquare },
   { label: 'My Profile', path: '/staff/profile', icon: User },
 ];
 

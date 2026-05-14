@@ -38,6 +38,10 @@ const getIconByType = (type) => {
       return FileX;
     case 'Borrower Registered':
       return UserPlus;
+    case 'NewMessage':
+    case 'BorrowerReply':
+    case 'AdminMessage':
+      return MessageSquare;
     default:
       return Bell;
   }
@@ -131,10 +135,10 @@ const NotificationsModule = () => {
         // Update live analytical breakdown counters
         setStats((prev) => {
           const updated = { ...prev };
-          if (newNotif.notificationType === 'New Application') updated.newApplications += 1;
-          if (newNotif.notificationType === 'Overdue Alert') updated.overdueAlerts += 1;
-          if (newNotif.notificationType === 'Payment Notification') updated.paymentNotifications += 1;
-          if (newNotif.notificationType === 'Approval Alert') updated.approvalAlerts += 1;
+          if (newNotif.notificationType === 'NewLoanRequest') updated.newApplications += 1;
+          if (newNotif.notificationType === 'OverdueAlert') updated.overdueAlerts += 1;
+          if (newNotif.notificationType === 'PaymentVerification') updated.paymentNotifications += 1;
+          if (newNotif.notificationType === 'ReviewAssigned') updated.approvalAlerts += 1;
           return updated;
         });
 
@@ -153,10 +157,10 @@ const NotificationsModule = () => {
       // Live event: Notification Flagged Read
       socketInstance.on('notification:read', (payload) => {
         if (payload.scope === 'all') {
-          setNotifications((prev) => prev.map(n => ({ ...n, status: 'Read', isRead: true })));
+          setNotifications((prev) => prev.map(n => ({ ...n, isRead: true })));
         } else if (payload.id) {
           setNotifications((prev) =>
-            prev.map((n) => (n._id === payload.id ? { ...n, status: 'Read', isRead: true } : n))
+            prev.map((n) => (n._id === payload.id ? { ...n, isRead: true } : n))
           );
         }
       });
@@ -210,7 +214,7 @@ const NotificationsModule = () => {
       toast.success('Alert dismissed');
       // Local updates fired instantly via Socket but we optimize:
       setNotifications((prev) =>
-        prev.map((n) => (n._id === id ? { ...n, status: 'Read', isRead: true } : n))
+        prev.map((n) => (n._id === id ? { ...n, isRead: true } : n))
       );
     } catch (err) {
       toast.error('Action stalled');
@@ -221,7 +225,7 @@ const NotificationsModule = () => {
     try {
       await notificationService.markAllAsRead();
       toast.success('All alerts cleared');
-      setNotifications((prev) => prev.map(n => ({ ...n, status: 'Read', isRead: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     } catch (err) {
       toast.error('Action stalled');
     }
@@ -296,11 +300,11 @@ const NotificationsModule = () => {
              className="flex-1 md:flex-none bg-slate-50 border-none rounded-2xl px-5 py-3 text-sm font-bold text-slate-600 focus:ring-0 cursor-pointer"
            >
               <option>Alert Type</option>
-              <option>New Application</option>
-              <option>Overdue Alert</option>
-              <option>Payment Notification</option>
-              <option>Approval Alert</option>
-              <option>Borrower Registered</option>
+              <option value="NewLoanRequest">New Loan Request</option>
+              <option value="OverdueAlert">Overdue Alert</option>
+              <option value="PaymentVerification">Payment Verification</option>
+              <option value="ReviewAssigned">Review Assigned</option>
+              <option value="NewMessage">New Message</option>
            </select>
            <select 
              value={statusFilter}
@@ -340,14 +344,14 @@ const NotificationsModule = () => {
                         animate={{ opacity: 1, x: 0 }}
                         className={cn(
                            "bg-white p-6 rounded-3xl border transition-all hover:shadow-xl hover:shadow-slate-200/50 flex items-start gap-5 group relative overflow-hidden",
-                           notif.status === 'Unread' ? "border-primary/20 shadow-soft" : "border-slate-100 opacity-80"
+                           !notif.isRead ? "border-primary/20 shadow-soft" : "border-slate-100 opacity-80"
                         )}
                      >
-                        {notif.status === 'Unread' && <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary" />}
+                        {!notif.isRead && <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary" />}
                         
                         <div className={cn(
                            "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
-                           notif.status === 'Unread' ? "bg-primary/5 text-primary" : "bg-slate-50 text-slate-400"
+                           !notif.isRead ? "bg-primary/5 text-primary" : "bg-slate-50 text-slate-400"
                         )}>
                            <Icon size={22} />
                         </div>
@@ -362,18 +366,18 @@ const NotificationsModule = () => {
                            </div>
                            <p className={cn(
                               "text-sm leading-relaxed mb-1",
-                              notif.status === 'Unread' ? "text-slate-900 font-bold" : "text-slate-500 font-medium"
+                               !notif.isRead ? "text-slate-900 font-bold" : "text-slate-500 font-medium"
                            )}>
                               {notif.message}
                            </p>
                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                              {notif.borrowerId?.fullName || 'System Notification'}
+                              {notif.senderId?.fullName || 'System Notification'}
                            </p>
                         </div>
 
                         <div className="flex items-center gap-2 self-center opacity-0 group-hover:opacity-100 transition-opacity">
                            <TableAction icon={Eye} color="text-blue-500 hover:bg-blue-50" onClick={() => openDrawer('view', notif)} tooltip="View Details" />
-                           {notif.status === 'Unread' && (
+                           {!notif.isRead && (
                               <TableAction icon={CheckCheck} color="text-emerald-500 hover:bg-emerald-50" onClick={() => handleMarkAsRead(notif._id)} tooltip="Mark Read" />
                            )}
                            <TableAction icon={Trash2} color="text-rose-500 hover:bg-rose-50" onClick={() => openModal('delete', notif)} tooltip="Delete" />
@@ -440,16 +444,16 @@ const NotificationsModule = () => {
                </div>
 
                {/* Conditional Relations UI Linkages */}
-               {selectedNotification.borrowerId && (
+               {selectedNotification.senderId && (
                   <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Linked Borrower Info</h4>
+                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Linked User Info</h4>
                      <div className="flex items-center gap-4">
                         <div className="w-12 h-12 bg-slate-200 rounded-xl flex items-center justify-center font-black text-slate-600">
-                           {selectedNotification.borrowerId?.fullName?.charAt(0) || 'B'}
+                           {selectedNotification.senderId?.fullName?.charAt(0) || 'B'}
                         </div>
                         <div>
-                           <p className="text-sm font-black text-slate-900">{selectedNotification.borrowerId?.fullName}</p>
-                           <p className="text-[11px] font-bold text-slate-400">{selectedNotification.borrowerId?.email}</p>
+                           <p className="text-sm font-black text-slate-900">{selectedNotification.senderId?.fullName}</p>
+                           <p className="text-[11px] font-bold text-slate-400">{selectedNotification.senderId?.email}</p>
                         </div>
                      </div>
                   </div>
@@ -480,7 +484,7 @@ const NotificationsModule = () => {
                </div>
 
                <div className="pt-6 border-t border-slate-100 flex gap-4 sticky bottom-0 bg-white">
-                  {selectedNotification.status === 'Unread' && (
+                   {!selectedNotification.isRead && (
                      <Button variant="ghost" className="flex-1" onClick={() => { handleMarkAsRead(selectedNotification._id); closeDrawer(); }}>Dismiss Alert</Button>
                   )}
                   <Button onClick={closeDrawer} className="flex-1 shadow-lg shadow-primary/20 bg-primary">Close Details</Button>

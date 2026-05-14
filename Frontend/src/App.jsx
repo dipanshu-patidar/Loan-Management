@@ -34,6 +34,7 @@ import LoanReview from './dashboards/staff/LoanReview';
 import LoanReviewDetail from './dashboards/staff/LoanReviewDetail';
 import PaymentVerification from './dashboards/staff/PaymentVerification';
 import CommunicationLogs from './dashboards/staff/CommunicationLogs';
+import StaffNotifications from './dashboards/staff/Notifications';
 import AgentDashboard from './dashboards/agent/AgentDashboard';
 import MyClients from './dashboards/agent/MyClients';
 import Earnings from './dashboards/agent/Earnings';
@@ -89,7 +90,8 @@ function App() {
           <Route path="loan-review/:id" element={<EligibilityReview />} />
           <Route path="payment-verification" element={<PaymentVerification />} />
           <Route path="profile" element={<Profile />} />
-          <Route path="logs" element={<CommunicationLogs />} />
+          <Route path="communications" element={<CommunicationLogs />} />
+          <Route path="notifications" element={<StaffNotifications />} />
           <Route path="*" element={<div className="card">Staff Module Placeholder</div>} />
         </Route>
 

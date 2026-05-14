@@ -10,10 +10,10 @@ const { getIO } = require('../../socket/socketServer');
  */
 const getNavbarNotifications = asyncHandler(async (req, res) => {
   const notifications = await Notification.find({ 
-    receiverRole: 'admin',
+    receiverId: req.user._id,
     isDeleted: false 
   })
-  .populate('borrowerId', 'fullName email')
+  .populate('senderId', 'fullName profilePhoto')
   .sort({ createdAt: -1 })
   .limit(10);
 
@@ -27,9 +27,9 @@ const getNavbarNotifications = asyncHandler(async (req, res) => {
  */
 const getNavbarUnreadCount = asyncHandler(async (req, res) => {
   const unreadCount = await Notification.countDocuments({ 
-    receiverRole: 'admin',
+    receiverId: req.user._id,
     isDeleted: false,
-    status: 'Unread'
+    isRead: false
   });
 
   sendSuccess(res, 'Unread count fetched successfully', { unreadCount });
@@ -43,9 +43,9 @@ const getNavbarUnreadCount = asyncHandler(async (req, res) => {
 const markNavbarNotificationAsRead = asyncHandler(async (req, res) => {
   const notification = await Notification.findByIdAndUpdate(
     req.params.id,
-    { status: 'Read', isRead: true },
+    { isRead: true },
     { new: true }
-  ).populate('borrowerId');
+  );
 
   if (!notification) {
     return sendError(res, 'Notification not found', 404);
@@ -54,8 +54,15 @@ const markNavbarNotificationAsRead = asyncHandler(async (req, res) => {
   // Emit Socket updates
   try {
     const io = getIO();
-    io.emit('notification:read', { id: notification._id, status: 'Read' });
-    io.emit('notification:update', { id: notification._id, field: 'status', value: 'Read' });
+    io.to(req.user._id.toString()).emit('notification:read', { id: notification._id });
+    
+    // Also emit unread count update
+    const unreadCount = await Notification.countDocuments({ 
+      receiverId: req.user._id,
+      isDeleted: false,
+      isRead: false
+    });
+    io.to(req.user._id.toString()).emit('unread:updated', { unreadCount });
   } catch (err) {}
 
   sendSuccess(res, 'Navbar notification marked as read', notification);
@@ -68,15 +75,15 @@ const markNavbarNotificationAsRead = asyncHandler(async (req, res) => {
  */
 const markAllNavbarNotificationsAsRead = asyncHandler(async (req, res) => {
   await Notification.updateMany(
-    { receiverRole: 'admin', isDeleted: false, status: 'Unread' },
-    { status: 'Read', isRead: true }
+    { receiverId: req.user._id, isDeleted: false, isRead: false },
+    { isRead: true }
   );
 
   // Emit Socket updates
   try {
     const io = getIO();
-    io.emit('notification:read', { scope: 'all' });
-    io.emit('notification:update', { scope: 'all', field: 'status', value: 'Read' });
+    io.to(req.user._id.toString()).emit('notification:read', { scope: 'all' });
+    io.to(req.user._id.toString()).emit('unread:updated', { unreadCount: 0 });
   } catch (err) {}
 
   sendSuccess(res, 'All navbar notifications marked as read successfully');

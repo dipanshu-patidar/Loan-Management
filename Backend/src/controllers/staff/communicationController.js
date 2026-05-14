@@ -5,6 +5,7 @@ const User = require('../../models/User');
 const asyncHandler = require('../../utils/asyncHandler');
 const { sendSuccess, sendError } = require('../../utils/responseHandler');
 const { getIO } = require('../../socket/socketServer');
+const { createNotification } = require('../../utils/notificationHelper');
 
 /**
  * @desc    Get Staff Conversations List (Filtered & Searched)
@@ -194,6 +195,24 @@ const createNewConversation = asyncHandler(async (req, res) => {
     await conversation.save();
 
     await savedMsg.populate('senderId', 'fullName role profilePhoto');
+
+    // Create notification for recipient
+    try {
+      await createNotification({
+        receiverId: recipient._id,
+        receiverRole: recipient.role,
+        senderId: req.user._id,
+        senderRole: req.user.role,
+        notificationType: recipient.role === 'borrower' ? 'BorrowerReply' : 'NewMessage',
+        title: `New Message from ${req.user.role === 'staff' ? 'Staff' : 'Support'}`,
+        message: initialMessage.length > 50 ? initialMessage.substring(0, 47) + '...' : initialMessage,
+        relatedId: conversation._id,
+        relatedModel: 'Conversation',
+        priority: 'normal'
+      });
+    } catch (notifErr) {
+      console.error('Staff controller: Failed to create initial conversation notification:', notifErr);
+    }
   }
 
   // Socket broadcast to the recipient if it's a brand new thread
@@ -292,8 +311,17 @@ const sendMessage = asyncHandler(async (req, res) => {
   try {
     const io = getIO();
     // Channel targeted directly at the conversation room
-    io.to(conversationId).emit('receiveMessage', formattedMsg);
-    io.to(conversationId).emit('receive_message', formattedMsg); // Compatibility
+    const roomId = conversationId.toString();
+    io.to(roomId).emit('receiveMessage', formattedMsg);
+    io.to(roomId).emit('receive_message', formattedMsg); // Compatibility
+    
+    // Also broadcast to individual user channels for notifications/sidebar updates
+    const receiverId = otherUserId.toString();
+    io.emit(`receiveMessage_${receiverId}`, formattedMsg);
+    io.emit(`receive_message_${receiverId}`, formattedMsg);
+    
+    // Important: Also emit to the sender's own channel so they see it in their sidebar/other tabs
+    io.emit(`receiveMessage_${req.user._id}`, formattedMsg);
 
     // Direct notifications if target not inside the room
     if (otherUserId) {
@@ -304,6 +332,28 @@ const sendMessage = asyncHandler(async (req, res) => {
     // Dispatch general sync alert
     io.emit('conversationUpdated', { conversationId, lastMessage: conversation.lastMessage });
   } catch (socketErr) {}
+
+  // Create notification for receiver
+  try {
+    const receiverUser = await User.findById(otherUserId);
+    console.log(`[Communication] Attempting notification for receiver: ${otherUserId}, role: ${receiverUser?.role}`);
+    if (receiverUser) {
+      await createNotification({
+        receiverId: otherUserId,
+        receiverRole: receiverUser.role,
+        senderId: req.user._id,
+        senderRole: req.user.role,
+        notificationType: receiverUser.role === 'borrower' ? 'BorrowerReply' : 'NewMessage',
+        title: `New Message from ${req.user.role === 'staff' ? 'Staff' : 'Support'}`,
+        message: message.length > 50 ? message.substring(0, 47) + '...' : message,
+        relatedId: conversation._id,
+        relatedModel: 'Conversation',
+        priority: 'normal'
+      });
+    }
+  } catch (notifErr) {
+    console.error('[Communication] Notification creation failed:', notifErr);
+  }
 
   sendSuccess(res, 'Message dispatched', formattedMsg);
 });

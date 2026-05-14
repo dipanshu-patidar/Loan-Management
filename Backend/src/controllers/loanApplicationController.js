@@ -4,6 +4,7 @@ const ActiveLoan = require('../models/ActiveLoan');
 const Notification = require('../models/Notification');
 const Borrower = require('../models/Borrower');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
+const { createNotification } = require('../utils/notificationHelper');
 
 /**
  * @desc    Get all loan applications with pagination, search, and filters
@@ -407,6 +408,59 @@ const updateStaffReview = asyncHandler(async (req, res) => {
   sendSuccess(res, 'Staff review updated successfully', application);
 });
 
+/**
+ * @desc    Assign staff to loan application
+ * @route   PUT /api/admin/loan-applications/:id/assign
+ * @access  Private/Admin
+ */
+const assignApplication = asyncHandler(async (req, res) => {
+  const { staffId } = req.body;
+
+  if (!staffId) {
+    return sendError(res, 'Staff ID is required', 400);
+  }
+
+  const application = await LoanApplication.findById(req.params.id);
+  if (!application) {
+    return sendError(res, 'Loan application not found', 404);
+  }
+
+  const staffUser = await User.findById(staffId);
+  if (!staffUser || staffUser.role !== 'staff') {
+    return sendError(res, 'Valid staff user not found', 404);
+  }
+
+  // Update application with assigned staff
+  application.staffReview = {
+    ...application.staffReview,
+    reviewedBy: staffId,
+    staffName: staffUser.fullName,
+    verificationDate: null // Reset verification date if newly assigned
+  };
+  
+  if (application.status === 'New') {
+    application.status = 'Under Review';
+  }
+
+  await application.save();
+
+  // Create notification for staff
+  await createNotification({
+    receiverId: staffId,
+    receiverRole: 'staff',
+    senderId: req.user._id,
+    senderRole: 'admin',
+    notificationType: 'NewLoanRequest',
+    title: 'New Loan Request Assigned',
+    message: `A new borrower application ${application.applicationId} for ${application.borrowerName} has been assigned to you for review.`,
+    relatedId: application._id,
+    relatedModel: 'LoanApplication',
+    priority: 'important'
+  });
+
+  sendSuccess(res, 'Application assigned to staff successfully', application);
+});
+
 module.exports = {
   getApplicationStats,
   getAllApplications,
@@ -415,4 +469,5 @@ module.exports = {
   rejectApplication,
   holdApplication,
   updateStaffReview,
+  assignApplication
 };

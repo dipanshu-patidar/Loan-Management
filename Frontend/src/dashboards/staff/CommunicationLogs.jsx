@@ -343,9 +343,27 @@ const CommunicationLogs = () => {
       
       if (res.success) {
         setMessageText('');
-        // Do NOT manually append here — the socket broadcast 'receiveMessage'
-        // will deliver it back to this client, and handleReceiveMessage will append
-        // it exactly once (guarded by the de-duplication check).
+        
+        // Construct normalized message from API response to append immediately
+        // This ensures the user sees their message even if socket delivery is slow
+        const sentPayload = res.data;
+        const normalizedSent = {
+          messageId: sentPayload.messageId || sentPayload._id,
+          conversationId: sentPayload.conversationId,
+          senderId: currentUser._id,
+          senderName: currentUser.fullName,
+          senderPhoto: currentUser.profilePhoto || 'no-photo.jpg',
+          message: sentPayload.message || sentPayload.messageText || '',
+          attachments: sentPayload.attachments || [],
+          createdAt: sentPayload.createdAt || new Date()
+        };
+
+        setMessages(prev => {
+          // De-duplicate in case socket arrived first
+          if (prev.some(m => m.messageId?.toString() === normalizedSent.messageId?.toString())) return prev;
+          return [...prev, normalizedSent];
+        });
+
         scrollToBottom();
 
         // Force stop typing broadcast
@@ -516,7 +534,7 @@ const CommunicationLogs = () => {
           </div>
 
           {/* Filter Tabs */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-50 rounded-2xl overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-50 rounded-2xl overflow-x-auto scrollbar-thin">
             {['All', 'Borrower', 'Agent', 'Admin', 'Staff'].map(filter => (
               <button
                 key={filter}

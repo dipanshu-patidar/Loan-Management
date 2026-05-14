@@ -48,10 +48,13 @@ import BorrowerPaymentHistory from './dashboards/borrower/PaymentHistory';
 
 import BorrowerNotifications from './dashboards/borrower/BorrowerNotifications';
 import BorrowerCommunication from './dashboards/borrower/BorrowerCommunication';
+import { SocketProvider } from './context/SocketContext';
 
 function App() {
   return (
-    <Router>
+    <SocketProvider>
+      <Router>
+
       <Toaster position="top-right" reverseOrder={false} />
       <Routes>
         {/* Landing Page */}
@@ -123,7 +126,9 @@ function App() {
         <Route path="*" element={<div className="min-h-screen flex items-center justify-center font-bold text-2xl">404 - Not Found</div>} />
       </Routes>
     </Router>
+    </SocketProvider>
   );
 }
+
 
 export default App;

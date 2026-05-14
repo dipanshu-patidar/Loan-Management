@@ -2,6 +2,7 @@ import React from 'react';
 import { Menu, Bell, Search, ChevronDown } from 'lucide-react';
 import NotificationDropdown from './NotificationDropdown';
 import StaffNotificationDropdown from './StaffNotificationDropdown';
+import AgentNotificationDropdown from './AgentNotificationDropdown';
 import UserDropdown from './UserDropdown';
 
 const Navbar = ({ toggleSidebar, role }) => {
@@ -28,11 +29,13 @@ const Navbar = ({ toggleSidebar, role }) => {
       <div className="flex items-center gap-2">
         {role === 'admin' && <NotificationDropdown />}
         {role === 'staff' && <StaffNotificationDropdown />}
-        {(role === 'admin' || role === 'staff') && <div className="h-8 w-px bg-slate-100 mx-2 hidden sm:block" />}
+        {role === 'agent' && <AgentNotificationDropdown />}
+        {(role === 'admin' || role === 'staff' || role === 'agent') && <div className="h-8 w-px bg-slate-100 mx-2 hidden sm:block" />}
         <UserDropdown role={role} />
       </div>
     </nav>
   );
 };
+
 
 export default Navbar;

@@ -600,8 +600,8 @@ const AdminCommunication = () => {
                                     isMe 
                                       ? "bg-primary text-white rounded-tr-none shadow-primary/10" 
                                       : "bg-white text-slate-700 border border-slate-100 rounded-tl-none",
-                                    msg.messageType === 'compliance_notice' && "border-2 border-rose-300 bg-rose-50/40",
-                                    msg.messageType === 'reminder' && "border-2 border-amber-300 bg-amber-50/40"
+                                    msg.messageType === 'compliance_notice' && "border-2 border-rose-300 bg-rose-50 text-rose-900",
+                                    msg.messageType === 'reminder' && "border-2 border-amber-300 bg-amber-50 text-amber-900"
                                   )}
                                   title={isMe ? "Right-click to retract message" : ""}
                                 >

@@ -17,11 +17,16 @@ const { getIO } = require('../socket/socketServer');
  */
 const createNotification = async (data) => {
   try {
-    const notification = await Notification.create({
+    // Standardize the type field
+    const notificationData = {
       ...data,
-      isRead: false,
+      type: data.type || data.notificationType, // Support both new and legacy
+      status: data.status || 'UNREAD',
+      isRead: data.isRead || false,
       isDeleted: false
-    });
+    };
+
+    const notification = await Notification.create(notificationData);
 
     // Emit to specific user if receiverId is provided
     try {
@@ -29,20 +34,23 @@ const createNotification = async (data) => {
       if (data.receiverId) {
         const roomId = data.receiverId.toString();
         console.log(`[Notification] Emitting notification:new to room: ${roomId}`);
-        // Emit to a room named after the receiverId
+        
+        // Emit the full notification object
         io.to(roomId).emit('notification:new', notification);
         
-        // Also emit unread count update
+        // Also emit unread count update for navbar bell
         const unreadCount = await Notification.countDocuments({
           receiverId: data.receiverId,
-          isRead: false,
+          status: 'UNREAD',
           isDeleted: false
         });
+        
         console.log(`[Notification] Emitting unread:updated to room: ${roomId}, count: ${unreadCount}`);
         io.to(roomId).emit('unread:updated', { unreadCount });
-      } else {
-        // Fallback: broadcast to all (if no receiverId specified, though usually should have one)
-        io.emit('notification:new', notification);
+        io.to(roomId).emit('notification:count', { unreadCount }); // For Agent Dashboard specific listener
+      } else if (data.receiverRole === 'admin') {
+        // Broadcast to all admins if no specific receiverId
+        io.to('admin').emit('notification:new', notification);
       }
     } catch (socketErr) {
       console.error('Socket emit failed inside createNotification:', socketErr.message);
@@ -54,5 +62,6 @@ const createNotification = async (data) => {
     return null;
   }
 };
+
 
 module.exports = { createNotification };

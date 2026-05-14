@@ -288,9 +288,28 @@ const approveApplication = asyncHandler(async (req, res) => {
           borrowerName: borrower.fullName
         });
       }
+
+      // Create LOAN_APPROVAL notification for Agent
+      await createNotification({
+        receiverId: borrower.assignedAgent,
+        receiverRole: 'agent',
+        senderId: req.user._id,
+        senderRole: 'admin',
+        borrowerId: borrower._id,
+        loanApplicationId: application._id,
+        type: 'LOAN_APPROVAL',
+        title: 'New Loan Approved',
+        message: `Your borrower ${borrower.fullName}'s loan application ${application.applicationId} has been approved for R ${loanAmount}.`,
+        priority: 'IMPORTANT',
+        metadata: {
+          loanCode: activeLoan.loanCode,
+          amount: loanAmount
+        }
+      });
     } catch (err) {
-      console.error('Commission Generation Error:', err);
+      console.error('Commission/Notification Generation Error:', err);
     }
+
   }
 
   sendSuccess(res, 'Loan application approved and active loan created', { application, activeLoan });

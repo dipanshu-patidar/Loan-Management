@@ -70,19 +70,40 @@ const submitPayment = asyncHandler(async (req, res) => {
       });
     }
 
-    // Also notify Admin
-    await createNotification({
-      receiverRole: 'admin',
-      senderId: req.user._id,
-      senderRole: 'borrower',
-      notificationType: 'PaymentVerification',
-      title: 'Incoming Payment Proof',
-      message: `${borrower.fullName} uploaded a payment proof for R ${amount}.`,
-      relatedId: payment._id,
-      relatedModel: 'Payment',
-      priority: 'normal'
-    });
-  } catch (notifErr) {
+      // Also notify Admin
+      await createNotification({
+        receiverRole: 'admin',
+        senderId: req.user._id,
+        senderRole: 'borrower',
+        notificationType: 'PaymentVerification',
+        title: 'Incoming Payment Proof',
+        message: `${borrower.fullName} uploaded a payment proof for R ${amount}.`,
+        relatedId: payment._id,
+        relatedModel: 'Payment',
+        priority: 'normal'
+      });
+
+      // Notify Agent if assigned
+      if (borrower.assignedAgent) {
+        await createNotification({
+          receiverId: borrower.assignedAgent,
+          receiverRole: 'agent',
+          senderId: req.user._id,
+          senderRole: 'borrower',
+          borrowerId: borrower._id,
+          type: 'PAYMENT_UPDATE',
+          title: 'Payment Uploaded',
+          message: `Your borrower ${borrower.fullName} has uploaded a payment proof for R ${amount}.`,
+          priority: 'NORMAL',
+          metadata: {
+            paymentId: payment._id,
+            loanCode: activeLoan.loanCode,
+            amount: amount
+          }
+        });
+      }
+    } catch (notifErr) {
+
     console.error('Failed to trigger payment notifications:', notifErr);
   }
 

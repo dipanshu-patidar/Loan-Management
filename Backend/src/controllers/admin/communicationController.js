@@ -136,6 +136,7 @@ const sendMessage = asyncHandler(async (req, res) => {
     senderRole: req.user.role,
     receiverId,
     messageType: messageType || 'text',
+    message: messageText,
     messageText,
     isDelivered: true
   });
@@ -176,10 +177,17 @@ const sendMessage = asyncHandler(async (req, res) => {
   // Broadcast via Socket
   try {
     const io = getIO();
-    io.to(conversationId.toString()).emit('receiveMessage', message);
-    io.to(conversationId.toString()).emit('receive_message', message);
+    const roomId = conversationId.toString();
+    io.to(roomId).emit('message:received', message);
+    io.to(roomId).emit('receiveMessage', message);
+    io.to(roomId).emit('receive_message', message);
     // Also emit to user specific channel for notifications/sidebar updates
     io.emit(`receiveMessage_${receiverId}`, message);
+    
+    // Unread count update for receiver
+    const newUnread = (conversation.unreadCounts.get(receiverId.toString()) || 0);
+    io.emit(`unread:updated_${receiverId}`, { conversationId, unreadCount: newUnread });
+
     // Emit to sender too
     io.emit(`receiveMessage_${req.user._id}`, message);
   } catch (err) {
@@ -233,6 +241,7 @@ const broadcastMessage = asyncHandler(async (req, res) => {
       senderRole: req.user.role,
       receiverId: user._id,
       messageType: 'operational_update',
+      message: messageText,
       messageText,
       isDelivered: true
     });
@@ -246,7 +255,9 @@ const broadcastMessage = asyncHandler(async (req, res) => {
     await message.populate('senderId', 'fullName role profilePhoto');
 
     const io = getIO();
-    io.to(conversation._id.toString()).emit('receive_message', message);
+    const roomId = conversation._id.toString();
+    io.to(roomId).emit('message:received', message);
+    io.to(roomId).emit('receive_message', message);
     io.emit(`receive_message_${user._id}`, message);
 
     // Create notification for broadcast

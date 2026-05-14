@@ -248,17 +248,50 @@ const approveApplication = asyncHandler(async (req, res) => {
     borrowerEmail: application.email || borrower?.email,
     borrowerPhone: application.phoneNumber || borrower?.phoneNumber,
     loanApplicationId: application._id,
+    loanCode: `P47-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`, // Temporary fallback
     loanType: application.loanType || 'Personal Loan',
     approvedAmount: loanAmount,
     interestRate: rate,
     loanDurationMonths: duration,
     emiAmount,
     totalPayableAmount: emiAmount * duration,
-    remainingBalance: emiAmount * duration, // starting balance is total payable
+    remainingBalance: emiAmount * duration,
     nextDueDate: emiSchedule[0].dueDate,
     repaymentSchedule: emiSchedule,
     approvedBy: req.user._id,
   });
+
+  // COMMISSION LOGIC: If borrower has an assigned agent, generate commission
+  if (borrower && borrower.assignedAgent) {
+    try {
+      const Commission = require('../models/Commission');
+      const commissionPercent = 2.5; // Default 2.5%
+      const commissionAmount = (loanAmount * commissionPercent) / 100;
+
+      const commission = await Commission.create({
+        agentId: borrower.assignedAgent,
+        borrowerId: borrower._id,
+        loanId: activeLoan._id,
+        loanAmount,
+        commissionPercent,
+        commissionAmount,
+        status: 'Pending'
+      });
+
+      // Socket notification for agent
+      const { getIO } = require('../socket/socketServer'); 
+      const io = getIO();
+      if (io) {
+        io.to(borrower.assignedAgent.toString()).emit('commission:generated', {
+          message: `New commission generated for loan ${activeLoan.loanCode}`,
+          commissionAmount,
+          borrowerName: borrower.fullName
+        });
+      }
+    } catch (err) {
+      console.error('Commission Generation Error:', err);
+    }
+  }
 
   sendSuccess(res, 'Loan application approved and active loan created', { application, activeLoan });
 });

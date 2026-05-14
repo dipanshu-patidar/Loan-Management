@@ -10,6 +10,8 @@ const errorHandler = require('./middlewares/errorMiddleware');
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const adminAgentRoutes = require('./routes/admin/agentRoutes');
+const agentMyClientsRoutes = require('./routes/agent/myClientsRoutes');
+const agentEarningsRoutes = require('./routes/agent/earningsRoutes');
 const borrowerRoutes = require('./routes/borrowerRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const agentRoutes = require('./routes/agentRoutes');
@@ -33,6 +35,7 @@ const staffProfileRoutes = require('./routes/staff/profileRoutes');
 const staffNotificationRoutes = require('./routes/staff/notificationRoutes');
 const staffDashboardRoutes = require('./routes/staff/dashboardRoutes');
 const borrowerPaymentRoutes = require('./routes/borrower/paymentRoutes');
+const agentCommunicationRoutes = require('./routes/agent/communicationRoutes');
 
 const app = express();
 
@@ -86,6 +89,9 @@ app.use('/api/staff/profile', staffProfileRoutes);
 app.use('/api/staff/notifications', staffNotificationRoutes);
 app.use('/api/staff/dashboard', staffDashboardRoutes);
 app.use('/api/borrower/payments', borrowerPaymentRoutes);
+app.use('/api/agent/my-clients', agentMyClientsRoutes);
+app.use('/api/agent/earnings', agentEarningsRoutes);
+app.use('/api/agent/communications', agentCommunicationRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/upload', uploadRoutes);
 
@@ -97,5 +103,4 @@ app.get('/', (req, res) => {
 // Error handler
 app.use(errorHandler);
 
-module.exports = app;
 module.exports = app;

@@ -312,6 +312,7 @@ const sendMessage = asyncHandler(async (req, res) => {
     const io = getIO();
     // Channel targeted directly at the conversation room
     const roomId = conversationId.toString();
+    io.to(roomId).emit('message:received', formattedMsg);
     io.to(roomId).emit('receiveMessage', formattedMsg);
     io.to(roomId).emit('receive_message', formattedMsg); // Compatibility
     

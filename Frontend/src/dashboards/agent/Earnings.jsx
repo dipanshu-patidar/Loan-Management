@@ -1,86 +1,324 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
-  TrendingUp, Wallet, DollarSign, Clock, 
-  Download, FileText, Filter, Eye, 
-  ChevronRight, ArrowRight, CheckCircle2, 
-  Calendar, PieChart, BarChart3, Search,
-  X, Briefcase, User, Info, FileSpreadsheet,
-  ArrowDownRight
+  Wallet, TrendingUp, CreditCard, Clock, 
+  Search, Filter, RefreshCw, Eye, 
+  Download, Calendar, ChevronRight, 
+  CheckCircle2, AlertCircle, ArrowUpRight, 
+  ArrowRight, PieChart, Activity, User, 
+  FileText, ExternalLink, X, MapPin, Building2, Briefcase, Info, Coins
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   BarChart, Bar, XAxis, YAxis, 
-  CartesianGrid, Tooltip, ResponsiveContainer,
-  Cell, AreaChart, Area
+  CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { cn } from '../../utils/cn';
 import Button from '../../ui/Button';
 import StatCard from '../../components/StatCard';
 import StatusBadge from '../../components/StatusBadge';
 import Modal from '../../ui/Modal';
+import agentEarningsService from '../../services/agentEarningsService';
+import { toast } from 'react-hot-toast';
+import { initiateSocketConnection, disconnectSocket } from '../../socket/socketClient';
 
 const Earnings = () => {
+  // Data States
+  const [dashboardData, setDashboardData] = useState(null);
+  const [commissions, setCommissions] = useState([]);
+  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, pages: 1 });
+  const [recentPayouts, setRecentPayouts] = useState(null);
+  
+  // Loading States
+  const [loading, setLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(false);
+  const [drawerLoading, setDrawerLoading] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+
+  // UI States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState('All Statuses');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [selectedEarning, setSelectedEarning] = useState(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+  const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
+  
+  // Detail States
+  const [selectedCommissionId, setSelectedCommissionId] = useState(null);
+  const [commissionDetail, setCommissionDetail] = useState(null);
 
-  const earningsData = [
-    { month: 'Jan', paid: 4500, unpaid: 1200 },
-    { month: 'Feb', paid: 5200, unpaid: 800 },
-    { month: 'Mar', paid: 4800, unpaid: 1500 },
-    { month: 'Apr', paid: 6100, unpaid: 2000 },
-    { month: 'May', paid: 5400, unpaid: 1200 },
-  ];
+  // Form States
+  const [exportForm, setExportForm] = useState({ format: 'PDF', startDate: '', endDate: '', paymentStatus: 'All Statuses' });
+  const [statementForm, setStatementForm] = useState({ month: new Date().toLocaleString('default', { month: 'long' }), year: new Date().getFullYear(), format: 'PDF' });
 
-  const commissions = [
-    { 
-      id: 'COM-001', 
-      borrower: 'Michael Chen', 
-      loanAmount: 'R12,500', 
-      percent: '5%', 
-      earned: 'R625',
-      status: 'Paid',
-      date: '2026-05-02',
-      loanType: 'Personal Loan'
-    },
-    { 
-      id: 'COM-002', 
-      borrower: 'Sarah Williams', 
-      loanAmount: 'R8,000', 
-      percent: '3%', 
-      earned: 'R240',
-      status: 'Pending',
-      date: '2026-05-08',
-      loanType: 'Emergency Loan'
-    },
-    { 
-      id: 'COM-003', 
-      borrower: 'David Gumede', 
-      loanAmount: 'R5,000', 
-      percent: '4%', 
-      earned: 'R200',
-      status: 'Processing',
-      date: '2026-05-05',
-      loanType: 'Personal Loan'
-    },
-    { 
-      id: 'COM-004', 
-      borrower: 'Linda Mbeki', 
-      loanAmount: 'R20,000', 
-      percent: '5%', 
-      earned: 'R1,000',
-      status: 'Paid',
-      date: '2026-04-28',
-      loanType: 'Business Loan'
-    },
-  ];
+  // Fetch Logic
+  const fetchDashboard = async () => {
+    try {
+      const res = await agentEarningsService.getEarningsDashboard();
+      if (res.success) setDashboardData(res.data);
+    } catch (error) {
+      console.error('Earnings Dashboard Error:', error);
+    }
+  };
 
-  const recentPayouts = [
-    { id: 1, title: 'Commission Paid', desc: 'R1,200 for Michael Chen loan.', time: '2 days ago', status: 'completed' },
-    { id: 2, title: 'New Commission Generated', desc: 'R240 for Sarah Williams.', time: '5 hours ago', status: 'pending' },
-    { id: 3, title: 'Payout Processing', desc: 'R850 for monthly payout.', time: 'Yesterday', status: 'active' },
-  ];
+  const fetchTable = useCallback(async (silent = false) => {
+    if (!silent) setTableLoading(true);
+    try {
+      const res = await agentEarningsService.getEarningsTable({
+        page: pagination.page,
+        limit: pagination.limit,
+        search: searchQuery,
+        status: filterStatus !== 'All Statuses' ? filterStatus : ''
+      });
+      if (res.success) {
+        setCommissions(res.data.commissions);
+        setPagination(res.data.pagination);
+      }
+    } catch (error) {
+      toast.error('Failed to load earnings table');
+    } finally {
+      if (!silent) setTableLoading(false);
+    }
+  }, [pagination.page, pagination.limit, searchQuery, filterStatus]);
+
+  const fetchRecent = async () => {
+    try {
+      const res = await agentEarningsService.getRecentPayouts();
+      if (res.success) setRecentPayouts(res.data);
+    } catch (error) {
+      console.error('Recent Payouts Error:', error);
+    }
+  };
+
+  // Initial Load & Real-time Integration
+  useEffect(() => {
+    const init = async () => {
+      setLoading(true);
+      await Promise.all([fetchDashboard(), fetchTable(true), fetchRecent()]);
+      setLoading(false);
+    };
+    init();
+
+    const token = localStorage.getItem('token');
+    const socket = initiateSocketConnection(token);
+
+    socket.on('commission:generated', (data) => {
+      fetchDashboard();
+      fetchTable(true);
+      fetchRecent();
+      toast.success(data.message || 'New commission generated!');
+    });
+
+    socket.on('payout:paid', () => {
+      fetchDashboard();
+      fetchTable(true);
+      fetchRecent();
+      toast.success('Commission payout processed!');
+    });
+
+    return () => {
+      socket.off('commission:generated');
+      socket.off('payout:paid');
+      disconnectSocket();
+    };
+  }, [fetchTable]);
+
+  // Actions
+  const handleViewDetail = async (id) => {
+    setSelectedCommissionId(id);
+    setIsDrawerOpen(true);
+    setDrawerLoading(true);
+    try {
+      const res = await agentEarningsService.getEarningDetails(id);
+      if (res.success) setCommissionDetail(res.data);
+    } catch (error) {
+      toast.error('Failed to load details');
+      setIsDrawerOpen(false);
+    } finally {
+      setDrawerLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setModalLoading(true);
+    try {
+      const res = await agentEarningsService.exportEarnings(exportForm);
+      if (res.success && res.data.commissions) {
+        const data = res.data.commissions;
+        
+        if (exportForm.format === 'PDF') {
+          const doc = new jsPDF();
+          doc.setFontSize(20);
+          doc.setTextColor(46, 58, 116);
+          doc.text("Point.47 Loan Management", 14, 15);
+          
+          doc.setFontSize(14);
+          doc.setTextColor(100, 100, 100);
+          doc.text("Agent Earnings Report", 14, 25);
+          
+          doc.setFontSize(10);
+          doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 32);
+          doc.text(`Filters: ${exportForm.paymentStatus} | ${exportForm.startDate || 'Start'} to ${exportForm.endDate || 'End'}`, 14, 38);
+
+          const tableColumn = ["Code", "Borrower", "Loan", "Amount", "Earned", "Status", "Date"];
+          const tableRows = data.map(c => [
+            c.commissionCode,
+            c.borrowerName,
+            c.loanCode,
+            formatCurrency(c.loanAmount),
+            formatCurrency(c.commissionAmount),
+            c.status,
+            formatDate(c.createdAt)
+          ]);
+
+          autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 45,
+            theme: 'grid',
+            headStyles: { fillColor: [46, 58, 116], textColor: [255, 255, 255], fontStyle: 'bold' },
+            styles: { fontSize: 8, cellPadding: 3 },
+          });
+
+          doc.save(`Earnings_Report_${new Date().getTime()}.pdf`);
+          toast.success('PDF Report generated successfully');
+        } else {
+          // CSV or Excel (Basic CSV for both as standard in this repo)
+          const headers = ["Commission Code,Borrower,Loan Code,Loan Amount,Earned Amount,Status,Date\n"];
+          const rows = data.map(c => 
+            `${c.commissionCode},"${c.borrowerName}",${c.loanCode},${c.loanAmount},${c.commissionAmount},${c.status},${formatDate(c.createdAt)}`
+          ).join("\n");
+          
+          const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.setAttribute("href", url);
+          link.setAttribute("download", `Earnings_Data_${new Date().getTime()}.csv`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          toast.success('CSV Data exported successfully');
+        }
+        setIsExportModalOpen(false);
+      }
+    } catch (error) {
+      toast.error('Export failed');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleDownloadStatement = async () => {
+    setModalLoading(true);
+    try {
+      const res = await agentEarningsService.downloadStatement(statementForm);
+      if (res.success && res.data.commissions) {
+        const { commissions: data, summary } = res.data;
+        
+        if (statementForm.format === 'PDF') {
+          const doc = new jsPDF();
+          doc.setFontSize(22);
+          doc.setTextColor(46, 58, 116);
+          doc.text("Point.47 Earnings Statement", 14, 20);
+          
+          doc.setFontSize(12);
+          doc.setTextColor(100, 100, 100);
+          doc.text(`Period: ${statementForm.month} ${statementForm.year}`, 14, 30);
+          doc.text(`Agent: ${dashboardData?.agentName || 'Authenticated Agent'}`, 14, 37);
+
+          // Summary Box
+          doc.setDrawColor(240, 240, 240);
+          doc.setFillColor(250, 250, 250);
+          doc.roundedRect(14, 45, 180, 25, 3, 3, 'FD');
+          
+          doc.setFontSize(10);
+          doc.setTextColor(46, 58, 116);
+          doc.text("TOTAL EARNED", 25, 55);
+          doc.text("TOTAL PAID", 85, 55);
+          doc.text("COMMISSIONS", 145, 55);
+          
+          doc.setFontSize(12);
+          doc.text(formatCurrency(summary.totalEarned), 25, 63);
+          doc.text(formatCurrency(summary.totalPaid), 85, 63);
+          doc.text(summary.count.toString(), 145, 63);
+
+          const tableColumn = ["Date", "Code", "Borrower", "Loan Code", "Loan Amount", "Commission", "Status"];
+          const tableRows = data.map(c => [
+            formatDate(c.date),
+            c.commissionCode,
+            c.borrowerName,
+            c.loanCode,
+            formatCurrency(c.loanAmount),
+            formatCurrency(c.commissionAmount),
+            c.status
+          ]);
+
+          autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 80,
+            theme: 'striped',
+            headStyles: { fillColor: [46, 58, 116], textColor: [255, 255, 255], fontStyle: 'bold' },
+            styles: { fontSize: 8 },
+          });
+
+          doc.save(`Statement_${statementForm.month}_${statementForm.year}.pdf`);
+          toast.success('Statement downloaded successfully');
+        } else {
+          const headers = ["Date,Code,Borrower,Loan Code,Loan Amount,Commission,Status\n"];
+          const rows = data.map(c => 
+            `${formatDate(c.date)},${c.commissionCode},"${c.borrowerName}",${c.loanCode},${c.loanAmount},${c.commissionAmount},${c.status}`
+          ).join("\n");
+          
+          const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.setAttribute("href", url);
+          link.setAttribute("download", `Statement_${statementForm.month}_${statementForm.year}.csv`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          toast.success('Statement exported successfully');
+        }
+        setIsStatementModalOpen(false);
+      }
+    } catch (error) {
+      toast.error('Download failed');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-ZA', {
+      style: 'currency',
+      currency: 'ZAR',
+    }).format(amount || 0);
+  };
+
+  const formatDate = (date) => {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString('en-ZA', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-8 animate-pulse">
+        <div className="h-20 bg-white rounded-3xl" />
+        <div className="grid grid-cols-4 gap-6">
+          {[1,2,3,4].map(i => <div key={i} className="h-32 bg-white rounded-3xl" />)}
+        </div>
+        <div className="grid grid-cols-3 gap-8">
+           <div className="col-span-2 h-96 bg-white rounded-[2.5rem]" />
+           <div className="h-96 bg-white rounded-[2.5rem]" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-10">
@@ -91,8 +329,8 @@ const Earnings = () => {
           <p className="text-slate-500 font-medium mt-1">Track commissions, monthly earnings, and payout history.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="secondary" className="flex items-center gap-2 font-bold border-slate-200 bg-white" onClick={() => setIsDownloadModalOpen(true)}>
-            <Download size={18} /> Download Statement
+          <Button variant="secondary" className="flex items-center gap-2 font-bold border-slate-200 bg-white" onClick={() => setIsStatementModalOpen(true)}>
+            <Download size={18} /> Statement
           </Button>
           <Button className="flex items-center gap-2 font-bold shadow-lg shadow-primary/20" onClick={() => setIsExportModalOpen(true)}>
             <FileText size={18} /> Export Earnings
@@ -102,69 +340,164 @@ const Earnings = () => {
 
       {/* 2. TOP ANALYTICS CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Monthly Commission" value="R8,450" icon={TrendingUp} color="blue" />
-        <StatCard title="Total Earnings" value="R52,400" icon={Wallet} color="navy" />
-        <StatCard title="Paid Commission" value="R51,200" icon={CheckCircle2} color="emerald" />
-        <StatCard title="Unpaid Commission" value="R1,200" icon={Clock} color="rose" />
+        <StatCard title="Monthly Commission" value={formatCurrency(dashboardData?.analytics?.monthlyCommission)} icon={TrendingUp} color="navy" />
+        <StatCard title="Total Earnings" value={formatCurrency(dashboardData?.analytics?.totalEarnings)} icon={Wallet} color="blue" />
+        <StatCard title="Paid Commission" value={formatCurrency(dashboardData?.analytics?.paidCommission)} icon={CheckCircle2} color="emerald" />
+        <StatCard title="Unpaid Commission" value={formatCurrency(dashboardData?.analytics?.unpaidCommission)} icon={Clock} color="rose" />
       </div>
 
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
-          {/* 📈 MONTHLY EARNINGS CHART */}
-          <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-premium space-y-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-black text-slate-900 tracking-tight">Earnings Overview</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Paid vs Unpaid Performance</p>
+        {/* 3. CHART SECTION */}
+        <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-100 shadow-premium p-8 space-y-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xl font-black text-slate-900 tracking-tight">Monthly Performance</h3>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Paid vs Unpaid Breakdown</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-primary" />
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Paid</span>
               </div>
-              <div className="flex items-center gap-4">
-                <LegendItem color="#2E3A74" label="Paid" />
-                <LegendItem color="#49B6FF" label="Unpaid" />
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unpaid</span>
               </div>
             </div>
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={earningsData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#64748B' }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#64748B' }} />
-                  <Tooltip 
-                    cursor={{ fill: '#F8FAFC' }}
-                    contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '1rem' }}
-                  />
-                  <Bar dataKey="paid" fill="#2E3A74" radius={[4, 4, 0, 0]} barSize={24} />
-                  <Bar dataKey="unpaid" fill="#49B6FF" radius={[4, 4, 0, 0]} barSize={24} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
+          </div>
 
-          {/* 📋 COMMISSION TABLE */}
-          <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-hidden">
-            <div className="p-8 border-b border-slate-50 flex items-center justify-between">
-               <h3 className="text-xl font-black text-slate-900 tracking-tight">Commission Breakdown</h3>
-               <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                  <input type="text" placeholder="Search borrower..." className="pl-10 pr-4 py-2 bg-slate-50 border-none rounded-xl text-[10px] font-bold outline-none focus:ring-2 focus:ring-primary/10 w-48" />
-               </div>
+          <div className="h-[300px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dashboardData?.chartData || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis 
+                  dataKey="month" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 900 }} 
+                  dy={10}
+                />
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 900 }} 
+                />
+                <Tooltip 
+                  cursor={{ fill: '#f8fafc' }}
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="bg-slate-900 p-4 rounded-2xl shadow-xl border border-slate-800">
+                          <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">{payload[0].payload.month}</p>
+                          <div className="space-y-1">
+                            <p className="text-xs font-black text-emerald-400 flex justify-between gap-8">
+                               Paid: <span>{formatCurrency(payload[0].value)}</span>
+                            </p>
+                            <p className="text-xs font-black text-rose-400 flex justify-between gap-8">
+                               Unpaid: <span>{formatCurrency(payload[1].value)}</span>
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Bar dataKey="paid" fill="#1e293b" radius={[6, 6, 0, 0]} barSize={24} />
+                <Bar dataKey="unpaid" fill="#e2e8f0" radius={[6, 6, 0, 0]} barSize={24} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* 4. EARNINGS SUMMARY PANEL */}
+        <div className="bg-slate-900 rounded-[2.5rem] p-8 shadow-xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -mr-16 -mt-16 transition-all group-hover:scale-150 group-hover:bg-primary/20" />
+          
+          <div className="relative z-10 space-y-8">
+            <div>
+              <h3 className="text-xl font-black text-white tracking-tight">Earnings Summary</h3>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Operational Progress</p>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50/50">
-                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    <th className="px-8 py-6 border-b border-slate-100">Borrower</th>
-                    <th className="px-8 py-6 border-b border-slate-100">Loan Info</th>
-                    <th className="px-8 py-6 border-b border-slate-100 text-center">Comm %</th>
-                    <th className="px-8 py-6 border-b border-slate-100">Earned</th>
-                    <th className="px-8 py-6 border-b border-slate-100">Status</th>
-                    <th className="px-8 py-6 border-b border-slate-100 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {commissions.map((comm, i) => (
+
+            <div className="grid grid-cols-1 gap-4">
+              <SummaryRow label="Active Commissions" value={dashboardData?.summary?.activeCommissions} color="blue" />
+              <SummaryRow label="This Month Earnings" value={formatCurrency(dashboardData?.summary?.thisMonthEarnings)} color="emerald" isCurrency />
+              <SummaryRow label="Pending Payouts" value={dashboardData?.summary?.pendingPayouts} color="amber" />
+              <SummaryRow label="Completed Payouts" value={dashboardData?.summary?.completedPayouts} color="emerald" />
+            </div>
+
+            <div className="pt-6 border-t border-slate-800">
+              <div className="flex items-center justify-between mb-4">
+                 <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Payout Threshold</span>
+                 <span className="text-xs font-black text-white">75%</span>
+              </div>
+              <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                 <motion.div initial={{ width: 0 }} animate={{ width: '75%' }} className="h-full bg-primary" />
+              </div>
+              <p className="text-[10px] font-bold text-slate-600 mt-4 leading-relaxed">
+                * Commissions are processed every Friday for approved loans from the previous week.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. COMMISSION TABLE */}
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+           <div className="relative flex-1 min-w-[300px]">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input 
+                type="text" 
+                placeholder="Search by borrower or loan ID..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 bg-white border border-slate-100 rounded-2xl text-sm font-medium focus:ring-2 focus:ring-primary/10 outline-none transition-all shadow-sm"
+              />
+           </div>
+           <div className="flex items-center gap-3">
+              <select 
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="bg-white border border-slate-100 rounded-2xl px-6 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/10 shadow-sm"
+              >
+                <option>All Statuses</option>
+                <option>Pending</option>
+                <option>Processing</option>
+                <option>Paid</option>
+              </select>
+              <Button onClick={() => fetchTable()} variant="secondary" className="px-6 py-4 rounded-2xl border-slate-100 bg-white">
+                 <RefreshCw size={18} className={tableLoading ? "animate-spin" : ""} />
+              </Button>
+           </div>
+        </div>
+
+        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-50/50">
+                <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em]">
+                  <th className="px-8 py-6 border-b border-slate-100">Borrower</th>
+                  <th className="px-8 py-6 border-b border-slate-100">Loan Info</th>
+                  <th className="px-8 py-6 border-b border-slate-100">Commission %</th>
+                  <th className="px-8 py-6 border-b border-slate-100">Earned Amount</th>
+                  <th className="px-8 py-6 border-b border-slate-100">Status</th>
+                  <th className="px-8 py-6 border-b border-slate-100">Payment Date</th>
+                  <th className="px-8 py-6 border-b border-slate-100 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {tableLoading ? (
+                  Array(5).fill(0).map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td colSpan="7" className="px-8 py-6 h-16 bg-slate-50/20" />
+                    </tr>
+                  ))
+                ) : commissions.length > 0 ? (
+                  commissions.map((comm, i) => (
                     <motion.tr 
-                      key={comm.id}
+                      key={comm.commissionId}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.05 }}
@@ -172,94 +505,94 @@ const Earnings = () => {
                     >
                       <td className="px-8 py-5">
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-2xl bg-primary/5 text-primary flex items-center justify-center font-black text-xs uppercase">
-                            {comm.borrower.split(' ').map(n => n[0]).join('')}
+                          <div className="w-10 h-10 rounded-2xl bg-primary/5 text-primary flex items-center justify-center font-black text-xs uppercase border border-primary/10">
+                            {comm.borrowerName.split(' ').map(n => n[0]).join('')}
                           </div>
                           <div>
-                            <p className="text-sm font-black text-slate-900 leading-tight">{comm.borrower}</p>
-                            <p className="text-[9px] font-bold text-slate-400 mt-0.5 uppercase tracking-widest">{comm.id}</p>
+                            <p className="text-sm font-black text-slate-900 leading-tight">{comm.borrowerName}</p>
+                            <p className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-widest">{comm.commissionCode}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-8 py-5">
                         <div className="space-y-1">
-                          <p className="text-sm font-black text-slate-900">{comm.loanAmount}</p>
+                          <p className="text-sm font-black text-slate-900">{formatCurrency(comm.loanAmount)}</p>
                           <span className="inline-block px-2 py-0.5 bg-slate-100 rounded text-[9px] font-black text-slate-500 uppercase tracking-widest">{comm.loanType}</span>
                         </div>
                       </td>
-                      <td className="px-8 py-5 text-center">
-                        <div className="inline-flex items-center justify-center px-3 py-1 bg-primary/5 text-primary rounded-lg text-[10px] font-black border border-primary/10">
-                           {comm.percent}
-                        </div>
-                      </td>
-                      <td className="px-8 py-5 text-sm font-black text-slate-900">{comm.earned}</td>
                       <td className="px-8 py-5">
-                        <StatusBadge status={comm.status} />
+                         <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-slate-900">{comm.commissionPercent}%</span>
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                         </div>
                       </td>
+                      <td className="px-8 py-5">
+                        <p className="text-sm font-black text-primary">{formatCurrency(comm.commissionAmount)}</p>
+                      </td>
+                      <td className="px-8 py-5">
+                        <StatusBadge status={comm.paymentStatus} />
+                      </td>
+                      <td className="px-8 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest">{formatDate(comm.paymentDate)}</td>
                       <td className="px-8 py-5 text-right">
                         <button 
-                          onClick={() => { setSelectedEarning(comm); setIsDrawerOpen(true); }}
+                          onClick={() => handleViewDetail(comm.commissionId)}
                           className="p-2.5 text-slate-400 hover:text-primary hover:bg-white rounded-xl border border-transparent hover:border-slate-100 transition-all shadow-sm"
                         >
                           <Eye size={18} />
                         </button>
                       </td>
                     </motion.tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="7" className="px-8 py-20 text-center">
+                      <div className="flex flex-col items-center gap-3 opacity-30">
+                        <Coins size={48} />
+                        <p className="text-sm font-black uppercase tracking-[0.2em]">No commission records found</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
+      </div>
 
-        <div className="space-y-8">
-           {/* 📈 EARNINGS SUMMARY SECTION */}
-           <section className="bg-slate-900 rounded-[2.5rem] p-8 text-white space-y-8 relative overflow-hidden group">
-             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-[60px] -translate-y-1/2 translate-x-1/2" />
-             <div className="relative z-10 space-y-6">
-                <div>
-                   <h4 className="text-lg font-black tracking-tight">Earning Metrics</h4>
-                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Live performance tracking</p>
-                </div>
-                <div className="grid grid-cols-1 gap-4">
-                   <MetricItem label="Active Commissions" value="18" icon={Briefcase} />
-                   <MetricItem label="This Month" value="R8,450" icon={TrendingUp} isHighlight />
-                   <MetricItem label="Pending Payouts" value="R1,200" icon={Clock} />
-                   <MetricItem label="Completed Payouts" value="R51,200" icon={CheckCircle2} />
-                </div>
-             </div>
-           </section>
+      {/* 6. RECENT PAYOUTS SECTION */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+         <div className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-premium space-y-6">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
+              <CheckCircle2 size={14} className="text-emerald-500" /> Latest Paid
+            </h4>
+            <div className="space-y-4">
+               {recentPayouts?.recentPaid?.length > 0 ? recentPayouts.recentPaid.map((p, idx) => (
+                 <PayoutItem key={idx} name={p.borrowerId?.fullName} amount={formatCurrency(p.commissionAmount)} date={formatDate(p.payoutDate)} color="emerald" />
+               )) : <p className="text-[10px] font-bold text-slate-300 text-center py-4 uppercase">None</p>}
+            </div>
+         </div>
 
-           {/* 📌 RECENT PAYOUTS SECTION */}
-           <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-premium space-y-8">
-             <div className="flex items-center justify-between">
-               <h3 className="text-lg font-black text-slate-900 tracking-tight">Recent Payouts</h3>
-               <button className="p-2 hover:bg-slate-50 rounded-xl transition-colors"><BarChart3 size={18} className="text-slate-400" /></button>
-             </div>
-             <div className="space-y-6 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-px before:bg-slate-50">
-                {recentPayouts.map(payout => (
-                   <div key={payout.id} className="flex gap-4 relative group">
-                      <div className={cn(
-                        "w-6 h-6 rounded-lg flex items-center justify-center relative z-10 border-2 border-white shadow-sm transition-transform group-hover:scale-110",
-                        payout.status === 'completed' ? "bg-emerald-50 text-emerald-500" :
-                        payout.status === 'active' ? "bg-blue-50 text-blue-500" :
-                        "bg-amber-50 text-amber-500"
-                      )}>
-                        <div className="w-1.5 h-1.5 rounded-full bg-current" />
-                      </div>
-                      <div className="min-w-0">
-                         <h5 className="text-[11px] font-black text-slate-900 leading-none">{payout.title}</h5>
-                         <p className="text-[10px] font-medium text-slate-500 mt-1">{payout.desc}</p>
-                         <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest mt-1">{payout.time}</p>
-                      </div>
-                   </div>
-                ))}
-             </div>
-             <Button variant="secondary" className="w-full font-bold text-[10px] uppercase tracking-widest border-slate-100" onClick={() => setIsDownloadModalOpen(true)}>
-               Download All History
-             </Button>
-           </section>
-        </div>
+         <div className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-premium space-y-6">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
+              <Clock size={14} className="text-amber-500" /> Pending Payouts
+            </h4>
+            <div className="space-y-4">
+               {recentPayouts?.pendingPayouts?.length > 0 ? recentPayouts.pendingPayouts.map((p, idx) => (
+                 <PayoutItem key={idx} name={p.borrowerId?.fullName} amount={formatCurrency(p.commissionAmount)} date={formatDate(p.createdAt)} color="amber" />
+               )) : <p className="text-[10px] font-bold text-slate-300 text-center py-4 uppercase">None</p>}
+            </div>
+         </div>
+
+         <div className="bg-white rounded-[2.5rem] border border-slate-100 p-8 shadow-premium space-y-6">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
+              <TrendingUp size={14} className="text-blue-500" /> Recent Approvals
+            </h4>
+            <div className="space-y-4">
+               {recentPayouts?.recentApprovals?.length > 0 ? recentPayouts.recentApprovals.map((p, idx) => (
+                 <PayoutItem key={idx} name={p.borrowerId?.fullName} amount={formatCurrency(p.commissionAmount)} date={formatDate(p.createdAt)} color="blue" />
+               )) : <p className="text-[10px] font-bold text-slate-300 text-center py-4 uppercase">None</p>}
+            </div>
+         </div>
       </div>
 
       {/* 👤 EARNINGS DRAWER */}
@@ -268,135 +601,192 @@ const Earnings = () => {
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsDrawerOpen(false)} className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100]" />
             <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed top-0 right-0 h-screen w-full max-w-md bg-white shadow-2xl z-[101] flex flex-col">
-              <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
                 <div>
                   <h3 className="text-xl font-black text-slate-900 tracking-tight">Commission Details</h3>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{selectedEarning?.id}</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{commissionDetail?.commission?.commissionCode}</p>
                 </div>
                 <button onClick={() => setIsDrawerOpen(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors"><X size={20} className="text-slate-400" /></button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
-                <section className="space-y-6">
-                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
+              {drawerLoading ? (
+                <div className="flex-1 p-8 space-y-8 animate-pulse">
+                  <div className="h-40 bg-slate-50 rounded-3xl" />
+                  <div className="h-40 bg-slate-50 rounded-3xl" />
+                  <div className="h-40 bg-slate-50 rounded-3xl" />
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
+                  {/* BORROWER INFO */}
+                  <section className="space-y-6">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
                       <User size={14} className="text-primary" /> Borrower Information
-                   </h4>
-                   <div className="grid grid-cols-1 gap-5">
-                      <DrawerItem icon={User} label="Borrower Name" value={selectedEarning?.borrower} />
-                      <DrawerItem icon={Briefcase} label="Loan Type" value={selectedEarning?.loanType} />
-                      <DrawerItem icon={DollarSign} label="Loan Amount" value={selectedEarning?.loanAmount} />
-                   </div>
-                </section>
+                    </h4>
+                    <div className="grid grid-cols-1 gap-5">
+                      <DrawerItem icon={User} label="Borrower Name" value={commissionDetail?.borrower?.fullName} />
+                      <DrawerItem icon={CreditCard} label="Contact Phone" value={commissionDetail?.borrower?.phone} />
+                      <DrawerItem icon={Wallet} label="Loan Amount" value={formatCurrency(commissionDetail?.loan?.loanAmount)} />
+                    </div>
+                  </section>
 
-                <section className="space-y-6">
-                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
-                      <TrendingUp size={14} className="text-primary" /> Commission Calculation
-                   </h4>
-                   <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 grid grid-cols-2 gap-8">
-                      <div>
-                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Percentage</p>
-                         <p className="text-xl font-black text-slate-900">{selectedEarning?.percent}</p>
-                      </div>
-                      <div>
-                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Earned Amount</p>
-                         <p className="text-xl font-black text-emerald-500">{selectedEarning?.earned}</p>
-                      </div>
-                   </div>
-                </section>
+                  {/* LOAN INFO */}
+                  <section className="space-y-6">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
+                      <Briefcase size={14} className="text-primary" /> Loan Breakdown
+                    </h4>
+                    <div className="grid grid-cols-1 gap-5">
+                      <DrawerItem icon={Building2} label="Loan Type" value={commissionDetail?.loan?.loanType} />
+                      <DrawerItem icon={Clock} label="Duration" value={`${commissionDetail?.loan?.loanDuration} Months`} />
+                      <DrawerItem icon={Calendar} label="Approval Date" value={formatDate(commissionDetail?.loan?.approvalDate)} />
+                    </div>
+                  </section>
 
-                <section className="space-y-6">
-                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
-                      <Info size={14} className="text-primary" /> Payout Status
-                   </h4>
-                   <div className="grid grid-cols-1 gap-5">
-                      <DrawerItem icon={PieChart} label="Current Status" value={selectedEarning?.status} />
-                      <DrawerItem icon={Calendar} label="Payment Date" value={selectedEarning?.date} />
-                   </div>
-                </section>
-              </div>
+                  {/* COMMISSION SUMMARY */}
+                  <section className="space-y-6 bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
+                      <PieChart size={14} className="text-primary" /> Earning Calculation
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4 mt-4">
+                       <div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Percentage</p>
+                          <p className="text-lg font-black text-slate-900">{commissionDetail?.commission?.commissionPercent}%</p>
+                       </div>
+                       <div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Earned</p>
+                          <p className="text-lg font-black text-primary">{formatCurrency(commissionDetail?.commission?.earnedAmount)}</p>
+                       </div>
+                       <div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Payout Status</p>
+                          <StatusBadge status={commissionDetail?.commission?.payoutStatus} />
+                       </div>
+                       <div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Payout Date</p>
+                          <p className="text-[11px] font-black text-slate-900">{formatDate(commissionDetail?.commission?.payoutDate)}</p>
+                       </div>
+                    </div>
+                  </section>
+                </div>
+              )}
 
-              <div className="p-8 border-t border-slate-100 bg-slate-50/50">
-                 <Button className="w-full font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-primary/20" onClick={() => setIsDownloadModalOpen(true)}>
-                    Download Voucher
-                 </Button>
+              <div className="p-8 border-t border-slate-100 bg-slate-50/50 flex flex-col gap-3">
+                <Button className="w-full font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-primary/20" onClick={() => setIsDrawerOpen(false)}>
+                   Close Details
+                </Button>
+                <Button variant="secondary" className="w-full font-black uppercase tracking-widest text-[10px] py-4 border-slate-200">
+                  Contact Support
+                </Button>
               </div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
 
-      {/* 📄 EXPORT MODAL */}
-      <Modal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} title="Export Earnings" maxWidth="max-w-xl">
-         <div className="space-y-8">
-            <div className="grid grid-cols-3 gap-3">
-               <ExportOption icon={FileText} label="PDF Report" color="rose" />
-               <ExportOption icon={FileSpreadsheet} label="CSV Data" color="emerald" />
-               <ExportOption icon={PieChart} label="Excel Sheet" color="blue" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-               <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date Range</label>
-                  <select className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600">
-                     <option>Last 30 Days</option>
-                     <option>This Quarter</option>
-                     <option>Last 6 Months</option>
-                     <option>Custom Range</option>
-                  </select>
-               </div>
-               <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Payment Status</label>
-                  <select className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600">
-                     <option>All Statuses</option>
-                     <option>Paid Only</option>
-                     <option>Unpaid Only</option>
-                  </select>
-               </div>
-            </div>
-
-            <div className="flex gap-4 pt-4 border-t border-slate-50">
-               <Button variant="secondary" className="flex-1 font-bold border-slate-200" onClick={() => setIsExportModalOpen(false)}>Cancel</Button>
-               <Button className="flex-1 font-bold shadow-lg shadow-primary/20" onClick={() => setIsExportModalOpen(false)}>Start Export</Button>
-            </div>
-         </div>
+      {/* 📄 STATEMENT MODAL */}
+      <Modal isOpen={isStatementModalOpen} onClose={() => setIsStatementModalOpen(false)} title="Download Statement" maxWidth="max-w-md">
+        <div className="space-y-6">
+           <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Month</label>
+              <select 
+                value={statementForm.month}
+                onChange={(e) => setStatementForm({...statementForm, month: e.target.value})}
+                className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                {['January','February','March','April','May','June','July','August','September','October','November','December'].map(m => (
+                  <option key={m}>{m}</option>
+                ))}
+              </select>
+           </div>
+           <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Year</label>
+              <select 
+                value={statementForm.year}
+                onChange={(e) => setStatementForm({...statementForm, year: e.target.value})}
+                className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option>2026</option>
+                <option>2025</option>
+              </select>
+           </div>
+           <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Format</label>
+              <div className="grid grid-cols-3 gap-3">
+                 {['PDF', 'CSV', 'XLS'].map(f => (
+                   <button 
+                     key={f}
+                     onClick={() => setStatementForm({...statementForm, format: f})}
+                     className={cn(
+                       "py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                       statementForm.format === f ? "bg-primary text-white border-primary shadow-lg shadow-primary/20" : "bg-slate-50 text-slate-400 border-transparent hover:bg-slate-100"
+                     )}
+                   >
+                     {f}
+                   </button>
+                 ))}
+              </div>
+           </div>
+           <Button disabled={modalLoading} className="w-full font-bold py-4 shadow-lg shadow-primary/20" onClick={handleDownloadStatement}>
+              {modalLoading ? <RefreshCw className="animate-spin" size={18} /> : 'Download Statement'}
+           </Button>
+        </div>
       </Modal>
 
-      {/* 📊 DOWNLOAD STATEMENT MODAL */}
-      <Modal isOpen={isDownloadModalOpen} onClose={() => setIsDownloadModalOpen(false)} title="Download Statement" maxWidth="max-w-xl">
-         <div className="space-y-8">
-            <div className="p-8 bg-blue-50/50 rounded-[2.5rem] border border-blue-100 flex items-center gap-6">
-               <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-blue-500 shadow-sm">
-                  <FileText size={32} />
-               </div>
-               <div>
-                  <h4 className="text-lg font-black text-slate-900 tracking-tight">Monthly Statement</h4>
-                  <p className="text-sm font-medium text-slate-500 leading-relaxed">Download your detailed commission breakdown for tax and record keeping.</p>
-               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-               <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Month</label>
-                  <select className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600">
-                     <option>May 2026</option>
-                     <option>April 2026</option>
-                     <option>March 2026</option>
-                  </select>
-               </div>
-               <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Format</label>
-                  <select className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600">
-                     <option>PDF Document</option>
-                     <option>Excel Worksheet</option>
-                  </select>
-               </div>
-            </div>
-
-            <div className="flex gap-4 pt-4 border-t border-slate-50">
-               <Button variant="secondary" className="flex-1 font-bold border-slate-200" onClick={() => setIsDownloadModalOpen(false)}>Cancel</Button>
-               <Button className="flex-1 font-bold shadow-lg shadow-primary/20" onClick={() => setIsDownloadModalOpen(false)}>Download Now</Button>
-            </div>
-         </div>
+      {/* 📤 EXPORT MODAL */}
+      <Modal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} title="Export Earnings" maxWidth="max-w-md">
+        <div className="space-y-6">
+           <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-3">
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Start Date</label>
+                 <input 
+                   type="date" 
+                   value={exportForm.startDate}
+                   onChange={(e) => setExportForm({...exportForm, startDate: e.target.value})}
+                   className="w-full bg-slate-50 border-none rounded-2xl px-4 py-4 text-xs font-bold text-slate-600" 
+                 />
+              </div>
+              <div className="space-y-3">
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">End Date</label>
+                 <input 
+                   type="date" 
+                   value={exportForm.endDate}
+                   onChange={(e) => setExportForm({...exportForm, endDate: e.target.value})}
+                   className="w-full bg-slate-50 border-none rounded-2xl px-4 py-4 text-xs font-bold text-slate-600" 
+                 />
+              </div>
+           </div>
+           <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Payment Status</label>
+              <select 
+                value={exportForm.paymentStatus}
+                onChange={(e) => setExportForm({...exportForm, paymentStatus: e.target.value})}
+                className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option>All Statuses</option>
+                <option>Paid</option>
+                <option>Pending</option>
+                <option>Processing</option>
+              </select>
+           </div>
+           <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Export Format</label>
+              <div className="grid grid-cols-3 gap-3">
+                 {['PDF', 'CSV', 'Excel'].map(f => (
+                   <button 
+                     key={f}
+                     onClick={() => setExportForm({...exportForm, format: f})}
+                     className={cn(
+                       "py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                       exportForm.format === f ? "bg-slate-900 text-white border-slate-900 shadow-lg shadow-slate-900/20" : "bg-slate-50 text-slate-400 border-transparent hover:bg-slate-100"
+                     )}
+                   >
+                     {f}
+                   </button>
+                 ))}
+              </div>
+           </div>
+           <Button disabled={modalLoading} className="w-full font-bold py-4 shadow-lg shadow-primary/20" onClick={handleExport}>
+              {modalLoading ? <RefreshCw className="animate-spin" size={18} /> : 'Export Earnings'}
+           </Button>
+        </div>
       </Modal>
     </div>
   );
@@ -404,41 +794,37 @@ const Earnings = () => {
 
 // --- SUB-COMPONENTS ---
 
-const FlowStep = ({ icon: Icon, label, status }) => (
-  <div className="flex flex-col items-center gap-3 relative">
-    <div className={cn(
-      "w-12 h-12 rounded-2xl flex items-center justify-center border-2 transition-all shadow-sm",
-      status === 'completed' ? "bg-emerald-50 border-emerald-100 text-emerald-500" :
-      status === 'active' ? "bg-primary border-primary text-white shadow-lg shadow-primary/20" :
-      "bg-white border-slate-100 text-slate-300"
-    )}>
-      <Icon size={20} />
+const SummaryRow = ({ label, value, color, isCurrency }) => (
+  <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-2xl border border-slate-800 hover:border-slate-700 transition-colors">
+    <div className="flex items-center gap-3">
+      <div className={cn(
+        "w-2 h-2 rounded-full",
+        color === 'emerald' ? "bg-emerald-500" : color === 'blue' ? "bg-blue-500" : "bg-amber-500"
+      )} />
+      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
+    </div>
+    <span className="text-xs font-black text-white">{value}</span>
+  </div>
+);
+
+const PayoutItem = ({ name, amount, date, color }) => (
+  <div className="flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl border border-slate-100 hover:bg-white transition-all hover:scale-[1.02] cursor-default">
+    <div className="flex items-center gap-3">
+       <div className={cn(
+         "w-8 h-8 rounded-xl flex items-center justify-center",
+         color === 'emerald' ? "bg-emerald-50 text-emerald-500" : color === 'amber' ? "bg-amber-50 text-amber-500" : "bg-blue-50 text-blue-500"
+       )}>
+          <CheckCircle2 size={16} />
+       </div>
+       <div>
+          <p className="text-[11px] font-black text-slate-900 leading-tight">{name}</p>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{date}</p>
+       </div>
     </div>
     <span className={cn(
-      "text-[9px] font-black uppercase tracking-widest text-center max-w-[100px]",
-      status === 'active' ? "text-primary" : "text-slate-400"
-    )}>{label}</span>
-  </div>
-);
-
-const FlowArrow = () => <div className="hidden md:block text-slate-100"><ArrowRight size={20} /></div>;
-
-const LegendItem = ({ color, label }) => (
-  <div className="flex items-center gap-2">
-    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
-  </div>
-);
-
-const MetricItem = ({ label, value, icon: Icon, isHighlight }) => (
-  <div className="flex items-center justify-between group cursor-default">
-    <div className="flex items-center gap-4">
-       <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-slate-500 group-hover:bg-primary/20 group-hover:text-primary transition-all">
-          <Icon size={16} />
-       </div>
-       <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{label}</p>
-    </div>
-    <p className={cn("text-lg font-black tracking-tight", isHighlight ? "text-primary shadow-glow" : "text-white")}>{value}</p>
+      "text-xs font-black",
+      color === 'emerald' ? "text-emerald-600" : "text-slate-900"
+    )}>{amount}</span>
   </div>
 );
 
@@ -449,23 +835,9 @@ const DrawerItem = ({ icon: Icon, label, value }) => (
     </div>
     <div className="min-w-0 flex-1">
       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{label}</p>
-      <p className="text-sm font-black text-slate-900 truncate">{value}</p>
+      <p className="text-sm font-black text-slate-900 truncate">{value || 'N/A'}</p>
     </div>
   </div>
-);
-
-const ExportOption = ({ icon: Icon, label, color }) => (
-   <button className="flex flex-col items-center gap-3 p-6 rounded-[2rem] border border-slate-100 hover:border-primary/20 hover:bg-primary/5 transition-all group">
-      <div className={cn(
-        "w-12 h-12 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110 shadow-sm",
-        color === 'rose' ? "bg-rose-50 text-rose-500" :
-        color === 'emerald' ? "bg-emerald-50 text-emerald-500" :
-        "bg-blue-50 text-blue-500"
-      )}>
-         <Icon size={24} />
-      </div>
-      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest group-hover:text-slate-900">{label}</span>
-   </button>
 );
 
 export default Earnings;

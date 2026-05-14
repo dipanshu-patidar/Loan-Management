@@ -40,6 +40,7 @@ import MyClients from './dashboards/agent/MyClients';
 import Earnings from './dashboards/agent/Earnings';
 import AgentCommunication from './dashboards/agent/AgentCommunication';
 import AgentNotifications from './dashboards/agent/AgentNotifications';
+import AgentProfile from './dashboards/agent/AgentProfile';
 import BorrowerDashboard from './dashboards/borrower/BorrowerDashboard';
 import ApplyLoan from './dashboards/borrower/ApplyLoan';
 import MyLoans from './dashboards/borrower/MyLoans';
@@ -105,7 +106,7 @@ function App() {
           <Route path="earnings" element={<Earnings />} />
           <Route path="logs" element={<AgentCommunication />} />
           <Route path="notifications" element={<AgentNotifications />} />
-          <Route path="profile" element={<Profile />} />
+          <Route path="profile" element={<AgentProfile />} />
           <Route path="*" element={<div className="card">Agent Module Placeholder</div>} />
         </Route>
 

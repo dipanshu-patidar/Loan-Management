@@ -37,6 +37,7 @@ const staffDashboardRoutes = require('./routes/staff/dashboardRoutes');
 const borrowerPaymentRoutes = require('./routes/borrower/paymentRoutes');
 const agentCommunicationRoutes = require('./routes/agent/communicationRoutes');
 const agentNotificationRoutes = require('./routes/agent/notificationRoutes');
+const agentProfileRoutes = require('./routes/agent/profileRoutes');
 
 
 const app = express();
@@ -94,8 +95,9 @@ app.use('/api/borrower/payments', borrowerPaymentRoutes);
 app.use('/api/agent/my-clients', agentMyClientsRoutes);
 app.use('/api/agent/earnings', agentEarningsRoutes);
 app.use('/api/agent/communications', agentCommunicationRoutes);
-app.use('/api/agent/notifications', agentNotificationRoutes);
-app.use('/api/agent', agentRoutes);
+    app.use('/api/agent/notifications', agentNotificationRoutes);
+    app.use('/api/agent/profile', agentProfileRoutes);
+    app.use('/api/agent', agentRoutes);
 
 app.use('/api/upload', uploadRoutes);
 

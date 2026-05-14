@@ -44,7 +44,14 @@ const MyClients = () => {
 
   // Form states for modals
   const [assistanceForm, setAssistanceForm] = useState({ supportType: 'Loan Inquiry', supportNotes: '', communicationMessage: '' });
-  const [followUpForm, setFollowUpForm] = useState({ followUpType: 'Send Reminder', followUpNotes: '', nextFollowUpDate: '' });
+  const [followUpForm, setFollowUpForm] = useState({ 
+    followUpType: 'CHAT', 
+    recoveryStatus: 'NORMAL', 
+    followUpNotes: '', 
+    nextFollowUpDate: '',
+    visitDate: '',
+    visitLocation: ''
+  });
 
   // Fetch Dashboard Analytics
   const fetchDashboard = async () => {
@@ -153,20 +160,44 @@ const MyClients = () => {
   // Handle Follow-up Submit
   const handleFollowUpSubmit = async () => {
     if (!followUpForm.followUpNotes) return toast.error('Please enter follow-up notes');
+    if (followUpForm.recoveryStatus === 'PROMISED' && !followUpForm.nextFollowUpDate) {
+      return toast.error('Next follow-up date is required for Promised status');
+    }
+
     setModalLoading(true);
     try {
+      const loanId = borrowerDetails?.loan?.loanId || borrowerDetails?.loan?._id;
+      if (!loanId) return toast.error('Loan record not found');
+
       const res = await agentClientsService.saveFollowUp({
-        borrowerId: selectedBorrowerId,
+        loanId: loanId,
         ...followUpForm
       });
+
       if (res.success) {
-        toast.success('Follow-up record saved');
+        toast.success('Follow-up record saved successfully');
         setIsFollowUpModalOpen(false);
-        setFollowUpForm({ followUpType: 'Send Reminder', followUpNotes: '', nextFollowUpDate: '' });
+        setFollowUpForm({ 
+          followUpType: 'CHAT', 
+          recoveryStatus: 'NORMAL', 
+          followUpNotes: '', 
+          nextFollowUpDate: '',
+          visitDate: '',
+          visitLocation: ''
+        });
+        
         if (isDrawerOpen) handleOpenDrawer(selectedBorrowerId);
+        
+        // If type is CHAT, redirect to communication
+        if (followUpForm.followUpType === 'CHAT') {
+          toast.loading('Opening communication thread...', { duration: 2000 });
+          setTimeout(() => {
+            window.location.href = '/agent/communication';
+          }, 1500);
+        }
       }
     } catch (error) {
-      toast.error('Failed to save follow-up');
+      toast.error(error.response?.data?.message || 'Failed to save follow-up');
     } finally {
       setModalLoading(false);
     }
@@ -521,28 +552,70 @@ const MyClients = () => {
 
            <div className="space-y-6">
               <div className="space-y-3">
-                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Follow-Up Action</label>
-                 <div className="grid grid-cols-2 gap-3">
-                    <button 
-                      onClick={() => setFollowUpForm({...followUpForm, followUpType: 'Send Reminder'})}
-                      className={cn(
-                        "flex items-center justify-center gap-2 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all",
-                        followUpForm.followUpType === 'Send Reminder' ? "bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-500/20" : "bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100"
-                      )}
-                    >
-                       <MessageSquare size={16} /> Send Chat
-                    </button>
-                    <button 
-                      onClick={() => setFollowUpForm({...followUpForm, followUpType: 'WhatsApp Reminder'})}
-                      className={cn(
-                        "flex items-center justify-center gap-2 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all",
-                        followUpForm.followUpType === 'WhatsApp Reminder' ? "bg-blue-500 text-white border-blue-500 shadow-lg shadow-blue-500/20" : "bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100"
-                      )}
-                    >
-                       <MessageCircle size={16} /> WhatsApp
-                    </button>
-                 </div>
-              </div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Follow-Up Type</label>
+                  <div className="grid grid-cols-2 gap-3">
+                     {[
+                        { label: 'Chat', value: 'CHAT', icon: MessageSquare, color: 'blue' },
+                        { label: 'Visit', value: 'VISIT', icon: MapPin, color: 'amber' }
+                     ].map(type => (
+                        <button 
+                           key={type.value}
+                           onClick={() => setFollowUpForm({...followUpForm, followUpType: type.value})}
+                           className={cn(
+                              "flex flex-col items-center justify-center gap-2 py-4 rounded-2xl text-[9px] font-black uppercase tracking-widest border transition-all",
+                              followUpForm.followUpType === type.value 
+                                 ? `bg-${type.color}-500 text-white border-${type.color}-500 shadow-lg` 
+                                 : `bg-${type.color}-50 text-${type.color}-600 border-${type.color}-100`
+                           )}
+                        >
+                           <type.icon size={16} /> {type.label}
+                        </button>
+                     ))}
+                  </div>
+               </div>
+
+               {followUpForm.followUpType === 'VISIT' && (
+                  <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                     <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Visit Date</label>
+                        <input 
+                           type="date" 
+                           value={followUpForm.visitDate}
+                           onChange={(e) => setFollowUpForm({...followUpForm, visitDate: e.target.value})}
+                           className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-600 focus:ring-2 focus:ring-primary/10 transition-all" 
+                        />
+                     </div>
+                     <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Visit Location</label>
+                        <input 
+                           type="text" 
+                           placeholder="Home / Office / etc."
+                           value={followUpForm.visitLocation}
+                           onChange={(e) => setFollowUpForm({...followUpForm, visitLocation: e.target.value})}
+                           className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold text-slate-600 focus:ring-2 focus:ring-primary/10 transition-all" 
+                        />
+                     </div>
+                  </div>
+               )}
+               <div className="space-y-3">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recovery Status</label>
+                  <div className="grid grid-cols-2 gap-3">
+                     {['NORMAL', 'PROMISED', 'WARNING', 'CRITICAL'].map(status => (
+                        <button 
+                           key={status}
+                           onClick={() => setFollowUpForm({...followUpForm, recoveryStatus: status})}
+                           className={cn(
+                              "py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all",
+                              followUpForm.recoveryStatus === status 
+                                 ? "bg-slate-900 text-white border-slate-900 shadow-md scale-[1.02]" 
+                                 : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+                           )}
+                        >
+                           {status}
+                        </button>
+                     ))}
+                  </div>
+               </div>
               <div className="space-y-3">
                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Next Follow-Up Date</label>
                  <input 

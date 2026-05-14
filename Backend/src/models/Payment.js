@@ -49,7 +49,7 @@ const paymentSchema = new mongoose.Schema({
   timestamps: true
 });
 
-paymentSchema.pre('validate', async function(next) {
+paymentSchema.pre('validate', async function() {
   if (this.isNew && !this.transactionId) {
     try {
       const lastPayment = await this.constructor.findOne({}, {}, { sort: { 'createdAt': -1 } });
@@ -62,10 +62,9 @@ paymentSchema.pre('validate', async function(next) {
       }
       this.transactionId = `TRX-${nextNum.toString().padStart(4, '0')}`;
     } catch (err) {
-      return next(err);
+      throw err;
     }
   }
-  next();
 });
 
 module.exports = mongoose.model('Payment', paymentSchema);

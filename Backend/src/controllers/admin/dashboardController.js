@@ -192,12 +192,12 @@ const getRecentApplications = asyncHandler(async (req, res) => {
   const apps = await LoanApplication.find()
     .sort({ createdAt: -1 })
     .limit(5)
-    .select('borrowerName applicationId loanPurpose requestedAmount status createdAt');
+    .select('fullName applicationId requestedAmount status createdAt');
 
   const formatted = apps.map(app => ({
-    borrowerName: app.borrowerName,
+    borrowerName: app.fullName,
     applicationId: app.applicationId,
-    loanType: app.loanPurpose || 'General Loan',
+    loanType: app.loanType || 'General Loan',
     amount: app.requestedAmount,
     status: app.status,
     createdAt: app.createdAt

@@ -12,28 +12,23 @@ const { sendSuccess, sendError } = require('../../utils/responseHandler');
  * @access  Private/Agent
  */
 exports.getClientDashboard = asyncHandler(async (req, res) => {
-  const agentId = req.user._id;
+  const userId = req.user._id;
 
-  // 1. Assigned Borrowers Count
-  const assignedBorrowersCount = await Borrower.countDocuments({ assignedAgent: agentId });
+  // 1. Find all loans assigned to this agent
+  const assignedLoans = await ActiveLoan.find({ assignedAgent: userId, isDeleted: false });
+  
+  // 2. Extract unique borrower IDs
+  const borrowerIds = [...new Set(assignedLoans.map(l => l.borrowerId.toString()))];
+  
+  // 3. Stats based on assigned loans
+  const assignedBorrowersCount = borrowerIds.length;
+  const activeLoansCount = assignedLoans.filter(l => l.loanStatus === 'Active').length;
+  const overdueBorrowersCount = assignedLoans.filter(l => l.loanStatus === 'Overdue').length;
 
-  // 2. Active Loans for assigned borrowers
-  const assignedBorrowerIds = await Borrower.find({ assignedAgent: agentId }).distinct('_id');
-  const activeLoansCount = await ActiveLoan.countDocuments({
-    borrowerId: { $in: assignedBorrowerIds },
-    loanStatus: 'Active'
-  });
-
-  // 3. Due Payments (Upcoming EMI)
+  // 4. Due Payments (Upcoming EMI for these loans)
   const duePaymentsCount = await DuePayment.countDocuments({
-    borrowerId: { $in: assignedBorrowerIds },
+    loanId: { $in: assignedLoans.map(l => l._id) },
     dueStatus: 'Due Today'
-  });
-
-  // 4. Overdue Borrowers
-  const overdueBorrowersCount = await ActiveLoan.countDocuments({
-    borrowerId: { $in: assignedBorrowerIds },
-    loanStatus: 'Overdue'
   });
 
   sendSuccess(res, 'Agent client dashboard data retrieved', {
@@ -50,69 +45,66 @@ exports.getClientDashboard = asyncHandler(async (req, res) => {
  * @access  Private/Agent
  */
 exports.getClients = asyncHandler(async (req, res) => {
-  const agentId = req.user._id;
+  const userId = req.user._id;
   const { page = 1, limit = 10, search = '', loanStatus = '', dueStatus = '' } = req.query;
 
-  const query = { assignedAgent: agentId };
+  // 1. Find all active loans assigned to this agent's USER ID
+  const query = { assignedAgent: userId, isDeleted: false };
 
-  // Search logic
+  // Search logic (can search by borrower name or loan code)
   if (search) {
     query.$or = [
-      { fullName: { $regex: search, $options: 'i' } },
-      { borrowerCode: { $regex: search, $options: 'i' } },
-      { phoneNumber: { $regex: search, $options: 'i' } }
+      { borrowerName: { $regex: search, $options: 'i' } },
+      { loanCode: { $regex: search, $options: 'i' } },
+      { borrowerPhone: { $regex: search, $options: 'i' } }
     ];
   }
 
-  const borrowers = await Borrower.find(query)
-    .sort({ createdAt: -1 })
+  if (loanStatus && loanStatus !== 'All Statuses') {
+    query.loanStatus = loanStatus;
+  }
+
+  const loans = await ActiveLoan.find(query)
+    .sort({ assignedAt: -1 })
     .skip((page - 1) * limit)
-    .limit(Number(limit));
+    .limit(Number(limit))
+    .lean(); // Use lean to get raw data
 
-  const total = await Borrower.countDocuments(query);
+  const total = await ActiveLoan.countDocuments(query);
 
-  const enrichedClients = await Promise.all(borrowers.map(async (borrower) => {
-    // Get latest active loan for this borrower
-    const loan = await ActiveLoan.findOne({ 
-      borrowerId: borrower._id,
-      isDeleted: false 
-    }).sort({ createdAt: -1 });
+  const clients = await Promise.all(loans.map(async (loan) => {
+    // Manually fetch borrower for additional fields (if exists)
+    const borrower = await Borrower.findById(loan.borrowerId).select('borrowerCode profilePhoto').lean();
 
     // Get latest due payment
     const duePayment = await DuePayment.findOne({
-      borrowerId: borrower._id,
+      loanId: loan._id,
       dueStatus: { $ne: 'Paid' }
     }).sort({ dueDate: 1 });
 
     return {
-      borrowerId: borrower._id,
-      borrowerName: borrower.fullName,
-      borrowerPhoto: borrower.profilePhoto,
-      borrowerCode: borrower.borrowerCode,
-      phone: borrower.phoneNumber,
-      loanId: loan ? loan.loanCode : 'N/A',
-      loanType: loan ? loan.loanType : 'N/A',
-      loanAmount: loan ? loan.approvedAmount : 0,
-      emiStatus: duePayment ? duePayment.dueStatus : 'N/A',
+      _id: loan._id,
+      borrowerId: loan.borrowerId, // Always keep the raw ID from ActiveLoan
+      borrowerName: loan.borrowerName,
+      borrowerPhoto: loan.borrowerPhoto,
+      borrowerCode: borrower ? borrower.borrowerCode : 'N/A',
+      phone: loan.borrowerPhone,
+      loanId: loan.loanCode,
+      loanType: loan.loanType || 'Personal Loan',
+      loanAmount: loan.approvedAmount,
+      emiAmount: loan.emiAmount,
+      remainingBalance: loan.remainingBalance,
       dueAmount: duePayment ? duePayment.totalDueAmount : 0,
-      dueDate: duePayment ? duePayment.dueDate : null,
-      loanStatus: loan ? loan.loanStatus : 'N/A',
-      overdueDays: loan ? loan.overdueDays : 0
+      dueDate: duePayment ? duePayment.dueDate : loan.nextDueDate,
+      loanStatus: loan.loanStatus,
+      overdueDays: loan.overdueDays || 0,
+      emiStatus: duePayment ? duePayment.dueStatus : 'Paid',
+      priority: loan.recoveryPriority || 'Low'
     };
   }));
 
-  // Filtering by loanStatus or dueStatus after enrichment (since these fields are in related models)
-  // Note: For better performance, these should be handled via aggregation if dataset is large
-  let filteredClients = enrichedClients;
-  if (loanStatus && loanStatus !== 'All Statuses') {
-    filteredClients = filteredClients.filter(c => c.loanStatus === loanStatus);
-  }
-  if (dueStatus && dueStatus !== 'Due Payments') {
-    filteredClients = filteredClients.filter(c => c.emiStatus === dueStatus);
-  }
-
-  sendSuccess(res, 'Agent clients retrieved', {
-    clients: filteredClients,
+  sendSuccess(res, 'Assigned clients retrieved successfully', {
+    clients,
     pagination: {
       total,
       page: Number(page),
@@ -128,26 +120,30 @@ exports.getClients = asyncHandler(async (req, res) => {
  * @access  Private/Agent
  */
 exports.getBorrowerDetails = asyncHandler(async (req, res) => {
-  const { borrowerId } = req.params;
-  const agentId = req.user._id;
+  const borrowerId = req.params.borrowerId;
+  const userId = req.user._id;
 
-  const borrower = await Borrower.findOne({ _id: borrowerId, assignedAgent: agentId });
-  if (!borrower) {
+  // 1. Check if ANY loan for this borrower is assigned to this agent
+  const activeLoan = await ActiveLoan.findOne({ 
+    borrowerId, 
+    assignedAgent: userId, 
+    isDeleted: false 
+  }).sort({ createdAt: -1 });
+
+  if (!activeLoan) {
     return sendError(res, 'Borrower not found or not assigned to you', 404);
   }
 
-  const activeLoan = await ActiveLoan.findOne({ 
-    borrowerId: borrower._id,
-    loanStatus: { $ne: 'Closed' } 
-  }).sort({ createdAt: -1 });
-
+  const borrower = await Borrower.findById(borrowerId);
+  // We continue even if borrower is null, using activeLoan data as fallback
+  
   const duePayment = await DuePayment.findOne({
-    borrowerId: borrower._id,
+    borrowerId: activeLoan.borrowerId,
     dueStatus: { $ne: 'Paid' }
   }).sort({ dueDate: 1 });
 
   // Summary logic
-  const loans = await ActiveLoan.find({ borrowerId: borrower._id });
+  const loans = await ActiveLoan.find({ borrowerId });
   const totalLoanAmount = loans.reduce((acc, curr) => acc + curr.approvedAmount, 0);
   const totalRemaining = loans.reduce((acc, curr) => acc + curr.remainingBalance, 0);
   const totalPaid = totalLoanAmount - totalRemaining;
@@ -160,14 +156,15 @@ exports.getBorrowerDetails = asyncHandler(async (req, res) => {
 
   sendSuccess(res, 'Borrower details retrieved', {
     profile: {
-      fullName: borrower.fullName,
-      phone: borrower.phoneNumber,
-      email: borrower.email,
-      address: borrower.physicalAddress,
-      borrowerStatus: borrower.accountStatus,
-      borrowerCode: borrower.borrowerCode
+      fullName: borrower ? borrower.fullName : activeLoan.borrowerName,
+      phone: borrower ? borrower.phoneNumber : activeLoan.borrowerPhone,
+      email: borrower ? borrower.email : activeLoan.borrowerEmail,
+      address: borrower ? borrower.physicalAddress : 'Address not in profile',
+      borrowerStatus: borrower ? borrower.accountStatus : 'Active',
+      borrowerCode: borrower ? borrower.borrowerCode : activeLoan.loanCode // Fallback to loan code
     },
     loan: activeLoan ? {
+      loanId: activeLoan._id,
       loanCode: activeLoan.loanCode,
       loanType: activeLoan.loanType,
       loanAmount: activeLoan.approvedAmount,

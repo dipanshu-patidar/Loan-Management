@@ -234,6 +234,26 @@ const verifyPayment = asyncHandler(async (req, res) => {
   await activeLoan.save();
   await payment.save();
 
+  // 5.5 Update Agent Collections (If assigned)
+  if (activeLoan.assignedAgent) {
+    const Agent = require('../../models/Agent');
+    const agent = await Agent.findById(activeLoan.assignedAgent);
+    if (agent) {
+      agent.totalCollections = (agent.totalCollections || 0) + payment.paymentAmount;
+      await agent.save();
+
+      // Notify Agent about collection update
+      const io = getIO();
+      if (io) {
+        io.to(agent.userId.toString()).emit('agent:collectionReceived', {
+          loanCode: activeLoan.loanCode,
+          amount: payment.paymentAmount,
+          borrowerName: activeLoan.borrowerName
+        });
+      }
+    }
+  }
+
   // 6. Create Borrower & Admin Notifications
   try {
     // Notify Borrower

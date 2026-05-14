@@ -8,7 +8,7 @@ const {
   rejectApplication,
   holdApplication,
   updateStaffReview,
-  assignApplication
+  assignReviewer
 } = require('../controllers/loanApplicationController');
 const { protect } = require('../middlewares/authMiddleware');
 const { authorize } = require('../middlewares/roleMiddleware');
@@ -24,6 +24,6 @@ router.put('/:id/approve', approveApplication);
 router.put('/:id/reject', rejectApplication);
 router.put('/:id/hold', holdApplication);
 router.put('/:id/review', updateStaffReview);
-router.put('/:id/assign', assignApplication);
+router.post('/assign-reviewer', assignReviewer);
 
 module.exports = router;

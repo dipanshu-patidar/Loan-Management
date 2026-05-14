@@ -1,6 +1,10 @@
 const asyncHandler = require('express-async-handler');
 const ActiveLoan = require('../../models/ActiveLoan');
+const Agent = require('../../models/Agent');
+const AgentAssignment = require('../../models/AgentAssignment');
+const Notification = require('../../models/Notification');
 const { sendSuccess, sendError } = require('../../utils/responseHandler');
+const { getIO } = require('../../socket/socketServer');
 
 /**
  * @desc    Get all active loans with pagination, search, and filters
@@ -230,6 +234,139 @@ const softDeleteLoan = asyncHandler(async (req, res) => {
   sendSuccess(res, 'Loan soft deleted successfully');
 });
 
+/**
+ * @desc    Assign an agent to an active loan
+ * @route   POST /api/admin/active-loans/assign-agent
+ * @access  Private/Admin
+ */
+const assignAgent = asyncHandler(async (req, res) => {
+  const { loanId, agentId, notes, priority } = req.body;
+
+  if (!loanId || !agentId) {
+    return sendError(res, 'Loan ID and Agent ID are required', 400);
+  }
+
+  // 1. Validate Loan
+  const activeLoan = await ActiveLoan.findOne({ _id: loanId, isDeleted: false });
+  if (!activeLoan) {
+    return sendError(res, 'Loan not found', 404);
+  }
+
+  if (activeLoan.loanStatus !== 'Active') {
+    return sendError(res, 'Only active loans can be assigned', 400);
+  }
+
+  if (activeLoan.assignedAgent) {
+    return sendError(res, 'Loan already assigned to an agent', 400);
+  }
+
+  // 2. Validate Agent
+  const agent = await Agent.findOne({ _id: agentId, isDeleted: false });
+  if (!agent) {
+    return sendError(res, 'Agent not found', 404);
+  }
+
+  if (agent.accountStatus !== 'Active') {
+    return sendError(res, 'Cannot assign an inactive or suspended agent', 400);
+  }
+
+  // 3. Update Active Loan
+  activeLoan.assignedAgent = agent.userId; // Store User ID as requested
+  activeLoan.assignedAt = new Date();
+  activeLoan.assignedBy = req.user._id;
+  activeLoan.recoveryPriority = priority || 'Low';
+  await activeLoan.save();
+
+  // 3.4 Update Borrower's Assigned Agent
+  try {
+    const Borrower = require('../../models/Borrower');
+    await Borrower.findByIdAndUpdate(activeLoan.borrowerId, {
+      assignedAgent: agent.userId
+    });
+  } catch (borrErr) {
+    console.error('Borrower assignment sync failed:', borrErr.message);
+  }
+
+  // 3.5 Create Communication Thread (Borrower, Agent, Admin)
+  try {
+    const Conversation = require('../../models/Conversation');
+    // Check if conversation already exists for these participants (simplified: just create new for this loan context)
+    await Conversation.create({
+      participants: [activeLoan.borrowerId, agent.userId, req.user._id],
+      participantRoles: ['borrower', 'agent', 'admin'],
+      conversationType: 'Agent',
+      lastMessage: 'Collection agent assigned to loan recovery.',
+      lastMessageAt: new Date(),
+      createdBy: req.user._id,
+      status: 'active'
+    });
+  } catch (convErr) {
+    console.error('Conversation creation failed:', convErr.message);
+  }
+
+  // 4. Create Agent Assignment Record
+  await AgentAssignment.create({
+    loanId,
+    borrowerId: activeLoan.borrowerId,
+    agentId,
+    assignedBy: req.user._id,
+    notes,
+    status: 'Active'
+  });
+
+  // 4.5 Create Commission Record
+  try {
+    const Commission = require('../../models/Commission');
+    const commissionPercent = 2.5;
+    const commissionAmount = (activeLoan.approvedAmount * commissionPercent) / 100;
+
+    await Commission.create({
+      agentId: agent.userId,
+      borrowerId: activeLoan.borrowerId,
+      loanId: activeLoan._id,
+      loanAmount: activeLoan.approvedAmount,
+      commissionPercent,
+      commissionAmount,
+      status: 'Pending'
+    });
+  } catch (commErr) {
+    console.error('Commission record creation failed:', commErr.message);
+  }
+
+  // 5. Update Agent's assignedBorrowers list
+  if (!agent.assignedBorrowers.includes(activeLoan.borrowerId)) {
+    agent.assignedBorrowers.push(activeLoan.borrowerId);
+    await agent.save();
+  }
+
+  // 6. Create Notifications & Socket Events
+  try {
+    await Notification.create({
+      receiverId: agent.userId,
+      receiverRole: 'agent',
+      title: 'New Client Assigned',
+      message: 'New borrower assigned to your portfolio',
+      notificationType: 'NEW_ASSIGNMENT',
+      priority: 'Important',
+      applicationId: activeLoan.loanApplicationId
+    });
+
+    const io = getIO();
+    if (io) {
+      io.to(agent.userId.toString()).emit('new-agent-assignment', {
+        loanCode: activeLoan.loanCode,
+        borrowerName: activeLoan.borrowerName,
+        priority: activeLoan.recoveryPriority,
+        message: 'A new collection client has been assigned to you.'
+      });
+    }
+  } catch (notifErr) {
+    console.error('Assignment notification failed:', notifErr.message);
+  }
+
+  sendSuccess(res, 'Agent assigned successfully', { activeLoan });
+});
+
 module.exports = {
   getAllActiveLoans,
   getDashboardStats,
@@ -240,5 +377,6 @@ module.exports = {
   getLoanDetails,
   updateLoanStatus,
   addAdminNotes,
-  softDeleteLoan
+  softDeleteLoan,
+  assignAgent
 };

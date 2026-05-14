@@ -65,6 +65,23 @@ const loanApplicationService = {
   updateStaffReview: async (id, data) => {
     const response = await api.put(`/admin/loan-applications/${id}/review`, data);
     return response.data;
+  },
+
+  /**
+   * @desc Get available staff reviewers
+   */
+  getAvailableReviewers: async () => {
+    const response = await api.get('/admin/staff/reviewers');
+    return response.data;
+  },
+
+  /**
+   * @desc Assign reviewer to application
+   * @param {Object} data - { applicationId, staffId, notes }
+   */
+  assignReviewer: async (data) => {
+    const response = await api.post('/admin/loan-applications/assign-reviewer', data);
+    return response.data;
   }
 };
 

@@ -6,7 +6,7 @@ import {
   MapPin, Phone, Mail, ArrowRight, Loader2, Info,
   History, ShieldCheck, CheckCircle2, ChevronRight,
   ExternalLink, FileCheck, FileX, Pause, Image as ImageIcon,
-  CreditCard
+  CreditCard, UserPlus
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -37,6 +37,11 @@ const Applications = () => {
     Hold: 0,
     Approved: 0,
     Rejected: 0
+  });
+  const [availableReviewers, setAvailableReviewers] = useState([]);
+  const [assignmentData, setAssignmentData] = useState({
+    staffId: '',
+    notes: ''
   });
   
   // Filters & Search
@@ -79,7 +84,7 @@ const Applications = () => {
         staffReviewer: reviewerFilter !== 'All Reviewers' ? reviewerFilter : undefined
       };
       const response = await loanApplicationService.getAllApplications(params);
-      setApplications(response.data.data.applications);
+      setApplications(response.data.applications);
     } catch (error) {
       toast.error('Failed to fetch applications');
     } finally {
@@ -91,7 +96,7 @@ const Applications = () => {
     try {
       setLoading(true);
       const response = await loanApplicationService.getApplicationDetails(id);
-      setSelectedApp(response.data.data.application);
+      setSelectedApp(response.data);
       setIsDrawerOpen(true);
     } catch (error) {
       toast.error('Failed to fetch application details');
@@ -110,11 +115,46 @@ const Applications = () => {
     setDecisionData({
       adminNotes: '',
       approvedAmount: (app || selectedApp)?.requestedAmount || '',
-      finalDuration: (app || selectedApp)?.loanDuration || '',
+      finalDuration: (app || selectedApp)?.requestedDuration || (app || selectedApp)?.loanDuration || '',
       interestOverride: (app || selectedApp)?.interestRate || '',
       rejectionReason: '',
       holdReason: ''
     });
+    
+    if (type === 'assign') {
+      fetchReviewers();
+      setAssignmentData({ staffId: '', notes: '' });
+    }
+  };
+
+  const fetchReviewers = async () => {
+    try {
+      const response = await loanApplicationService.getAvailableReviewers();
+      if (response.success) {
+        setAvailableReviewers(response.data.reviewers);
+      }
+    } catch (error) {
+      console.error('Failed to fetch reviewers:', error);
+    }
+  };
+
+  const handleAssign = async () => {
+    try {
+      if (!assignmentData.staffId) return toast.error('Please select a reviewer');
+      setIsSubmitting(true);
+      await loanApplicationService.assignReviewer({
+        applicationId: selectedApp._id,
+        staffId: assignmentData.staffId,
+        notes: assignmentData.notes
+      });
+      toast.success('Reviewer assigned successfully');
+      fetchApplications();
+      setActiveModal(null);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to assign reviewer');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleExport = () => {
@@ -375,7 +415,7 @@ const Applications = () => {
                       <p className="text-xs font-bold text-slate-700">{app.loanDuration} Months</p>
                     </td>
                     <td className="px-6 py-5">
-                      <p className="text-xs font-black text-primary">R {app.estimatedEmi?.toLocaleString()}</p>
+                      <p className="text-xs font-black text-primary">R {app.estimatedEMI?.toLocaleString()}</p>
                     </td>
                     <td className="px-6 py-5">
                       {app.staffReviewer ? (
@@ -395,6 +435,13 @@ const Applications = () => {
                     <td className="px-8 py-5">
                       <div className="flex items-center justify-end gap-1">
                         <button 
+                          onClick={() => openDecisionModal('assign', app)}
+                          className="p-2 rounded-xl text-indigo-500 hover:bg-indigo-50 transition-all"
+                          title="Assign Staff Reviewer"
+                        >
+                          <UserPlus size={18} />
+                        </button>
+                        <button 
                           onClick={() => handleViewDetails(app._id)}
                           className="p-2 rounded-xl text-primary hover:bg-primary/5 transition-all"
                           title="View Application"
@@ -403,22 +450,34 @@ const Applications = () => {
                         </button>
                         <button 
                           onClick={() => openDecisionModal('approve', app)}
-                          className="p-2 rounded-xl text-emerald-500 hover:bg-emerald-50 transition-all"
-                          title="Approve Loan"
+                          disabled={app.status === 'Submitted'}
+                          className={cn(
+                            "p-2 rounded-xl text-emerald-500 hover:bg-emerald-50 transition-all",
+                            app.status === 'Submitted' && "opacity-20 cursor-not-allowed grayscale"
+                          )}
+                          title={app.status === 'Submitted' ? "Assign Reviewer First" : "Approve Loan"}
                         >
                           <CheckCircle size={18} />
                         </button>
                         <button 
                           onClick={() => openDecisionModal('hold', app)}
-                          className="p-2 rounded-xl text-amber-500 hover:bg-amber-50 transition-all"
-                          title="Put On Hold"
+                          disabled={app.status === 'Submitted'}
+                          className={cn(
+                            "p-2 rounded-xl text-amber-500 hover:bg-amber-50 transition-all",
+                            app.status === 'Submitted' && "opacity-20 cursor-not-allowed grayscale"
+                          )}
+                          title={app.status === 'Submitted' ? "Assign Reviewer First" : "Put On Hold"}
                         >
                           <Pause size={18} />
                         </button>
                         <button 
                           onClick={() => openDecisionModal('reject', app)}
-                          className="p-2 rounded-xl text-rose-500 hover:bg-rose-50 transition-all"
-                          title="Reject Loan"
+                          disabled={app.status === 'Submitted'}
+                          className={cn(
+                            "p-2 rounded-xl text-rose-500 hover:bg-rose-50 transition-all",
+                            app.status === 'Submitted' && "opacity-20 cursor-not-allowed grayscale"
+                          )}
+                          title={app.status === 'Submitted' ? "Assign Reviewer First" : "Reject Loan"}
                         >
                           <XCircle size={18} />
                         </button>
@@ -476,7 +535,7 @@ const Applications = () => {
                     <p className="text-4xl font-black tracking-tighter">R {selectedApp.requestedAmount?.toLocaleString()}</p>
                     <div className="flex items-center gap-2 mt-2 text-primary">
                       <Clock size={14} />
-                      <p className="text-xs font-black uppercase">{selectedApp.loanDuration} Months Duration</p>
+                      <p className="text-xs font-black uppercase">{selectedApp.requestedDuration} Months Duration</p>
                     </div>
                   </div>
                </div>
@@ -490,11 +549,11 @@ const Applications = () => {
                        <User size={16} className="text-primary" /> Borrower Details
                      </h3>
                      <div className="grid grid-cols-2 gap-4">
-                        <InfoBox icon={ShieldCheck} label="Borrower ID" value={selectedApp.borrower?.borrowerId} />
-                        <InfoBox icon={Phone} label="Phone Number" value={selectedApp.borrower?.phoneNumber} />
-                        <InfoBox icon={Mail} label="Email Address" value={selectedApp.borrower?.email} />
+                        <InfoBox icon={ShieldCheck} label="Identity Number" value={selectedApp.idNumber} />
+                        <InfoBox icon={Phone} label="Phone Number" value={selectedApp.phoneNumber} />
+                        <InfoBox icon={Mail} label="Email Address" value={selectedApp.emailAddress} />
                         <InfoBox icon={Briefcase} label="Employment Status" value={selectedApp.employmentStatus} />
-                        <InfoBox icon={MapPin} label="Physical Address" value={selectedApp.borrower?.physicalAddress} fullWidth />
+                        <InfoBox icon={MapPin} label="Residential Address" value={selectedApp.residentialAddress} fullWidth />
                      </div>
                   </section>
 
@@ -505,9 +564,9 @@ const Applications = () => {
                      </h3>
                      <div className="grid grid-cols-2 gap-4 p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
                         <DetailItem label="Requested Amount" value={`R ${selectedApp.requestedAmount?.toLocaleString()}`} isBold />
-                        <DetailItem label="Loan Duration" value={`${selectedApp.loanDuration} Months`} />
+                        <DetailItem label="Loan Duration" value={`${selectedApp.requestedDuration} Months`} />
                         <DetailItem label="Interest Rate" value={`${selectedApp.interestRate}% P.A.`} />
-                        <DetailItem label="Estimated EMI" value={`R ${selectedApp.estimatedEmi?.toLocaleString()}`} isPrimary />
+                        <DetailItem label="Estimated EMI" value={`R ${selectedApp.estimatedMonthlyEMI?.toLocaleString()}`} isPrimary />
                         <DetailItem label="Processing Fee" value={`R ${selectedApp.processingFee?.toLocaleString() || '0'}`} />
                         <DetailItem label="Loan Purpose" value={selectedApp.loanPurpose} />
                      </div>
@@ -663,9 +722,106 @@ const Applications = () => {
         )}
       </Drawer>
 
+      {/* ASSIGN REVIEWER MODAL */}
+      <Modal 
+        isOpen={activeModal === 'assign'} 
+        onClose={() => setActiveModal(null)} 
+        title="Assign Loan Reviewer"
+        maxWidth="max-w-2xl"
+      >
+        <div className="space-y-6 text-left">
+           <div className="flex items-center gap-4 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+              <div className="w-12 h-12 rounded-xl bg-white border border-indigo-200 flex items-center justify-center text-indigo-600 font-black shadow-sm">
+                <UserPlus size={24} />
+              </div>
+              <div>
+                 <p className="text-xs font-black text-indigo-400 uppercase tracking-widest">Assigning Reviewer for</p>
+                 <p className="text-sm font-bold text-slate-900">{selectedApp?.fullName} (ID: {selectedApp?.applicationId})</p>
+              </div>
+           </div>
+
+           <div className="space-y-4">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Staff Reviewer</label>
+              <div className="grid grid-cols-1 gap-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                 {availableReviewers.map((staff) => (
+                   <div 
+                    key={staff._id}
+                    onClick={() => setAssignmentData({ ...assignmentData, staffId: staff._id })}
+                    className={cn(
+                      "p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between group",
+                      assignmentData.staffId === staff._id 
+                        ? "border-primary bg-primary/5 shadow-md" 
+                        : "border-slate-100 bg-white hover:border-slate-200"
+                    )}
+                   >
+                      <div className="flex items-center gap-4">
+                         {staff.profilePhoto ? (
+                           <img 
+                            src={staff.profilePhoto} 
+                            alt="" 
+                            className="w-12 h-12 rounded-xl object-cover border-2 border-white shadow-sm"
+                           />
+                         ) : (
+                           <div className={cn(
+                             "w-12 h-12 rounded-xl flex items-center justify-center font-black text-xs",
+                             assignmentData.staffId === staff._id ? "bg-primary text-white" : "bg-slate-100 text-slate-500"
+                           )}>
+                              {staff.fullName.charAt(0)}
+                           </div>
+                         )}
+                         <div>
+                            <p className="text-sm font-bold text-slate-900">{staff.fullName}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                               <span className="text-[10px] font-bold text-slate-400 uppercase">{staff.role}</span>
+                               <span className="w-1 h-1 rounded-full bg-slate-300" />
+                               <span className="text-[10px] font-bold text-slate-400 uppercase">{staff.branch}</span>
+                            </div>
+                         </div>
+                      </div>
+                      <div className="text-right">
+                         <p className="text-xs font-black text-slate-900">{staff.activeReviews} Active Reviews</p>
+                         <span className={cn(
+                           "text-[9px] font-black uppercase px-2 py-0.5 rounded-md",
+                           staff.workloadStatus === 'Low' ? "bg-emerald-100 text-emerald-700" :
+                           staff.workloadStatus === 'Medium' ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
+                         )}>
+                            {staff.workloadStatus} Workload
+                         </span>
+                      </div>
+                   </div>
+                 ))}
+                 {availableReviewers.length === 0 && (
+                   <div className="py-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      <p className="text-xs font-bold text-slate-400 uppercase">No active review staff found</p>
+                   </div>
+                 )}
+              </div>
+           </div>
+
+           <Input 
+             label="Assignment Notes (Optional)" 
+             isTextArea 
+             placeholder="Add priority instructions for the reviewer..."
+             value={assignmentData.notes}
+             onChange={(e) => setAssignmentData({...assignmentData, notes: e.target.value})}
+           />
+
+           <div className="flex gap-4 pt-4 border-t border-slate-50">
+              <Button variant="ghost" onClick={() => setActiveModal(null)} className="flex-1 py-4 font-black uppercase tracking-widest text-[10px]">Cancel</Button>
+              <Button 
+                onClick={handleAssign}
+                disabled={isSubmitting || !assignmentData.staffId}
+                className="flex-1 py-4 font-black uppercase tracking-widest text-[10px] shadow-lg bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20 text-white"
+              >
+                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Confirm Assignment'}
+              </Button>
+           </div>
+        </div>
+      </Modal>
+
       {/* DECISION MODALS */}
       <Modal 
-        isOpen={!!activeModal && activeModal !== 'export'} 
+        isOpen={['approve', 'reject', 'hold'].includes(activeModal)} 
         onClose={() => setActiveModal(null)} 
         title={activeModal === 'approve' ? 'Approve Loan Application' : activeModal === 'reject' ? 'Reject Loan Application' : 'Put Application On Hold'}
         maxWidth="max-w-xl"

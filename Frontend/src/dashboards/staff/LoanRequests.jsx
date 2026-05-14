@@ -291,7 +291,7 @@ const LoanRequests = () => {
                           {app.borrowerPhoto && app.borrowerPhoto !== 'no-photo.jpg' ? (
                             <img src={app.borrowerPhoto} alt="avatar" className="w-full h-full object-cover" />
                           ) : (
-                            app.borrowerName.split(' ').map(n => n[0]).join('')
+                            (app.borrowerName || '').split(' ').map(n => n[0]).join('')
                           )}
                         </div>
                         <div>

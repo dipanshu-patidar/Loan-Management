@@ -12,102 +12,65 @@ const { sendSuccess, sendError } = require('../../utils/responseHandler');
  * @access  Private/Agent
  */
 const getDashboardSummary = asyncHandler(async (req, res) => {
-  const agentId = req.user._id;
+  const userId = req.user._id;
 
   // 1. Get Agent Profile for Target Achievement
-  const agentProfile = await Agent.findOne({ userId: agentId });
+  const agentProfile = await Agent.findOne({ userId });
   
-  // 2. Count Assigned Borrowers
-  const assignedClientsCount = await Borrower.countDocuments({ assignedAgent: agentId });
+  // 2. Find Assigned Loans (Source of truth)
+  const assignedLoans = await ActiveLoan.find({ assignedAgent: userId, isDeleted: false });
+  const activeLoansCount = assignedLoans.filter(l => l.loanStatus === 'Active').length;
+  const overdueLoansCount = assignedLoans.filter(l => l.loanStatus === 'Overdue').length;
+  
+  // Unique assigned borrowers
+  const borrowerIds = [...new Set(assignedLoans.map(l => l.borrowerId.toString()))];
+  const assignedClientsCount = borrowerIds.length;
 
-  // 3. Find Assigned Borrowers IDs
-  const assignedBorrowers = await Borrower.find({ assignedAgent: agentId }).select('_id');
-  const borrowerIds = assignedBorrowers.map(b => b._id);
-
-  // 4. Count Active Loans from assigned borrowers
-  const activeLoansCount = await ActiveLoan.countDocuments({ 
-    borrowerId: { $in: borrowerIds },
-    loanStatus: 'Active'
-  });
-
-  // 5. Monthly Commission (Calculated from Commission model)
+  // 3. Monthly Commission
   const startOfMonth = new Date();
   startOfMonth.setDate(1);
   startOfMonth.setHours(0, 0, 0, 0);
 
   const monthlyCommissionData = await Commission.aggregate([
-    { $match: { agentId, createdAt: { $gte: startOfMonth }, isDeleted: false } },
+    { $match: { agentId: userId, createdAt: { $gte: startOfMonth }, isDeleted: false } },
     { $group: { _id: null, total: { $sum: '$commissionAmount' } } }
   ]);
   const monthlyCommission = monthlyCommissionData[0]?.total || 0;
 
-  // 6. Pending Follow-Ups (Count overdue installments in ActiveLoans)
-  const pendingFollowUps = await ActiveLoan.countDocuments({
-    borrowerId: { $in: borrowerIds },
-    loanStatus: 'Overdue'
-  });
+  // 4. Pending Follow-Ups (Based on followUpStatus)
+  const pendingFollowUps = assignedLoans.filter(l => l.followUpStatus === 'Pending' || l.loanStatus === 'Overdue').length;
 
-  // 7. Portfolio Value (Sum of approved amounts of active loans)
-  const portfolioValueData = await ActiveLoan.aggregate([
-    { $match: { borrowerId: { $in: borrowerIds }, loanStatus: 'Active' } },
-    { $group: { _id: null, total: { $sum: '$approvedAmount' } } }
-  ]);
-  const portfolioValue = portfolioValueData[0]?.total || 0;
+  // 5. Portfolio Value
+  const portfolioValue = assignedLoans
+    .filter(l => l.loanStatus === 'Active' || l.loanStatus === 'Overdue')
+    .reduce((sum, l) => sum + l.approvedAmount, 0);
 
-  // 8. Target Achievement (Current Collection vs Monthly Target)
-  const monthlyTarget = agentProfile?.monthlyTarget || 100000; // Default or from profile
-  const collectionsData = await ActiveLoan.aggregate([
-    { $match: { borrowerId: { $in: borrowerIds } } },
-    { $unwind: '$repaymentSchedule' },
-    { $match: { 
-        'repaymentSchedule.paymentStatus': 'Paid', 
-        'repaymentSchedule.paidDate': { $gte: startOfMonth } 
-    } },
-    { $group: { _id: null, total: { $sum: '$repaymentSchedule.emiAmount' } } }
-  ]);
-  const currentCollection = collectionsData[0]?.total || 0;
+  // 6. Target Achievement
+  const monthlyTarget = agentProfile?.monthlyTarget || 100000;
+  const currentCollection = agentProfile?.totalCollections || 0; // Using agent model totalCollections
   const targetAchievement = Math.min(Math.round((currentCollection / monthlyTarget) * 100), 100);
 
-  // 9. Today's Follow-Ups
+  // 7. Today's Due Payments
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const todayFollowUps = await ActiveLoan.countDocuments({
-    borrowerId: { $in: borrowerIds },
-    nextDueDate: { $gte: today, $lt: tomorrow }
-  });
+  const todayFollowUps = assignedLoans.filter(l => 
+    l.nextDueDate && l.nextDueDate >= today && l.nextDueDate < tomorrow
+  ).length;
 
-  // 10. Recent Activities (From Notifications related to his borrowers)
-  const recentActivities = await Notification.find({
-    receiverId: agentId,
-    isDeleted: false
-  })
-  .sort({ createdAt: -1 })
-  .limit(5);
+  // 8. Recent Activities & Priority Alerts
+  const recentActivities = await Notification.find({ receiverId: userId, isDeleted: false })
+    .sort({ createdAt: -1 }).limit(5);
 
-  // 11. Priority Alerts
-  const priorityAlerts = await Notification.find({
-    receiverId: agentId,
-    priority: { $in: ['HIGH', 'URGENT'] },
-    isRead: false,
-    isDeleted: false
-  })
-  .sort({ createdAt: -1 })
-  .limit(5);
+  const priorityAlerts = assignedLoans
+    .filter(l => l.recoveryPriority === 'High' && l.loanStatus === 'Overdue')
+    .slice(0, 5);
 
-  // 12. Assigned Clients Table Data
-  const assignedClientsTable = await ActiveLoan.find({
-    borrowerId: { $in: borrowerIds }
-  })
-  .populate('borrowerId', 'fullName borrowerCode')
-  .limit(10)
-  .sort({ updatedAt: -1 });
-
-  // 13. Commission Summary
+  // 9. Commission Summary
   const commissionSummaryData = await Commission.aggregate([
-    { $match: { agentId, isDeleted: false } },
+    { $match: { agentId: userId, isDeleted: false } },
     {
       $group: {
         _id: null,
@@ -120,24 +83,29 @@ const getDashboardSummary = asyncHandler(async (req, res) => {
   const commissionSummary = commissionSummaryData[0] || { totalEarned: 0, pendingCommission: 0, paidCommission: 0 };
   commissionSummary.thisMonth = monthlyCommission;
 
-  sendSuccess(res, 'Dashboard summary fetched successfully', {
+  sendSuccess(res, 'Agent dashboard summary fetched', {
     assignedClientsCount,
     activeLoansCount,
+    overdueLoansCount,
     monthlyCommission,
     pendingFollowUps,
     targetAchievement,
     portfolioValue,
     todayFollowUps,
     recentActivities,
-    priorityAlerts,
-    assignedClientsTable: assignedClientsTable.map(loan => ({
-      borrowerName: loan.borrowerId?.fullName,
-      borrowerCode: loan.borrowerId?.borrowerCode,
+    priorityAlerts: priorityAlerts.map(l => ({
+      loanCode: l.loanCode,
+      borrowerName: l.borrowerName,
+      priority: l.recoveryPriority,
+      status: l.loanStatus
+    })),
+    assignedClientsTable: assignedLoans.slice(0, 10).map(loan => ({
+      borrowerName: loan.borrowerName,
       loanAmount: loan.approvedAmount,
-      emiStatus: loan.loanStatus === 'Overdue' ? 'Overdue' : 'Active',
       dueDate: loan.nextDueDate,
       loanStatus: loan.loanStatus,
-      borrowerId: loan.borrowerId?._id,
+      priority: loan.recoveryPriority,
+      borrowerId: loan.borrowerId,
       loanId: loan._id
     })),
     commissionSummary

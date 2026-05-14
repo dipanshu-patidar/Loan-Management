@@ -9,7 +9,8 @@ const {
   activateStaff,
   markInactive,
   suspendStaff,
-  deleteStaff
+  deleteStaff,
+  getReviewers
 } = require('../controllers/staffController');
 const { protect } = require('../middlewares/authMiddleware');
 const { authorize } = require('../middlewares/roleMiddleware');
@@ -20,6 +21,7 @@ router.use(protect);
 router.use(authorize('admin'));
 
 router.post('/create', upload.single('profilePhoto'), createStaff);
+router.get('/reviewers', getReviewers);
 router.get('/', getAllStaff);
 router.get('/:id', getStaff);
 router.put('/:id', upload.single('profilePhoto'), updateStaff);

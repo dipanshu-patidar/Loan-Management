@@ -41,7 +41,9 @@ const systemSettingsSchema = new mongoose.Schema({
 
   // Validation
   enableAutoApprovalLogic: { type: Boolean, default: false },
-  enableEligibilityEngine: { type: Boolean, default: true }
+  enableEligibilityEngine: { type: Boolean, default: true },
+  enableAutoAssignment: { type: Boolean, default: true }
 }, { timestamps: true });
+
 
 module.exports = mongoose.model('SystemSettings', systemSettingsSchema);

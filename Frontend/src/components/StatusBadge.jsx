@@ -41,6 +41,12 @@ const StatusBadge = ({ status, className }) => {
     'rejected recommendation': 'bg-rose-50 text-rose-600 border-rose-100',
   };
 
+  if (!status) return (
+    <span className={cn("px-2.5 py-1 rounded-full text-xs font-bold border bg-slate-100 text-slate-600 border-slate-200", className)}>
+      Unknown
+    </span>
+  );
+
   const currentStyle = styles[status.toLowerCase()] || styles[status.toLowerCase().replace(/\s+/g, '')] || 'bg-slate-100 text-slate-600 border-slate-200';
 
   return (

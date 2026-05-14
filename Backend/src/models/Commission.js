@@ -49,7 +49,7 @@ const commissionSchema = new mongoose.Schema({
 });
 
 // Pre-save to auto-generate commissionCode
-commissionSchema.pre('save', async function(next) {
+commissionSchema.pre('save', async function() {
   if (this.isNew && !this.commissionCode) {
     try {
       const lastComm = await this.constructor.findOne({}, {}, { sort: { 'createdAt': -1 } });
@@ -62,10 +62,9 @@ commissionSchema.pre('save', async function(next) {
       }
       this.commissionCode = `COM-${nextNum.toString().padStart(4, '0')}`;
     } catch (err) {
-      return next(err);
+      throw err;
     }
   }
-  next();
 });
 
 module.exports = mongoose.model('Commission', commissionSchema);

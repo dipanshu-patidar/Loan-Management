@@ -210,9 +210,59 @@ exports.updateStaff = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Change Permissions
- * @route   PUT /api/admin/staff/:id/permissions
+ * @desc    Get staff members eligible for loan review (with workload stats)
+ * @route   GET /api/admin/staff/reviewers
+ * @access  Private (Admin)
  */
+exports.getReviewers = asyncHandler(async (req, res) => {
+  // 1. Fetch all active staff users
+  const staffUsers = await User.find({ 
+    role: 'staff', 
+    isActive: true 
+  }).select('fullName email phone');
+
+  // 2. Fetch staff profile details to get branch and designation
+  const staffProfiles = await Staff.find({
+    userId: { $in: staffUsers.map(u => u._id) },
+    status: 'Active'
+  }).select('userId branchRegion designation profilePhoto');
+
+  // 3. Import LoanReview to count active tasks
+  const LoanReview = require('../models/LoanReview');
+
+  // 4. Map and collect workload stats
+  const reviewers = await Promise.all(staffProfiles.map(async (profile) => {
+    const user = staffUsers.find(u => u._id.toString() === profile.userId.toString());
+    if (!user) return null;
+
+    const activeReviewsCount = await LoanReview.countDocuments({
+      reviewerId: user._id,
+      status: { $in: ['Pending', 'Under Review'] }
+    });
+
+    let workloadStatus = 'Low';
+    if (activeReviewsCount > 10) workloadStatus = 'High';
+    else if (activeReviewsCount > 5) workloadStatus = 'Medium';
+
+    return {
+      _id: user._id,
+      fullName: user.fullName,
+      role: profile.designation || 'Staff',
+      branch: profile.branchRegion || 'General',
+      profilePhoto: profile.profilePhoto?.url,
+      activeReviews: activeReviewsCount,
+      workloadStatus
+    };
+  }));
+
+  const filteredReviewers = reviewers.filter(r => r !== null);
+
+  sendSuccess(res, 'Reviewers list retrieved', { reviewers: filteredReviewers });
+});
+
+// @desc    Change Permissions
+// @route   PUT /api/admin/staff/:id/permissions
+// */
 exports.changePermissions = asyncHandler(async (req, res) => {
   const { permissions } = req.body;
   const staff = await Staff.findByIdAndUpdate(

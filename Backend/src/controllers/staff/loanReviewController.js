@@ -1,5 +1,8 @@
 const mongoose = require('mongoose');
 const LoanApplication = require('../../models/LoanApplication');
+const LoanEmployment = require('../../models/LoanEmployment');
+const LoanBanking = require('../../models/LoanBanking');
+const LoanDocument = require('../../models/LoanDocument');
 const asyncHandler = require('../../utils/asyncHandler');
 const { sendSuccess, sendError } = require('../../utils/responseHandler');
 const { getIO } = require('../../socket/socketServer');
@@ -60,7 +63,7 @@ const getLoanReviews = asyncHandler(async (req, res) => {
   if (req.query.search) {
     const regex = new RegExp(req.query.search, 'i');
     query.$or = [
-      { borrowerName: regex },
+      { fullName: regex },
       { phoneNumber: regex },
       { applicationId: regex }
     ];
@@ -85,10 +88,10 @@ const getLoanReviews = asyncHandler(async (req, res) => {
     applicationId: app.applicationId,
     _id: app._id,
     borrowerId: app.borrowerId?._id || null,
-    borrowerName: app.borrowerName,
+    borrowerName: app.fullName,
     borrowerPhone: app.phoneNumber,
     borrowerPhoto: app.borrowerId?.profilePhoto || app.borrowerPhoto || 'no-photo.jpg',
-    loanType: app.loanPurpose || 'General',
+    loanType: app.loanType || 'General',
     requestedAmount: app.requestedAmount,
     affordabilityStatus: app.affordabilityStatus || 'Pending',
     reviewStatus: app.reviewStatus,
@@ -116,6 +119,12 @@ const getLoanReviewById = asyncHandler(async (req, res) => {
     return sendError(res, 'Loan review dossier not found', 404);
   }
 
+  const [employment, banking, docs] = await Promise.all([
+    LoanEmployment.findOne({ loanApplicationId: app._id }),
+    LoanBanking.findOne({ loanApplicationId: app._id }),
+    LoanDocument.find({ loanApplicationId: app._id })
+  ]);
+
   const responseData = {
     _id: app._id,
     applicationId: app.applicationId,
@@ -123,43 +132,42 @@ const getLoanReviewById = asyncHandler(async (req, res) => {
     reviewStatus: app.reviewStatus,
     
     borrower: {
-      fullName: app.borrowerId?.fullName || app.borrowerName,
-      email: app.borrowerId?.email || app.email,
-      phone: app.borrowerId?.phoneNumber || app.phoneNumber,
+      fullName: app.fullName || app.borrowerId?.fullName || 'N/A',
+      email: app.emailAddress || app.borrowerId?.email || 'N/A',
+      phone: app.phoneNumber || app.borrowerId?.phoneNumber || 'N/A',
       gender: app.borrowerId?.gender || 'N/A',
-      dob: app.borrowerId?.dateOfBirth || null,
-      address: app.borrowerId?.physicalAddress || app.physicalAddress,
-      profilePhoto: app.borrowerId?.profilePhoto || app.borrowerPhoto || 'no-photo.jpg'
+      dob: app.dateOfBirth || app.borrowerId?.dateOfBirth || null,
+      address: app.residentialAddress || app.borrowerId?.physicalAddress || 'N/A',
+      profilePhoto: app.borrowerId?.profilePhoto || 'no-photo.jpg'
     },
 
     employment: {
-      employerName: app.employmentDetails?.employerName || 'N/A',
-      occupation: app.employmentDetails?.employerName || 'N/A',
-      monthlyIncome: app.employmentDetails?.monthlyIncome || 0,
-      yearsOfService: app.employmentDetails?.yearsOfService || 0
+      employerName: employment?.employerName || 'N/A',
+      occupation: employment?.occupation || 'N/A',
+      monthlyIncome: employment?.monthlyIncome || 0,
+      yearsOfService: employment?.employmentDuration || 0
     },
 
     loanDetails: {
-      loanType: app.loanPurpose || 'General',
-      requestedAmount: app.requestedAmount,
-      loanDuration: app.loanDuration,
-      estimatedEMI: app.estimatedEMI || 0
+      loanType: app.loanType || 'General',
+      requestedAmount: app.requestedAmount || banking?.requestedLoanAmount,
+      loanDuration: app.requestedDuration || banking?.requestedDuration,
+      estimatedEMI: app.estimatedMonthlyEMI || 0
     },
 
     affordability: {
-      monthlyIncome: app.employmentDetails?.monthlyIncome || 0,
-      monthlyExpenses: app.employmentDetails?.monthlyExpenses || 0, // mapped baseline
-      estimatedEMI: app.estimatedEMI || 0,
-      affordabilityStatus: app.affordabilityStatus || 'Pending'
+      monthlyIncome: employment?.monthlyIncome || 0,
+      monthlyExpenses: employment?.monthlyExpenses || 0,
+      estimatedEMI: app.estimatedMonthlyEMI || 0,
+      affordabilityStatus: app.status === 'Approved' ? 'High' : 'Pending'
     },
 
     documents: {
-      idDocument: app.documents?.idProof || null,
-      payslip: app.documents?.payslip || null,
-      bankStatement: app.documents?.bankStatement || null,
-      proofOfAddress: app.documents?.proofOfAddress || null
+      idDocument: docs.find(d => d.documentType === 'ID Document')?.fileUrl || null,
+      payslip: docs.find(d => d.documentType === 'Payslip')?.fileUrl || null,
+      bankStatement: docs.find(d => d.documentType === 'Bank Statement')?.fileUrl || null,
+      proofOfAddress: docs.find(d => d.documentType === 'Proof Of Address')?.fileUrl || null
     },
-
     notes: {
       internalReviewNotes: app.internalReviewNotes || '',
       recommendationNotes: app.recommendationNotes || '',
@@ -348,7 +356,7 @@ const getReviewHistory = asyncHandler(async (req, res) => {
   const formatted = apps.map(app => ({
     applicationId: app.applicationId,
     _id: app._id,
-    borrowerName: app.borrowerName,
+    borrowerName: app.fullName,
     loanType: app.loanPurpose || 'General',
     requestedAmount: app.requestedAmount,
     reviewStatus: app.reviewStatus,

@@ -55,6 +55,23 @@ const activeLoanSchema = new mongoose.Schema({
   approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   approvedDate: { type: Date, default: Date.now },
   
+  // Agent Assignment & Recovery Operations
+  assignedAgent: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  assignedAt: { type: Date },
+  assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  
+  followUpStatus: { 
+    type: String, 
+    enum: ["Pending", "Contacted", "Follow-Up", "Resolved"], 
+    default: "Pending" 
+  },
+  nextFollowUpDate: { type: Date },
+  recoveryPriority: { 
+    type: String, 
+    enum: ["Low", "Medium", "High"], 
+    default: "Low" 
+  },
+  
   lastPaymentDate: { type: Date },
   
   notes: { type: String },
@@ -64,7 +81,7 @@ const activeLoanSchema = new mongoose.Schema({
 });
 
 // Pre-save to auto-generate loanCode if not exists
-activeLoanSchema.pre('validate', async function(next) {
+activeLoanSchema.pre('validate', async function() {
   if (this.isNew && !this.loanCode) {
     try {
       const lastLoan = await this.constructor.findOne({}, {}, { sort: { 'createdAt': -1 } });
@@ -77,10 +94,9 @@ activeLoanSchema.pre('validate', async function(next) {
       }
       this.loanCode = `P47-${nextNum.toString().padStart(3, '0')}`;
     } catch (err) {
-      return next(err);
+      throw err;
     }
   }
-  next();
 });
 
 module.exports = mongoose.model('ActiveLoan', activeLoanSchema);

@@ -10,7 +10,8 @@ const {
   getLoanDetails,
   updateLoanStatus,
   addAdminNotes,
-  softDeleteLoan
+  softDeleteLoan,
+  assignAgent
 } = require('../../controllers/admin/activeLoanController');
 const { protect } = require('../../middlewares/authMiddleware');
 const { authorize } = require('../../middlewares/roleMiddleware');
@@ -34,5 +35,8 @@ router.delete('/:id', softDeleteLoan);
 // Status and Notes
 router.put('/:id/status', updateLoanStatus);
 router.put('/:id/notes', addAdminNotes);
+
+// Agent Assignment
+router.post('/assign-agent', assignAgent);
 
 module.exports = router;

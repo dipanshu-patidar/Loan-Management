@@ -3,6 +3,7 @@ const LoanApplication = require('../models/LoanApplication');
 const ActiveLoan = require('../models/ActiveLoan');
 const Notification = require('../models/Notification');
 const Borrower = require('../models/Borrower');
+const User = require('../models/User');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
 const { createNotification } = require('../utils/notificationHelper');
 
@@ -29,9 +30,9 @@ const getAllApplications = asyncHandler(async (req, res) => {
   // Search by borrower name, application ID, email, phone
   if (search) {
     query.$or = [
-      { borrowerName: { $regex: search, $options: 'i' } },
+      { fullName: { $regex: search, $options: 'i' } },
       { applicationId: { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
+      { emailAddress: { $regex: search, $options: 'i' } },
       { phoneNumber: { $regex: search, $options: 'i' } },
     ];
   }
@@ -72,11 +73,13 @@ const getAllApplications = asyncHandler(async (req, res) => {
   const responseData = applications.map(app => ({
     _id: app._id,
     applicationId: app.applicationId,
-    borrowerName: app.borrowerName,
+    borrowerName: app.fullName, // Mapping fullName to borrowerName for frontend
     requestedAmount: app.requestedAmount,
-    loanDuration: app.loanDuration,
-    estimatedEMI: app.estimatedEMI,
-    staffReviewer: app.staffReview?.staffName || 'Not Assigned',
+    requestedDuration: app.requestedDuration, // Keep original name for consistency
+    loanDuration: app.requestedDuration, // Keep alias for backward compatibility
+    interestRate: app.interestRate,
+    estimatedEMI: app.estimatedMonthlyEMI,
+    staffReviewer: app.staffReview?.staffName ? { fullName: app.staffReview.staffName } : null,
     status: app.status,
     submittedDate: app.createdAt,
   }));
@@ -128,19 +131,55 @@ const getApplicationStats = asyncHandler(async (req, res) => {
   sendSuccess(res, 'Loan application stats fetched successfully', formattedStats);
 });
 
+const LoanEmployment = require('../models/LoanEmployment');
+const LoanBanking = require('../models/LoanBanking');
+const LoanDocument = require('../models/LoanDocument');
+
 /**
  * @desc    Get single application details
  * @route   GET /api/admin/loan-applications/:id
  * @access  Private/Admin
  */
 const getApplicationDetails = asyncHandler(async (req, res) => {
-  const application = await LoanApplication.findById(req.params.id);
+  const application = await LoanApplication.findById(req.params.id).lean();
 
   if (!application) {
     return sendError(res, 'Loan application not found', 404);
   }
 
-  sendSuccess(res, 'Loan application details fetched successfully', application);
+  // Fetch related data
+  const employment = await LoanEmployment.findOne({ loanApplicationId: application._id }).lean();
+  const banking = await LoanBanking.findOne({ loanApplicationId: application._id }).lean();
+  const documents = await LoanDocument.find({ loanApplicationId: application._id }).lean();
+
+  // Format documents array into an object for the frontend
+  const formattedDocs = {};
+  if (documents) {
+    documents.forEach(doc => {
+      const key = doc.documentType === 'ID Document' ? 'idProof' :
+                  doc.documentType === 'Payslip' ? 'payslip' :
+                  doc.documentType === 'Bank Statement' ? 'bankStatement' :
+                  doc.documentType === 'Proof Of Address' ? 'addressProof' : null;
+      if (key) {
+        formattedDocs[key] = {
+          url: doc.fileUrl,
+          fileName: doc.fileName
+        };
+      }
+    });
+  }
+
+  // Combine data and fix field name mismatches for frontend
+  const fullApplication = {
+    ...employment,
+    ...banking,
+    ...application, // Spread application last to preserve its _id, createdAt, etc.
+    yearsOfService: employment?.employmentDuration, // Map duration to yearsOfService
+    accountHolder: banking?.accountHolderName, // Map name to accountHolder
+    documents: formattedDocs
+  };
+
+  sendSuccess(res, 'Loan application details fetched successfully', fullApplication);
 });
 
 /**
@@ -163,156 +202,184 @@ const approveApplication = asyncHandler(async (req, res) => {
   }
 
   if (application.status === 'Approved') {
-    return sendError(res, 'Application is already approved', 400);
+    // Check if active loan actually exists. If not, allow proceeding to fix partial state.
+    const ActiveLoan = require('../models/ActiveLoan');
+    const existingActive = await ActiveLoan.findOne({ loanApplicationId: application._id });
+    if (existingActive) {
+      return sendError(res, 'Application is already approved and active loan exists', 400);
+    }
   }
 
   if (application.status === 'Rejected') {
     return sendError(res, 'Rejected applications cannot be approved', 400);
   }
 
-  // Update application status
-  application.status = 'Approved';
-  application.adminDecision = {
-    decision: 'Approved',
-    adminNotes,
-    approvedAmount: approvedAmount || application.requestedAmount,
-    finalDuration: finalDuration || application.loanDuration,
-    interestOverride: interestOverride || application.interestRate,
-    approvedBy: req.user._id,
-    approvedDate: new Date(),
-  };
-
-  application.statusHistory.push({
-    status: 'Approved',
-    changedBy: req.user.name || 'Admin',
-    notes: adminNotes || 'Loan application approved by admin',
-  });
-
-  await application.save();
-
-  // Create Active Loan
-  const loanAmount = approvedAmount || application.requestedAmount;
-  const duration = finalDuration || application.loanDuration;
-  const rate = interestOverride || application.interestRate || 10; // Default 10% if not set
-
-  // Simple EMI Schedule Generation
-  const monthlyRate = rate / 12 / 100;
-  const emiAmount = Math.round(
-    (loanAmount * monthlyRate * Math.pow(1 + monthlyRate, duration)) /
-    (Math.pow(1 + monthlyRate, duration) - 1)
-  );
-
-  // Notify Borrower & Create Admin Realtime Log
-  const borrower = await Borrower.findById(application.borrowerId);
-  if (borrower) {
-    try {
-      const { createNotification } = require('../utils/notificationHelper');
-      await createNotification({
-        title: 'Approval Alert',
-        message: `Loan application ${application.applicationId} for amount R ${loanAmount} has been APPROVED.`,
-        notificationType: 'Approval Alert',
-        priority: 'Important',
-        borrowerId: borrower._id,
-        applicationId: application._id
-      });
-    } catch (err) {}
+  // Business Rule: Must be reviewed/recommended by staff first
+  if (application.status === 'Submitted') {
+    return sendError(res, 'Please assign a reviewer and wait for staff recommendation before taking final decision', 400);
   }
 
-  const emiSchedule = [];
-  let remainingBal = loanAmount;
-  const startDate = new Date();
-  startDate.setMonth(startDate.getMonth() + 1); // First EMI next month
+  const mongoose = require('mongoose');
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  for (let i = 1; i <= duration; i++) {
-    const interest = Math.round(remainingBal * monthlyRate);
-    const principalAmount = emiAmount - interest;
-    remainingBal -= principalAmount;
+  try {
+    // Update application status
+    application.status = 'Approved';
+    application.adminDecision = {
+      decision: 'Approved',
+      adminNotes,
+      approvedAmount: approvedAmount || application.requestedAmount,
+      finalDuration: finalDuration || application.requestedDuration,
+      interestOverride: interestOverride || application.interestRate,
+      approvedBy: req.user._id,
+      approvedDate: new Date(),
+    };
 
-    const dueDate = new Date(startDate);
-    dueDate.setMonth(dueDate.getMonth() + (i - 1));
-
-    emiSchedule.push({
-      installmentNumber: i,
-      dueDate,
-      emiAmount,
-      principalAmount,
-      interestAmount: interest,
-      paymentStatus: 'Pending',
+    application.statusHistory.push({
+      status: 'Approved',
+      changedBy: req.user.fullName || req.user.name || 'Admin',
+      notes: adminNotes || 'Loan application approved by admin',
     });
-  }
 
-  const activeLoan = await ActiveLoan.create({
-    borrowerId: application.borrowerId,
-    borrowerName: application.borrowerName || (borrower && borrower.fullName) || 'Unknown',
-    borrowerPhoto: borrower?.profilePhoto || null,
-    borrowerEmail: application.email || borrower?.email,
-    borrowerPhone: application.phoneNumber || borrower?.phoneNumber,
-    loanApplicationId: application._id,
-    loanCode: `P47-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`, // Temporary fallback
-    loanType: application.loanType || 'Personal Loan',
-    approvedAmount: loanAmount,
-    interestRate: rate,
-    loanDurationMonths: duration,
-    emiAmount,
-    totalPayableAmount: emiAmount * duration,
-    remainingBalance: emiAmount * duration,
-    nextDueDate: emiSchedule[0].dueDate,
-    repaymentSchedule: emiSchedule,
-    approvedBy: req.user._id,
-  });
+    await application.save({ session });
 
-  // COMMISSION LOGIC: If borrower has an assigned agent, generate commission
-  if (borrower && borrower.assignedAgent) {
-    try {
+    // Create Active Loan
+    const loanAmount = Number(approvedAmount) || application.requestedAmount;
+    const duration = Number(finalDuration) || application.requestedDuration;
+    const rate = Number(interestOverride) || application.interestRate || 10; // Default 10% if not set
+
+    // Simple EMI Schedule Generation
+    const monthlyRate = rate / 12 / 100;
+    const emiAmount = Math.round(
+      (loanAmount * monthlyRate * Math.pow(1 + monthlyRate, duration)) /
+      (Math.pow(1 + monthlyRate, duration) - 1)
+    );
+
+    const borrower = await Borrower.findById(application.borrowerId);
+    
+    const emiSchedule = [];
+    let remainingBal = loanAmount;
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() + 1); // First EMI next month
+
+    for (let i = 1; i <= duration; i++) {
+      const interest = Math.round(remainingBal * monthlyRate);
+      const principalAmount = emiAmount - interest;
+      remainingBal -= principalAmount;
+
+      const dueDate = new Date(startDate);
+      dueDate.setMonth(dueDate.getMonth() + (i - 1));
+
+      emiSchedule.push({
+        installmentNumber: i,
+        dueDate,
+        emiAmount,
+        principalAmount,
+        interestAmount: interest,
+        paymentStatus: 'Pending',
+      });
+    }
+
+    const ActiveLoan = require('../models/ActiveLoan');
+    const activeLoan = await ActiveLoan.create([{
+      borrowerId: application.borrowerId,
+      borrowerName: application.fullName || (borrower && borrower.fullName) || 'Unknown',
+      borrowerPhoto: borrower?.profilePhoto || null,
+      borrowerEmail: application.emailAddress || borrower?.email,
+      borrowerPhone: application.phoneNumber || borrower?.phoneNumber,
+      loanApplicationId: application._id,
+      loanType: application.loanType || 'Personal Loan',
+      approvedAmount: loanAmount,
+      interestRate: rate,
+      loanDurationMonths: duration,
+      emiAmount,
+      totalPayableAmount: emiAmount * duration,
+      remainingBalance: emiAmount * duration,
+      nextDueDate: emiSchedule[0].dueDate,
+      repaymentSchedule: emiSchedule,
+      approvedBy: req.user._id,
+    }], { session });
+
+    // COMMISSION LOGIC: If borrower has an assigned agent, generate commission
+    if (borrower && borrower.assignedAgent) {
       const Commission = require('../models/Commission');
       const commissionPercent = 2.5; // Default 2.5%
       const commissionAmount = (loanAmount * commissionPercent) / 100;
 
-      const commission = await Commission.create({
+      await Commission.create([{
         agentId: borrower.assignedAgent,
         borrowerId: borrower._id,
-        loanId: activeLoan._id,
+        loanId: activeLoan[0]._id,
         loanAmount,
         commissionPercent,
         commissionAmount,
         status: 'Pending'
-      });
+      }], { session });
+    }
 
-      // Socket notification for agent
-      const { getIO } = require('../socket/socketServer'); 
-      const io = getIO();
-      if (io) {
-        io.to(borrower.assignedAgent.toString()).emit('commission:generated', {
-          message: `New commission generated for loan ${activeLoan.loanCode}`,
-          commissionAmount,
-          borrowerName: borrower.fullName
+    // Trigger Real-time / Notifications (After commit)
+    try {
+      const { createNotification } = require('../utils/notificationHelper');
+      
+      // Notify Borrower
+      if (borrower) {
+        await createNotification({
+          title: 'Approval Alert',
+          message: `Loan application ${application.applicationId} for amount R ${loanAmount} has been APPROVED.`,
+          notificationType: 'Approval Alert',
+          priority: 'Important',
+          receiverId: borrower._id,
+          receiverRole: 'borrower',
+          applicationId: application._id
         });
       }
 
-      // Create LOAN_APPROVAL notification for Agent
-      await createNotification({
-        receiverId: borrower.assignedAgent,
-        receiverRole: 'agent',
-        senderId: req.user._id,
-        senderRole: 'admin',
-        borrowerId: borrower._id,
-        loanApplicationId: application._id,
-        type: 'LOAN_APPROVAL',
-        title: 'New Loan Approved',
-        message: `Your borrower ${borrower.fullName}'s loan application ${application.applicationId} has been approved for R ${loanAmount}.`,
-        priority: 'IMPORTANT',
-        metadata: {
-          loanCode: activeLoan.loanCode,
-          amount: loanAmount
+      if (borrower && borrower.assignedAgent) {
+        // Notify Agent
+        await createNotification({
+          receiverId: borrower.assignedAgent,
+          receiverRole: 'agent',
+          senderId: req.user._id,
+          senderRole: 'admin',
+          borrowerId: borrower._id,
+          loanApplicationId: application._id,
+          type: 'LOAN_APPROVAL',
+          title: 'New Loan Approved',
+          message: `Your borrower ${borrower.fullName}'s loan application ${application.applicationId} has been approved for R ${loanAmount}.`,
+          priority: 'IMPORTANT'
+        });
+
+        // Socket notification for agent
+        const { getIO } = require('../socket/socketServer'); 
+        const io = getIO();
+        if (io) {
+          io.to(borrower.assignedAgent.toString()).emit('commission:generated', {
+            message: `New commission generated for loan application ${application.applicationId}`,
+            borrowerName: borrower.fullName
+          });
         }
-      });
-    } catch (err) {
-      console.error('Commission/Notification Generation Error:', err);
+      }
+    } catch (notifErr) {
+      console.error('Notification failed after approval commit:', notifErr.message);
+      // Don't fail the whole request since loan is already committed
     }
 
-  }
+    // --- COMMIT TRANSACTION ---
+    await session.commitTransaction();
+    session.endSession();
 
-  sendSuccess(res, 'Loan application approved and active loan created', { application, activeLoan });
+    sendSuccess(res, 'Loan application approved and active loan created', { application, activeLoan: activeLoan[0] });
+
+  } catch (error) {
+    // --- ROLLBACK TRANSACTION ---
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    session.endSession();
+    console.error('CRITICAL APPROVAL ERROR:', error);
+    return sendError(res, 'Approval failed: ' + error.message, 500);
+  }
 });
 
 /**
@@ -327,6 +394,11 @@ const rejectApplication = asyncHandler(async (req, res) => {
 
   if (!application) {
     return sendError(res, 'Loan application not found', 404);
+  }
+
+  // Business Rule: Must be reviewed/recommended by staff first
+  if (application.status === 'Submitted') {
+    return sendError(res, 'Please assign a reviewer and wait for staff recommendation before taking final decision', 400);
   }
 
   application.status = 'Rejected';
@@ -376,6 +448,11 @@ const holdApplication = asyncHandler(async (req, res) => {
 
   if (!application) {
     return sendError(res, 'Loan application not found', 404);
+  }
+
+  // Business Rule: Must be reviewed/recommended by staff first
+  if (application.status === 'Submitted') {
+    return sendError(res, 'Please assign a reviewer and wait for staff recommendation before taking final decision', 400);
   }
 
   application.status = 'Hold';
@@ -461,56 +538,121 @@ const updateStaffReview = asyncHandler(async (req, res) => {
 });
 
 /**
- * @desc    Assign staff to loan application
- * @route   PUT /api/admin/loan-applications/:id/assign
- * @access  Private/Admin
+ * @desc    Assign staff reviewer to loan application
+ * @route   POST /api/admin/loan-applications/assign-reviewer
+ * @access  Private (Admin)
  */
-const assignApplication = asyncHandler(async (req, res) => {
-  const { staffId } = req.body;
+const assignReviewer = asyncHandler(async (req, res) => {
+  const { applicationId, staffId, notes } = req.body;
 
-  if (!staffId) {
-    return sendError(res, 'Staff ID is required', 400);
+  if (!applicationId || !staffId) {
+    return sendError(res, 'Application ID and Staff ID are required', 400);
   }
 
-  const application = await LoanApplication.findById(req.params.id);
-  if (!application) {
-    return sendError(res, 'Loan application not found', 404);
+  // 1. Validations
+  const application = await LoanApplication.findById(applicationId);
+  if (!application) return sendError(res, 'Application Not Found', 404);
+
+  if (['Approved', 'Rejected', 'Disbursed'].includes(application.status)) {
+    return sendError(res, 'Application Already Closed', 400);
   }
 
   const staffUser = await User.findById(staffId);
   if (!staffUser || staffUser.role !== 'staff') {
-    return sendError(res, 'Valid staff user not found', 404);
+    return sendError(res, 'Invalid Staff Role', 400);
   }
 
-  // Update application with assigned staff
-  application.staffReview = {
-    ...application.staffReview,
-    reviewedBy: staffId,
-    staffName: staffUser.fullName,
-    verificationDate: null // Reset verification date if newly assigned
-  };
-  
-  if (application.status === 'New') {
+  // 2. Atomic Update using Transaction
+  const mongoose = require('mongoose');
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const LoanReview = require('../models/LoanReview');
+    const LoanStatusHistory = require('../models/LoanStatusHistory');
+    const Conversation = require('../models/Conversation');
+    const { createNotification } = require('../utils/notificationHelper');
+
+    // A. Update Application
     application.status = 'Under Review';
+    application.assignedReviewer = staffId;
+    application.assignedAt = new Date();
+    application.assignedBy = req.user._id;
+    await application.save({ session });
+
+    // B. Create/Update LoanReview Task
+    await LoanReview.findOneAndUpdate(
+      { loanApplicationId: application._id },
+      { 
+        reviewerId: staffId,
+        reviewerRole: 'staff',
+        status: 'Pending',
+        notes: notes || 'Assigned by Admin'
+      },
+      { upsert: true, session }
+    );
+
+    // C. Status History
+    await LoanStatusHistory.create([{
+      loanApplicationId: application._id,
+      status: 'Under Review',
+      notes: notes || `Reviewer assigned: ${staffUser.fullName}`,
+      changedBy: req.user._id
+    }], { session });
+
+    // D. Notifications
+    await createNotification({
+      receiverId: staffId,
+      receiverRole: 'staff',
+      senderId: req.user._id,
+      senderRole: 'admin',
+      type: 'loan_review_assignment',
+      title: 'New Loan Review Assigned',
+      message: `A new application ${application.applicationId} requires your review.`,
+      relatedId: application._id,
+      relatedModel: 'LoanApplication',
+      priority: 'important'
+    });
+
+    await createNotification({
+      receiverId: application.borrowerId,
+      receiverRole: 'borrower',
+      senderId: req.user._id,
+      senderRole: 'admin',
+      type: 'application_under_review',
+      title: 'Application Under Review',
+      message: `Your loan application ${application.applicationId} is now under review.`,
+      relatedId: application._id,
+      relatedModel: 'LoanApplication'
+    });
+
+    // E. Communication Thread (Check/Add Staff to conversation)
+    if (application.conversationId) {
+      await Conversation.findByIdAndUpdate(
+        application.conversationId,
+        { $addToSet: { participants: staffId } },
+        { session }
+      );
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // F. Socket Events (Post-Commit)
+    const { getIO } = require('../socket/socketServer');
+    const io = getIO();
+    if (io) {
+      io.emit('admin:loanAssigned', { applicationId: application._id, staffName: staffUser.fullName });
+      io.to(staffId.toString()).emit('staff:newReviewTask', { applicationId: application._id });
+      io.to(application.borrowerId.toString()).emit('borrower:statusUpdated', { status: 'Under Review' });
+    }
+
+    sendSuccess(res, 'Reviewer assigned successfully', { application });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
   }
-
-  await application.save();
-
-  // Create notification for staff
-  await createNotification({
-    receiverId: staffId,
-    receiverRole: 'staff',
-    senderId: req.user._id,
-    senderRole: 'admin',
-    notificationType: 'NewLoanRequest',
-    title: 'New Loan Request Assigned',
-    message: `A new borrower application ${application.applicationId} for ${application.borrowerName} has been assigned to you for review.`,
-    relatedId: application._id,
-    relatedModel: 'LoanApplication',
-    priority: 'important'
-  });
-
-  sendSuccess(res, 'Application assigned to staff successfully', application);
 });
 
 module.exports = {
@@ -521,5 +663,5 @@ module.exports = {
   rejectApplication,
   holdApplication,
   updateStaffReview,
-  assignApplication
+  assignReviewer
 };

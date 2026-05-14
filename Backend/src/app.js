@@ -39,6 +39,9 @@ const agentCommunicationRoutes = require('./routes/agent/communicationRoutes');
 const agentNotificationRoutes = require('./routes/agent/notificationRoutes');
 const agentProfileRoutes = require('./routes/agent/profileRoutes');
 const agentDashboardRoutes = require('./routes/agent/dashboardRoutes');
+const agentFollowUpRoutes = require('./routes/agent/followUpRoutes');
+const borrowerApplyLoanRoutes = require('./routes/borrowerLoanRoutes');
+
 
 
 const app = express();
@@ -48,6 +51,7 @@ app.use(express.json());
 
 // Cookie parser
 app.use(cookieParser());
+
 
 // Dev logging middleware
 if (process.env.NODE_ENV === 'development') {
@@ -99,7 +103,10 @@ app.use('/api/agent/communications', agentCommunicationRoutes);
     app.use('/api/agent/notifications', agentNotificationRoutes);
     app.use('/api/agent/profile', agentProfileRoutes);
     app.use('/api/agent/dashboard', agentDashboardRoutes);
+    app.use('/api/agent/follow-ups', agentFollowUpRoutes);
     app.use('/api/agent', agentRoutes);
+    app.use('/api/borrower/apply-loan', borrowerApplyLoanRoutes);
+
 
 app.use('/api/upload', uploadRoutes);
 

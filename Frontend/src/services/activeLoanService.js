@@ -39,6 +39,10 @@ const activeLoanService = {
 
   softDeleteLoan: async (id) => {
     return await api.delete(`/admin/active-loans/${id}`);
+  },
+
+  assignAgent: async (data) => {
+    return await api.post('/admin/active-loans/assign-agent', data);
   }
 };
 

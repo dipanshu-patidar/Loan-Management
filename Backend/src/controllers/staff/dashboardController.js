@@ -60,10 +60,10 @@ exports.getDashboardData = asyncHandler(async (req, res) => {
   const formattedQueue = workflowQueue.map(app => ({
     applicationId: app._id,
     borrowerId: app.borrowerId?._id,
-    borrowerName: app.borrowerName,
+    borrowerName: app.fullName,
     borrowerPhone: app.borrowerId?.phoneNumber || app.phoneNumber,
     loanId: app.applicationId,
-    loanType: app.loanPurpose || 'Personal Loan',
+    loanType: app.loanType || 'Personal Loan',
     loanAmount: app.requestedAmount,
     currentStatus: app.status,
     assignedDate: app.updatedAt
@@ -124,7 +124,7 @@ exports.getDashboardData = asyncHandler(async (req, res) => {
     ...recentApps.map(app => ({
       type: 'application',
       title: 'Application Reviewed',
-      description: `Reviewed ${app.applicationId} for ${app.borrowerName}`,
+      description: `Reviewed ${app.applicationId} for ${app.fullName}`,
       time: app.updatedAt,
       status: app.status
     })),

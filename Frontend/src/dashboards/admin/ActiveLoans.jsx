@@ -4,7 +4,7 @@ import {
   Search, Download, MoreVertical, Clock, CheckCircle2,
   AlertTriangle, ArrowRight, X, Calendar,
   Activity, ArrowUpRight, ArrowDownRight, History,
-  ShieldCheck, Phone, Mail, UserCheck, CreditCard, FileUp
+  ShieldCheck, Phone, Mail, UserCheck, CreditCard, FileUp, UserPlus, Users
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
@@ -17,6 +17,7 @@ import Input from '../../ui/Input';
 
 import { toast } from 'react-hot-toast';
 import activeLoanService from '../../services/activeLoanService';
+import agentService from '../../services/agentService';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2 } from 'lucide-react';
@@ -29,11 +30,16 @@ const ActiveLoans = () => {
   const [searchQuery, setSearchQuery] = useState('');
   
   const [activeTab, setActiveTab] = useState('All'); // 'All', 'Active', 'Overdue', 'Completed'
-  const [activeModal, setActiveModal] = useState(null); // 'schedule', 'complete', 'export', 'delete', 'penalty', 'due-payments', 'notes'
+  const [activeModal, setActiveModal] = useState(null); // 'schedule', 'complete', 'export', 'delete', 'penalty', 'due-payments', 'notes', 'assign-agent'
   const [activeDrawer, setActiveDrawer] = useState(null); // 'view'
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const [exportFormat, setExportFormat] = useState('pdf');
+  
+  // Agent Assignment States
+  const [availableAgents, setAvailableAgents] = useState([]);
+  const [assignmentData, setAssignmentData] = useState({ agentId: '', notes: '', priority: 'Low' });
+  const [isAgentsLoading, setIsAgentsLoading] = useState(false);
   
   const [duePayments, setDuePayments] = useState([]);
   const [isDuePaymentsLoading, setIsDuePaymentsLoading] = useState(false);
@@ -65,6 +71,47 @@ const ActiveLoans = () => {
     setActiveModal(type);
     setOpenMenuId(null);
     if (type === 'notes') setAdminNotes(loan?.notes || '');
+    
+    if (type === 'assign-agent') {
+      fetchAvailableAgents();
+      setAssignmentData({ agentId: '', notes: '', priority: 'Low' });
+    }
+  };
+
+  const fetchAvailableAgents = async () => {
+    try {
+      setIsAgentsLoading(true);
+      const res = await agentService.getAllAgents();
+      // Filter for active agents
+      const activeAgents = (res.data || []).filter(a => a.accountStatus === 'Active');
+      setAvailableAgents(activeAgents);
+    } catch (err) {
+      toast.error('Failed to fetch available agents');
+    } finally {
+      setIsAgentsLoading(false);
+    }
+  };
+
+  const handleAssignAgent = async () => {
+    try {
+      if (!assignmentData.agentId) return toast.error('Please select an agent');
+      setIsSubmitting(true);
+      
+      await activeLoanService.assignAgent({
+        loanId: selectedLoan._id,
+        agentId: assignmentData.agentId,
+        notes: assignmentData.notes,
+        priority: assignmentData.priority
+      });
+      
+      toast.success('Agent assigned successfully');
+      fetchDashboardData();
+      closeModal();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to assign agent');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const openDrawer = async (type, loan) => {
@@ -274,8 +321,8 @@ const ActiveLoans = () => {
       </section>
 
       {/* 5. ACTIVE LOANS TABLE */}
-      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft overflow-hidden">
-        <div className="overflow-x-auto">
+      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft overflow-visible">
+        <div className="overflow-visible">
            <table className="w-full">
               <thead>
                  <tr className="text-left border-b border-slate-50 bg-slate-50/50">
@@ -348,6 +395,9 @@ const ActiveLoans = () => {
                           <div className="flex items-center justify-end gap-2">
                              <TableAction icon={Eye} color="text-blue-500 hover:bg-blue-50" onClick={() => openDrawer('view', loan)} tooltip="View Loan" />
                              <TableAction icon={CalendarDays} color="text-primary hover:bg-primary/5" onClick={() => openModal('schedule', loan)} tooltip="Repayment Schedule" />
+                             {loan.loanStatus === 'Active' && !loan.assignedAgent && (
+                                <TableAction icon={UserPlus} color="text-amber-500 hover:bg-amber-50" onClick={() => openModal('assign-agent', loan)} tooltip="Assign Recovery Agent" />
+                             )}
                              <TableAction icon={Trash2} color="text-rose-500 hover:bg-rose-50" onClick={() => openModal('delete', loan)} tooltip="Delete Loan" />
                              
                              <div className="relative" onClick={(e) => e.stopPropagation()}>
@@ -406,6 +456,135 @@ const ActiveLoans = () => {
 
       {/* --- MODALS & DRAWERS --- */}
 
+      {/* ASSIGN AGENT MODAL */}
+      <Modal isOpen={activeModal === 'assign-agent'} onClose={closeModal} title="Assign Recovery Agent" maxWidth="max-w-2xl">
+         <div className="space-y-6">
+            <div className="p-5 bg-slate-50 rounded-[2rem] border border-slate-100 flex items-center justify-between">
+               <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-primary text-white rounded-2xl flex items-center justify-center font-black text-xl shadow-lg">
+                    {selectedLoan?.borrowerName?.charAt(0)}
+                  </div>
+                  <div>
+                     <p className="text-sm font-black text-slate-900">{selectedLoan?.borrowerName}</p>
+                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{selectedLoan?.loanCode} • R {selectedLoan?.remainingBalance?.toLocaleString()}</p>
+                  </div>
+               </div>
+               <div className={cn(
+                  "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border",
+                  selectedLoan?.loanStatus === 'Overdue' ? "bg-rose-50 text-rose-600 border-rose-100" : "bg-emerald-50 text-emerald-600 border-emerald-100"
+               )}>
+                  {selectedLoan?.loanStatus}
+               </div>
+            </div>
+
+            <div className="space-y-4">
+               <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Select Operational Agent</label>
+                  <span className="text-[10px] font-bold text-slate-400">{availableAgents.length} Active Agents Available</span>
+               </div>
+               
+               <div className="grid grid-cols-1 gap-3 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide">
+                  {isAgentsLoading ? (
+                     <div className="py-10 text-center">
+                        <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto mb-2" />
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Loading agents...</p>
+                     </div>
+                  ) : availableAgents.length === 0 ? (
+                     <div className="py-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">No active agents found in this region</p>
+                     </div>
+                  ) : availableAgents.map(agent => (
+                     <button
+                        key={agent._id}
+                        onClick={() => setAssignmentData({ ...assignmentData, agentId: agent._id })}
+                        className={cn(
+                           "flex items-center gap-4 p-4 rounded-[1.5rem] border transition-all text-left group",
+                           assignmentData.agentId === agent._id 
+                              ? "bg-primary/5 border-primary shadow-md" 
+                              : "bg-white border-slate-100 hover:border-primary/30"
+                        )}
+                     >
+                        {agent.profilePhoto ? (
+                           <img src={agent.profilePhoto} className="w-12 h-12 rounded-2xl object-cover shadow-sm" alt="" />
+                        ) : (
+                           <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center font-bold text-lg">
+                              {agent.fullName.charAt(0)}
+                           </div>
+                        )}
+                        <div className="flex-1">
+                           <div className="flex items-center justify-between">
+                              <p className="text-sm font-black text-slate-900 group-hover:text-primary transition-colors">{agent.fullName}</p>
+                              <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded-lg uppercase">{agent.assignedRegion}</span>
+                           </div>
+                           <div className="flex items-center gap-4 mt-1">
+                              <div className="flex items-center gap-1">
+                                 <Users size={10} className="text-slate-400" />
+                                 <span className="text-[10px] font-bold text-slate-500">{agent.assignedBorrowers?.length || 0} Clients</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                 <Activity size={10} className="text-emerald-500" />
+                                 <span className="text-[10px] font-bold text-emerald-600">92% Recovery</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                 <AlertTriangle size={10} className="text-rose-500" />
+                                 <span className="text-[10px] font-bold text-rose-600">3 Overdue</span>
+                              </div>
+                           </div>
+                        </div>
+                        {assignmentData.agentId === agent._id && (
+                           <div className="w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center">
+                              <CheckCircle2 size={14} />
+                           </div>
+                        )}
+                     </button>
+                  ))}
+               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Follow-Up Priority</label>
+                  <div className="grid grid-cols-3 gap-2">
+                     {['Low', 'Medium', 'High'].map(p => (
+                        <button 
+                           key={p}
+                           onClick={() => setAssignmentData({ ...assignmentData, priority: p })}
+                           className={cn(
+                              "py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all",
+                              assignmentData.priority === p 
+                                 ? "bg-slate-900 text-white border-slate-900 shadow-md" 
+                                 : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+                           )}
+                        >
+                           {p}
+                        </button>
+                     ))}
+                  </div>
+               </div>
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Internal Assignment Notes</label>
+                  <textarea 
+                     value={assignmentData.notes}
+                     onChange={(e) => setAssignmentData({ ...assignmentData, notes: e.target.value })}
+                     placeholder="Special instructions..."
+                     className="w-full h-[45px] bg-slate-50 border-none rounded-xl px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-primary/10 transition-all resize-none"
+                  />
+               </div>
+            </div>
+
+            <div className="flex gap-4 pt-2">
+               <Button variant="ghost" onClick={closeModal} className="flex-1">Cancel</Button>
+               <Button 
+                  onClick={handleAssignAgent} 
+                  disabled={isSubmitting || !assignmentData.agentId}
+                  className="flex-1 bg-primary shadow-lg shadow-primary/20"
+               >
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Confirm Assignment"}
+               </Button>
+            </div>
+         </div>
+      </Modal>
+
       {/* REPAYMENT SCHEDULE MODAL */}
       <Modal isOpen={activeModal === 'schedule'} onClose={closeModal} title="Repayment Schedule" maxWidth="max-w-2xl">
          <div className="space-y-6">
@@ -459,11 +638,11 @@ const ActiveLoans = () => {
             
             {/* Loan Summary Card */}
             <div className="p-5 bg-slate-50 rounded-[2rem] border border-slate-100 grid grid-cols-2 gap-4">
-               <ReviewRow label="Borrower" value={selectedLoan?.borrower} />
-               <ReviewRow label="Loan ID" value={selectedLoan?.loanId} />
-               <ReviewRow label="EMI Amount" value={`R ${selectedLoan?.emi.toLocaleString()}`} />
-               <ReviewRow label="Days Overdue" value={selectedLoan?.status === 'Overdue' ? '12 Days' : '0 Days'} />
-               <ReviewRow label="Balance" value={`R ${selectedLoan?.balance.toLocaleString()}`} />
+               <ReviewRow label="Borrower" value={selectedLoan?.borrowerName} />
+               <ReviewRow label="Loan ID" value={selectedLoan?.loanCode} />
+               <ReviewRow label="EMI Amount" value={`R ${selectedLoan?.emiAmount?.toLocaleString() || '0'}`} />
+               <ReviewRow label="Days Overdue" value={selectedLoan?.loanStatus === 'Overdue' ? '12 Days' : '0 Days'} />
+               <ReviewRow label="Balance" value={`R ${selectedLoan?.remainingBalance?.toLocaleString() || '0'}`} />
             </div>
 
             {/* Penalty Form */}
@@ -491,7 +670,7 @@ const ActiveLoans = () => {
             <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10 space-y-2">
                <div className="flex justify-between items-center text-xs font-bold">
                   <span className="text-slate-500">Current Balance</span>
-                  <span className="text-slate-900">R {selectedLoan?.balance.toLocaleString()}</span>
+                  <span className="text-slate-900">R {selectedLoan?.remainingBalance?.toLocaleString() || '0'}</span>
                </div>
                <div className="flex justify-between items-center text-xs font-bold">
                   <span className="text-slate-500">Penalty Charge</span>
@@ -499,7 +678,7 @@ const ActiveLoans = () => {
                </div>
                <div className="pt-2 border-t border-primary/10 flex justify-between items-center">
                   <span className="text-[10px] font-black text-primary uppercase tracking-widest">Updated Balance</span>
-                  <span className="text-lg font-black text-primary">R {(selectedLoan?.balance || 0 + 250).toLocaleString()}</span>
+                  <span className="text-lg font-black text-primary">R {((selectedLoan?.remainingBalance || 0) + 250).toLocaleString()}</span>
                </div>
             </div>
 

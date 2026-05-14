@@ -3,7 +3,7 @@ import {
   User, Briefcase, Landmark, FileText, 
   CheckCircle2, ArrowRight, ArrowLeft, 
   Upload, Info, AlertCircle, ShieldCheck,
-  DollarSign, Clock, FileCheck, ChevronRight,
+  Clock, FileCheck, ChevronRight,
   X, Image as ImageIcon, MapPin, Phone, Mail,
   Calendar, Building2, Wallet, TrendingUp, Activity, RefreshCw,
   Calculator
@@ -111,7 +111,7 @@ const ApplyLoan = () => {
           <div className="flex items-center gap-4">
              <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-50 text-center min-w-[140px]">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Loan Amount</p>
-                <p className="text-xl font-black text-primary">${location.state.amount.toLocaleString()}</p>
+                <p className="text-xl font-black text-primary">R {location.state.amount.toLocaleString()}</p>
              </div>
              <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-50 text-center min-w-[140px]">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Duration</p>
@@ -120,7 +120,7 @@ const ApplyLoan = () => {
              <div className="bg-primary p-5 rounded-2xl shadow-lg shadow-primary/20 text-center min-w-[140px]">
                 <p className="text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">Est. Monthly EMI</p>
                 <p className="text-xl font-black text-white">
-                  ${Math.round(
+                  R {Math.round(
                     (location.state.amount * (4.7 / 100 / 12) * Math.pow(1 + 4.7 / 100 / 12, location.state.duration)) /
                     (Math.pow(1 + 4.7 / 100 / 12, location.state.duration) - 1)
                   ).toLocaleString()}
@@ -213,7 +213,7 @@ const ApplyLoan = () => {
 
       {/* 📊 ELIGIBILITY SUMMARY (BOTTOM) */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
-         <EligibilityCard icon={DollarSign} label="Min Amount" value="R1,000" color="blue" />
+         <EligibilityCard icon={Wallet} label="Min Amount" value="R1,000" color="blue" />
          <EligibilityCard icon={TrendingUp} label="Max Amount" value="R50,000" color="emerald" />
          <EligibilityCard icon={Clock} label="Duration" value="3 - 24 Months" color="amber" />
          <EligibilityCard icon={Activity} label="Est. Interest" value="12.5% p.a." color="primary" />
@@ -264,7 +264,7 @@ const EmploymentInfoStep = ({ formData, setFormData }) => (
             </select>
          </div>
          <Input label="Employer Name" placeholder="Company name" icon={Building2} defaultValue={formData.employer} />
-         <Input label="Monthly Income (R)" type="number" placeholder="Gross monthly salary" icon={DollarSign} defaultValue={formData.income} />
+         <Input label="Monthly Income (R)" type="number" placeholder="Gross monthly salary" icon={Wallet} defaultValue={formData.income} />
          <Input label="Employment Duration" placeholder="e.g. 3 Years" icon={Clock} defaultValue={formData.duration} />
          <div className="md:col-span-2">
             <Input label="Work Address" isTextArea placeholder="Enter company address..." icon={MapPin} defaultValue={formData.workAddress} />
@@ -290,7 +290,7 @@ const BankingInfoStep = ({ formData, setFormData }) => (
 
       <div className="p-8 bg-blue-50/50 rounded-[2.5rem] border border-blue-100 space-y-6">
          <h4 className="text-[10px] font-black text-blue-700 uppercase tracking-[0.15em] flex items-center gap-2">
-            <DollarSign size={14} /> Estimated Fees & Repayment
+            <Wallet size={14} /> Estimated Fees & Repayment
          </h4>
          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <ReadOnlyStat label="Requested Amount" value={`R${formData.loanAmount}`} />
@@ -533,7 +533,7 @@ const EligibilityModal = ({ isOpen, onClose }) => (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                <ReqItem icon={User} label="Minimum Age" value="18 Years+" />
                <ReqItem icon={Briefcase} label="Employment" value="Employed / Self" />
-               <ReqItem icon={DollarSign} label="Min Income" value="R5,000 Monthly" />
+               <ReqItem icon={Wallet} label="Min Income" value="R5,000 Monthly" />
                <ReqItem icon={FileText} label="Valid ID" value="Government ID" />
                <ReqItem icon={Landmark} label="Bank Account" value="Active Account" />
             </div>

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, User, Search, Filter, 
   Eye, CheckCircle2, XCircle, Download,
-  Calendar, DollarSign, Receipt, CreditCard,
+  Calendar, Wallet, Receipt, CreditCard,
   RefreshCw, ArrowRight, X, ZoomIn, 
   AlertCircle, FileText, Phone, FileDown, Clock
 } from 'lucide-react';
@@ -461,7 +461,7 @@ const PaymentVerification = () => {
                     {/* ACCOUNT SUMMARY */}
                     <section className="space-y-6">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
-                        <DollarSign size={14} className="text-primary" /> Account Summary
+                        <Wallet size={14} className="text-primary" /> Account Summary
                       </h4>
                       <div className="grid grid-cols-2 gap-4">
                         <SummaryCard label="Payment Amount" value={formatZAR(hydratedDetails.PAYMENT.paymentAmount)} color="emerald" />

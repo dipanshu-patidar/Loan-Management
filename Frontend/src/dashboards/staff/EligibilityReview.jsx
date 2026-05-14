@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   CheckCircle2, AlertCircle, TrendingUp, 
-  DollarSign, Briefcase, FileText, 
+  Wallet, Briefcase, FileText, 
   ShieldCheck, ArrowRight, User,
   PieChart, ShieldAlert, Clock,
   CheckCircle, XCircle, Activity,
@@ -215,7 +215,7 @@ const EligibilityReview = () => {
            <ReviewCard title="Uploaded Files Register" icon={FileText}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  <DocVerifCard label="Identity Document" status={application.documentVerification?.idProofStatus || 'Pending'} icon={User} fileUrl={application.documents?.idDocument} />
-                 <DocVerifCard label="Latest Payslip" status={application.documentVerification?.payslipStatus || 'Pending'} icon={DollarSign} fileUrl={application.documents?.payslip} />
+                 <DocVerifCard label="Latest Payslip" status={application.documentVerification?.payslipStatus || 'Pending'} icon={Wallet} fileUrl={application.documents?.payslip} />
                  <DocVerifCard label="Bank Statement" status={application.documentVerification?.bankStatementStatus || 'Pending'} icon={Landmark} fileUrl={application.documents?.bankStatement} />
                  <DocVerifCard label="Proof of Address" status={application.documentVerification?.proofOfAddressStatus || 'Pending'} icon={MapPin} fileUrl={application.documents?.proofOfAddress} />
               </div>

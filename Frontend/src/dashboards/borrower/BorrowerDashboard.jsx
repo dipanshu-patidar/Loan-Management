@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   FilePlus, Wallet, Briefcase, Clock, 
   CheckCircle2, AlertCircle, Calendar, 
-  ArrowRight, Info, Eye, DollarSign, 
+  ArrowRight, Info, Eye, 
   TrendingUp, Bell, RefreshCw, X,
   ChevronRight, ArrowUpRight, Activity
 } from 'lucide-react';
@@ -239,7 +239,7 @@ const BorrowerDashboard = () => {
                         activity.status === 'reminder' ? "bg-amber-500 border-amber-500 text-white" :
                         "bg-primary border-primary text-white"
                       )}>
-                        {activity.type === 'Payment' ? <DollarSign size={10} /> : <Info size={10} />}
+                        {activity.type === 'Payment' ? <Wallet size={10} /> : <Info size={10} />}
                       </div>
                       <div className="min-w-0">
                          <h5 className="text-[11px] font-black text-slate-900 leading-none">{activity.title}</h5>

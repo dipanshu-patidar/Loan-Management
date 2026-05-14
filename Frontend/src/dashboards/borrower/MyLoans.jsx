@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Briefcase, DollarSign, Clock, AlertCircle, 
+  Briefcase, Clock, AlertCircle, 
   ChevronRight, ArrowRight, Download, Eye, 
   Calendar, FileText, CheckCircle2, History, 
   Wallet, TrendingUp, Info, Activity,

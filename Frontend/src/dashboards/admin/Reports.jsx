@@ -3,9 +3,9 @@ import {
   BarChart3, Download, Eye, Search, Filter, 
   MoreVertical, Calendar, TrendingUp, PieChart, 
   FileText, Briefcase, Users, AlertCircle, 
-  DollarSign, Activity, ArrowRight, X, Mail,
+  Activity, ArrowRight, X, Mail,
   Printer, CheckCircle2, Trash2, FileUp, ShieldCheck,
-  ChevronRight, Wallet, History, CreditCard, Layout, Loader2
+  ChevronRight, Wallet, History, CreditCard, Layout, Loader2, Banknote
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -181,7 +181,7 @@ const Reports = () => {
 
       {/* 2. ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <StatCard title="Total Collections" value={`R ${stats.totalCollections?.toLocaleString()}`} icon={DollarSign} color="navy" />
+        <StatCard title="Total Collections" value={`R ${stats.totalCollections?.toLocaleString()}`} icon={Wallet} color="navy" />
         <StatCard title="Total Loans" value={stats.totalLoans?.toLocaleString()} icon={Briefcase} color="blue" />
         <StatCard title="Active Borrowers" value={stats.activeBorrowers?.toLocaleString()} icon={Users} color="emerald" />
         <StatCard title="Overdue Payments" value={stats.overduePayments?.toLocaleString()} icon={AlertCircle} color="rose" />

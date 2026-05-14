@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Wallet, DollarSign, Calendar, Clock, 
+  Wallet, Calendar, Clock, 
   CheckCircle2, ArrowRight, Download, Upload, 
   FileText, History, Info, AlertCircle,
   X, Image as ImageIcon, Search, ShieldCheck,
@@ -106,7 +106,7 @@ const MakePayment = () => {
 
       {/* 3. TOP ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Next EMI Amount" value={activeLoan.amount} icon={DollarSign} color="navy" />
+        <StatCard title="Next EMI Amount" value={activeLoan.amount} icon={Wallet} color="navy" />
         <StatCard title="Due Date" value={activeLoan.dueDate} icon={Calendar} color="blue" />
         <StatCard title="Remaining Balance" value={activeLoan.balance} icon={Wallet} color="accent" />
         <StatCard title="Pending Verification" value="01" icon={Clock} color="rose" />

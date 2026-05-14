@@ -3,7 +3,7 @@ import {
   History, Download, Eye, FileText, 
   CheckCircle2, Clock, AlertCircle, 
   ArrowRight, Filter, Search, Calendar,
-  Wallet, DollarSign, TrendingUp, X,
+  Wallet, TrendingUp, X,
   Printer, Share2, ShieldCheck, Activity,
   ChevronRight, CreditCard
 } from 'lucide-react';
@@ -74,7 +74,7 @@ const PaymentHistory = () => {
       {/* 3. ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="Total Paid EMIs" value="14" icon={History} color="navy" />
-        <StatCard title="Total Paid Amount" value="R11,557" icon={DollarSign} color="blue" />
+        <StatCard title="Total Paid Amount" value="R11,557" icon={Wallet} color="blue" />
         <StatCard title="Pending Verification" value="01" icon={Clock} color="accent" />
         <StatCard title="Last Payment Date" value="14 Apr 2026" icon={Calendar} color="green" />
       </section>
@@ -186,7 +186,7 @@ const PaymentHistory = () => {
                  <ActivityItem icon={CheckCircle2} title="Payment Verified" desc="TXN-99821 has been verified" time="2 hours ago" color="text-emerald-500" />
                  <ActivityItem icon={Clock} title="Proof Submitted" desc="Pending verification for TXN-88391" time="5 hours ago" color="text-amber-500" />
                  <ActivityItem icon={Printer} title="Receipt Generated" desc="Receipt for EMI #14 is ready" time="1 day ago" color="text-primary" />
-                 <ActivityItem icon={DollarSign} title="EMI Paid" desc="EMI #14 submitted for review" time="1 day ago" color="text-blue-500" />
+                 <ActivityItem icon={Wallet} title="EMI Paid" desc="EMI #14 submitted for review" time="1 day ago" color="text-blue-500" />
               </div>
            </section>
         </div>

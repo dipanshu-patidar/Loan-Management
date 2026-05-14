@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   CreditCard, BadgeCheck, Download, Eye, Search, 
   Filter, MoreVertical, XCircle, Clock, CheckCircle2,
-  DollarSign, Activity, FileText, Smartphone, Banknote,
+  Activity, FileText, Smartphone, Banknote,
   Receipt, History, UserCheck, ShieldCheck, Mail,
   Printer, ArrowRight, X, Phone, Calendar, DownloadCloud,
   FileUp, Wallet, Trash2, Loader2

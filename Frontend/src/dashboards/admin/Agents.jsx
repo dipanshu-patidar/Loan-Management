@@ -4,7 +4,7 @@ import {
   Eye, Pencil, BadgePercent, Trash2, CheckCircle2,
   Mail, Phone, MapPin, Building2, Wallet, Briefcase, 
   Calendar, Clock, CheckCircle, FileText, CreditCard, 
-  Activity, ShieldAlert, DollarSign, ChevronRight,
+  Activity, ShieldAlert, ChevronRight,
   UserCheck, History, ArrowRight, X, Loader2, Camera, EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';

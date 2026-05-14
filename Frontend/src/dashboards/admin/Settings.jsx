@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Settings2, Save, RotateCcw, Percent, 
-  DollarSign, Clock, AlertCircle, Briefcase,
+  Clock, AlertCircle, Briefcase,
   ChevronRight, Activity, ShieldCheck, CheckCircle2,
   Calculator, Info, Zap, Bell, ToggleLeft as Toggle,
   Wallet, TrendingUp, History, ShieldAlert, FileText,
@@ -286,7 +286,7 @@ const Settings = () => {
                            </div>
                         </SettingsSection>
 
-                        <SettingsSection title="Processing Fee Settings" icon={DollarSign}>
+                        <SettingsSection title="Processing Fee Settings" icon={Wallet}>
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                               <div className="space-y-2">
                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Fee Type</label>
@@ -402,7 +402,7 @@ const Settings = () => {
                                 type="number" 
                                 value={formData.minimumMonthlyIncome} 
                                 onChange={(e) => handleInputChange('minimumMonthlyIncome', Number(e.target.value))}
-                                icon={DollarSign} 
+                                icon={Wallet} 
                               />
                               <div className="space-y-2">
                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Employment</label>
@@ -426,7 +426,7 @@ const Settings = () => {
                                 type="number"
                                 value={formData.eligibleMinimumPrincipal} 
                                 onChange={(e) => handleInputChange('eligibleMinimumPrincipal', Number(e.target.value))}
-                                icon={DollarSign} 
+                                icon={Wallet} 
                               />
                               <Input 
                                 label="Eligible Max Principal (R)" 

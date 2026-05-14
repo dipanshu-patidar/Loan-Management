@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Clock, FileText, User, Search, Filter, 
   Eye, FileCheck, ChevronRight, Download,
-  Calendar, DollarSign, RefreshCw, ArrowRight,
+  Calendar, RefreshCw, ArrowRight,
   CheckCircle2, AlertCircle, X, ShieldCheck,
   Building2, PieChart, MapPin, Phone
 } from 'lucide-react';

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Clock, FileText, User, Search, Filter, 
   Eye, FileCheck, ChevronRight, Download,
-  Calendar, DollarSign, RefreshCw, ArrowRight,
+  Calendar, Wallet, RefreshCw, ArrowRight,
   CheckCircle2, AlertCircle, X, ShieldCheck,
   Building2, PieChart, MapPin, Phone, Send,
   FileDown
@@ -450,10 +450,10 @@ const LoanReview = () => {
                     {/* LOAN DETAILS */}
                     <section className="space-y-6">
                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] flex items-center gap-2">
-                        <DollarSign size={14} className="text-primary" /> Loan Details
+                        <Wallet size={14} className="text-primary" /> Loan Details
                       </h4>
                       <div className="grid grid-cols-2 gap-4">
-                        <DrawerItem icon={DollarSign} label="Requested" value={formatZAR(activeDossier.loanDetails.requestedAmount)} />
+                        <DrawerItem icon={Wallet} label="Requested" value={formatZAR(activeDossier.loanDetails.requestedAmount)} />
                         <DrawerItem icon={Clock} label="Duration" value={`${activeDossier.loanDetails.loanDuration} Months`} />
                       </div>
                     </section>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Bell, FileText, DollarSign, AlertTriangle, 
+  Bell, FileText, Wallet, AlertTriangle, 
   CheckCircle2, ShieldAlert, UserPlus, 
   MessageSquare, Info, Trash2, CheckCheck, AlertCircle 
 } from 'lucide-react';
@@ -16,7 +16,7 @@ const getIconByType = (type) => {
     case 'New Application':
       return { icon: FileText, color: 'text-blue-500', bg: 'bg-blue-50' };
     case 'Payment Notification':
-      return { icon: DollarSign, color: 'text-emerald-500', bg: 'bg-emerald-50' };
+      return { icon: Wallet, color: 'text-emerald-500', bg: 'bg-emerald-50' };
     case 'Overdue Alert':
       return { icon: AlertTriangle, color: 'text-rose-500', bg: 'bg-rose-50' };
     case 'Approval Alert':

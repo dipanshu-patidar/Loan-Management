@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Bell, FileText, DollarSign, AlertTriangle, 
+  Bell, FileText, AlertTriangle, 
   CheckCircle2, ShieldAlert, UserPlus, 
   MessageSquare, Info, Trash2, CheckCheck, AlertCircle,
   CreditCard, UserCheck, MessageCircle, Clock

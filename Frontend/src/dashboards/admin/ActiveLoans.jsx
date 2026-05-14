@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   Wallet, CalendarDays, BadgeCheck, Trash2, Eye, 
   Search, Download, MoreVertical, Clock, CheckCircle2,
-  AlertTriangle, DollarSign, ArrowRight, X, Calendar,
+  AlertTriangle, ArrowRight, X, Calendar,
   Activity, ArrowUpRight, ArrowDownRight, History,
   ShieldCheck, Phone, Mail, UserCheck, CreditCard, FileUp
 } from 'lucide-react';
@@ -217,7 +217,7 @@ const ActiveLoans = () => {
       {/* 2. ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="Total Active Loans" value={(stats.totalActiveLoans || 0).toLocaleString()} icon={Wallet} color="navy" />
-        <StatCard title="Outstanding Balance" value={`R ${(stats.outstandingBalance || 0).toLocaleString()}`} icon={DollarSign} color="blue" />
+        <StatCard title="Outstanding Balance" value={`R ${(stats.outstandingBalance || 0).toLocaleString()}`} icon={Wallet} color="blue" />
         <StatCard title="Overdue Loans" value={(stats.overdueLoans || 0).toLocaleString()} icon={AlertTriangle} color="rose" />
         <StatCard title="Completed This Month" value={(stats.completedThisMonth || 0).toLocaleString()} icon={BadgeCheck} color="emerald" />
       </section>

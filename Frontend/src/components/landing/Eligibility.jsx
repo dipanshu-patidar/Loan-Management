@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { User, DollarSign, FileText, Calendar, TrendingUp, Info } from 'lucide-react';
+import { User, Wallet, FileText, Calendar, TrendingUp, Info } from 'lucide-react';
 
 const Eligibility = () => {
   const criteria = [
@@ -12,8 +12,8 @@ const Eligibility = () => {
     },
     {
       title: 'Minimum Income',
-      value: '$2,000 / Month',
-      icon: DollarSign,
+      value: 'R2,000 / Month',
+      icon: Wallet,
       desc: 'Stable source of income'
     },
     {
@@ -30,7 +30,7 @@ const Eligibility = () => {
     },
     {
       title: 'Loan Limits',
-      value: '$500 - $50,000',
+      value: 'R500 - R50,000',
       icon: TrendingUp,
       desc: 'Based on credit profile'
     }

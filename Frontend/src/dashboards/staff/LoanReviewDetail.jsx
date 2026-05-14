@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   User, Briefcase, FileText, PieChart, 
   CheckCircle2, XCircle, AlertCircle, 
-  ArrowLeft, Download, Eye, DollarSign,
+  ArrowLeft, Download, Eye, Wallet,
   MapPin, Phone, Building2, Save, Send,
   Clock
 } from 'lucide-react';
@@ -88,10 +88,10 @@ const LoanReview = () => {
                 <PieChart size={16} className="text-primary" /> Loan Details
               </h3>
               <div className="space-y-4">
-                <DetailRow label="Requested Amount" value={loan.amount} icon={DollarSign} />
+                <DetailRow label="Requested Amount" value={loan.amount} icon={Wallet} />
                 <DetailRow label="Loan Type" value={loan.type} icon={FileText} />
                 <DetailRow label="Duration" value={loan.duration} icon={Clock} />
-                <DetailRow label="Estimated EMI" value={loan.emi} icon={DollarSign} />
+                <DetailRow label="Estimated EMI" value={loan.emi} icon={Wallet} />
               </div>
             </section>
           </div>

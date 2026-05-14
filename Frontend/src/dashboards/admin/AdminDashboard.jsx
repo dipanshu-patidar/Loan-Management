@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   Users, FileText, CheckCircle2, AlertCircle, 
-  TrendingUp, DollarSign, Calendar, ArrowUpRight, 
+  TrendingUp, Wallet, Calendar, ArrowUpRight, 
   Clock, CheckCircle, XCircle, Search, Filter, 
   MoreVertical, UserPlus, FilePlus, Bell, ArrowDownRight,
   Target, Activity, History, ShieldCheck, RefreshCcw
@@ -199,7 +199,7 @@ const AdminDashboard = () => {
         <StatCard 
           title="Total Disbursed" 
           value={formatCurrency(overview.totalDisbursed)} 
-          icon={DollarSign} 
+          icon={Wallet} 
           trend={overview.disbursementGrowthPercentage >= 0 ? "up" : "down"} 
           trendValue={Math.abs(overview.disbursementGrowthPercentage).toFixed(1)} 
           color="emerald" 

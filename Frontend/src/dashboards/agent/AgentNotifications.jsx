@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Bell, AlertCircle, Clock, CheckCircle2, 
   Search, Filter, Eye, CheckCheck, Trash2,
-  X, User, Briefcase, DollarSign, ArrowRight,
+  X, User, Briefcase, Wallet, ArrowRight,
   RefreshCw, MessageSquare, Phone, Info,
   ExternalLink, Calendar, Mail, Loader2
 } from 'lucide-react';
@@ -190,7 +190,7 @@ const AgentNotifications = () => {
       case 'BORROWER_ALERT': return <AlertCircle size={18} />;
       case 'LOAN_APPROVAL': return <CheckCircle2 size={18} />;
       case 'OVERDUE_WARNING': return <AlertCircle size={18} />;
-      case 'PAYMENT_UPDATE': return <DollarSign size={18} />;
+      case 'PAYMENT_UPDATE': return <Wallet size={18} />;
       case 'AdminMessage':
       case 'NewMessage': return <MessageSquare size={18} />;
       default: return <Info size={18} />;
@@ -479,7 +479,7 @@ const AgentNotifications = () => {
                    <div className="grid grid-cols-1 gap-5">
                       <DrawerItem icon={User} label="Borrower Name" value={selectedNotification?.borrowerId?.fullName || 'N/A'} />
                       <DrawerItem icon={Briefcase} label="Loan Reference" value={selectedNotification?.metadata?.loanCode || 'N/A'} />
-                      <DrawerItem icon={DollarSign} label="Due Amount" value={selectedNotification?.dueAmount ? `R ${selectedNotification.dueAmount}` : 'N/A'} />
+                      <DrawerItem icon={Wallet} label="Due Amount" value={selectedNotification?.dueAmount ? `R ${selectedNotification.dueAmount}` : 'N/A'} />
                       <DrawerItem icon={Clock} label="Timestamp" value={selectedNotification?.createdAt && formatDistanceToNow(new Date(selectedNotification.createdAt), { addSuffix: true })} />
                    </div>
                 </section>

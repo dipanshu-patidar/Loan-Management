@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   BellRing, ClipboardCheck, Eye, Search, Filter, 
   MoreVertical, Download, Clock, AlertTriangle, 
-  DollarSign, Activity, Users, ArrowRight, X, 
+  Activity, Users, ArrowRight, X, 
   Mail, MessageSquare, Phone, Calendar, CheckCircle2,
   Trash2, UserCheck, ShieldCheck, History, Wallet,
   CreditCard, Smartphone, FileText, Loader2
@@ -188,7 +188,7 @@ const DuePayments = () => {
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="Due Today" value={stats.dueTodayCount.toLocaleString()} icon={Clock} color="blue" />
         <StatCard title="Overdue Payments" value={stats.overdueCount.toLocaleString()} icon={AlertTriangle} color="rose" />
-        <StatCard title="Total Due Amount" value={`R ${stats.totalDueAmount.toLocaleString()}`} icon={DollarSign} color="navy" />
+        <StatCard title="Total Due Amount" value={`R ${stats.totalDueAmount.toLocaleString()}`} icon={Wallet} color="navy" />
         <StatCard title="Late EMI Accounts" value={stats.lateEmiAccounts.toLocaleString()} icon={Users} color="navy" />
       </section>
 

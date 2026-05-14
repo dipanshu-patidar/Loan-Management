@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   FileText, Search, Filter, Download, MoreVertical, 
   Eye, CheckCircle, XCircle, Clock, AlertCircle,
-  Calendar, DollarSign, User, Building2, Briefcase,
+  Calendar, Wallet, User, Building2, Briefcase,
   MapPin, Phone, Mail, ArrowRight, Loader2, Info,
   History, ShieldCheck, CheckCircle2, ChevronRight,
   ExternalLink, FileCheck, FileX, Pause, Image as ImageIcon,
@@ -501,7 +501,7 @@ const Applications = () => {
                   {/* SECTION 2 — LOAN DETAILS */}
                   <section className="space-y-6">
                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                       <DollarSign size={16} className="text-primary" /> Loan Details
+                        <Wallet size={16} className="text-primary" /> Loan Details
                      </h3>
                      <div className="grid grid-cols-2 gap-4 p-6 bg-slate-50 rounded-[2rem] border border-slate-100">
                         <DetailItem label="Requested Amount" value={`R ${selectedApp.requestedAmount?.toLocaleString()}`} isBold />

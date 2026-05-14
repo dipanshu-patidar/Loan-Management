@@ -4,7 +4,7 @@ import {
   Search, Filter, RefreshCw, Eye, 
   ChevronRight, ArrowDownRight, ArrowRight,
   CheckCircle2, MessageSquare, Bell, 
-  DollarSign, PieChart, Activity, User,
+  PieChart, Activity, User,
   Phone, X, MapPin, Building2, HelpCircle,
   Calendar, Download, MessageCircle
 } from 'lucide-react';

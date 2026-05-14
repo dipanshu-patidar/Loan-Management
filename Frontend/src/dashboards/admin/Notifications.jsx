@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Bell, CheckCheck, Trash2, Eye, Search, 
   Filter, MoreVertical, Clock, AlertTriangle, 
-  DollarSign, Activity, FileText, CheckCircle2,
+  Activity, FileText, CheckCircle2,
   ArrowRight, X, Mail, Phone, Calendar, 
   ShieldCheck, UserCheck, MessageSquare, Briefcase,
   Zap, Smartphone, ChevronRight, UserPlus, History,
@@ -30,7 +30,7 @@ const getIconByType = (type) => {
     case 'Overdue Alert':
       return AlertTriangle;
     case 'Payment Notification':
-      return DollarSign;
+      return Wallet;
     case 'Approval Alert':
     case 'Loan Approved':
       return CheckCircle2;
@@ -277,7 +277,7 @@ const NotificationsModule = () => {
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="New Applications" value={stats.newApplications} icon={FileText} color="blue" />
         <StatCard title="Overdue Alerts" value={stats.overdueAlerts} icon={AlertTriangle} color="rose" />
-        <StatCard title="Payment Alerts" value={stats.paymentNotifications} icon={DollarSign} color="emerald" />
+        <StatCard title="Payment Alerts" value={stats.paymentNotifications} icon={Wallet} color="emerald" />
         <StatCard title="Approval Alerts" value={stats.approvalAlerts} icon={CheckCircle2} color="navy" />
       </section>
 

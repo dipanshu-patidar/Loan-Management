@@ -5,7 +5,7 @@ import {
   ChevronRight, ArrowUpRight, CheckCircle2, 
   AlertCircle, User, FileText, Activity,
   Filter, Plus, Check, Eye, X, Download,
-  DollarSign, MapPin, Building2, Briefcase, RefreshCw
+  Wallet, MapPin, Building2, Briefcase, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
@@ -373,7 +373,7 @@ const StaffDashboard = () => {
                 <section className="space-y-4">
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-4">Loan Details</h4>
                   <PreviewItem icon={Briefcase} label="Loan Type" value={selectedApp?.loanType} />
-                  <PreviewItem icon={DollarSign} label="Requested Amount" value={`R ${selectedApp?.loanAmount?.toLocaleString()}`} />
+                  <PreviewItem icon={Wallet} label="Requested Amount" value={`R ${selectedApp?.loanAmount?.toLocaleString()}`} />
                   <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10">
                     <p className="text-[9px] font-black text-primary uppercase tracking-widest mb-1">Current Progress</p>
                     <p className="text-sm font-black text-slate-900">Assigned on {formatDate(selectedApp?.assignedDate)}</p>

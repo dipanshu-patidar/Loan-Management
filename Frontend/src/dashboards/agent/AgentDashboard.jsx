@@ -4,7 +4,7 @@ import {
   ArrowRight, Phone, MessageSquare, Eye, 
   Search, Bell, Filter, Calendar, 
   CheckCircle2, AlertCircle, ChevronRight,
-  TrendingDown, DollarSign, Briefcase, UserPlus,
+  TrendingDown, Briefcase, UserPlus,
   Loader2, ShieldAlert, EyeOff, MoreVertical, X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';

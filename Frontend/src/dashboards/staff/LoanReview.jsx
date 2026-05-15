@@ -60,6 +60,11 @@ const LoanReview = () => {
   const [isRequestDocsModalOpen, setIsRequestDocsModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Review Summary Modal
+  const [isReviewSummaryOpen, setIsReviewSummaryOpen] = useState(false);
+  const [reviewSummaryData, setReviewSummaryData] = useState(null);
+  const [reviewSummaryLoading, setReviewSummaryLoading] = useState(false);
+
   // Form States
   const [notesPayload, setNotesPayload] = useState('');
   const [verificationNotes, setVerificationNotes] = useState('');
@@ -218,6 +223,22 @@ const LoanReview = () => {
     }
   };
 
+  // View submitted review summary
+  const handleViewReviewSummary = async (appId) => {
+    try {
+      setReviewSummaryLoading(true);
+      setIsReviewSummaryOpen(true);
+      setReviewSummaryData(null);
+      const res = await staffLoanReviewService.getLoanReviewById(appId);
+      if (res.success) setReviewSummaryData(res.data);
+    } catch {
+      toast.error('Failed to load review summary.');
+      setIsReviewSummaryOpen(false);
+    } finally {
+      setReviewSummaryLoading(false);
+    }
+  };
+
   // 4. Socket IO Hooks
   useEffect(() => {
     const socket = getSocket();
@@ -324,6 +345,7 @@ const LoanReview = () => {
                 <th className="px-8 py-6 border-b border-slate-100">Amount</th>
                 <th className="px-8 py-6 border-b border-slate-100">Affordability</th>
                 <th className="px-8 py-6 border-b border-slate-100">Review Status</th>
+                <th className="px-8 py-6 border-b border-slate-100">Review Result</th>
                 <th className="px-8 py-6 border-b border-slate-100 text-right">Actions</th>
               </tr>
             </thead>
@@ -380,16 +402,28 @@ const LoanReview = () => {
                     <td className="px-8 py-5">
                       <StatusBadge status={app.reviewStatus} />
                     </td>
+                    <td className="px-8 py-5">
+                      <ReviewResultBadge staffReview={app.staffReview} />
+                    </td>
                     <td className="px-8 py-5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button 
+                        <button
                           onClick={() => handleOpenDrawer(app._id)}
                           className="p-2.5 text-slate-400 hover:text-primary hover:bg-white rounded-xl border border-transparent hover:border-slate-100 transition-all shadow-sm"
                           title="Quick View Dossier"
                         >
                           <Eye size={18} />
                         </button>
-                        <button 
+                        {app.staffReview?.recommendation && app.staffReview.recommendation !== 'Pending' && (
+                          <button
+                            onClick={() => handleViewReviewSummary(app._id)}
+                            className="p-2.5 text-violet-400 hover:text-violet-600 hover:bg-violet-50 rounded-xl border border-transparent hover:border-violet-100 transition-all shadow-sm"
+                            title="View Submitted Review Summary"
+                          >
+                            <FileCheck size={18} />
+                          </button>
+                        )}
+                        <button
                           onClick={() => navigate(`/staff/loan-review/${app._id}`)}
                           className="p-2.5 text-slate-400 hover:text-emerald-500 hover:bg-white rounded-xl border border-transparent hover:border-slate-100 transition-all shadow-sm"
                           title="Comprehensive Eligibility Workbench"
@@ -759,6 +793,157 @@ const LoanReview = () => {
           </div>
         </div>
       </Modal>
+
+      {/* ── REVIEW SUMMARY MODAL ─────────────────────────────────── */}
+      <Modal
+        isOpen={isReviewSummaryOpen}
+        onClose={() => { setIsReviewSummaryOpen(false); setReviewSummaryData(null); }}
+        title="Submitted Review Summary"
+        maxWidth="max-w-2xl"
+      >
+        {reviewSummaryLoading ? (
+          <div className="py-16 flex items-center justify-center">
+            <div className="w-10 h-10 border-4 border-primary/10 border-t-primary rounded-full animate-spin" />
+          </div>
+        ) : reviewSummaryData?.staffReview ? (
+          <div className="space-y-6">
+            {/* Reviewer + Timestamp */}
+            <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <div className="w-11 h-11 rounded-xl bg-primary text-white flex items-center justify-center font-black text-sm shrink-0">
+                {(reviewSummaryData.staffReview.staffName || 'S').charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reviewed By</p>
+                <p className="text-sm font-bold text-slate-900">{reviewSummaryData.staffReview.staffName || 'Staff Reviewer'}</p>
+              </div>
+              {reviewSummaryData.staffReview.submittedAt && (
+                <div className="text-right shrink-0">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Reviewed On</p>
+                  <p className="text-xs font-bold text-slate-600">
+                    {new Date(reviewSummaryData.staffReview.submittedAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {' — '}
+                    {new Date(reviewSummaryData.staffReview.submittedAt).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Recommendation + Risk Level */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className={cn(
+                'p-4 rounded-2xl border',
+                REVIEW_RECOMMENDATION_STYLES[reviewSummaryData.staffReview.recommendation]?.card || 'bg-slate-50 border-slate-100'
+              )}>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Recommendation</p>
+                <p className={cn('text-sm font-black',
+                  REVIEW_RECOMMENDATION_STYLES[reviewSummaryData.staffReview.recommendation]?.text || 'text-slate-700'
+                )}>
+                  {REVIEW_RECOMMENDATION_STYLES[reviewSummaryData.staffReview.recommendation]?.label || reviewSummaryData.staffReview.recommendation}
+                </p>
+              </div>
+              <div className={cn(
+                'p-4 rounded-2xl border',
+                reviewSummaryData.staffReview.riskLevel === 'Low' ? 'bg-emerald-50 border-emerald-100' :
+                reviewSummaryData.staffReview.riskLevel === 'Medium' ? 'bg-amber-50 border-amber-100' :
+                reviewSummaryData.staffReview.riskLevel === 'High' ? 'bg-rose-50 border-rose-100' :
+                'bg-slate-50 border-slate-100'
+              )}>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Risk Level</p>
+                <p className={cn('text-sm font-black',
+                  reviewSummaryData.staffReview.riskLevel === 'Low' ? 'text-emerald-700' :
+                  reviewSummaryData.staffReview.riskLevel === 'Medium' ? 'text-amber-700' :
+                  reviewSummaryData.staffReview.riskLevel === 'High' ? 'text-rose-700' : 'text-slate-700'
+                )}>
+                  {reviewSummaryData.staffReview.riskLevel || 'N/A'}
+                </p>
+              </div>
+            </div>
+
+            {/* Verification Findings */}
+            {reviewSummaryData.documentVerification && (
+              <div className="space-y-3">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verification Findings</p>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: 'ID Verification',         key: 'idProof' },
+                    { label: 'Payslip Verification',    key: 'payslip' },
+                    { label: 'Bank Statement',          key: 'bankStatement' },
+                    { label: 'Address Verification',    key: 'proofOfAddress' },
+                  ].map(({ label, key }) => {
+                    const finding = reviewSummaryData.documentVerification[key];
+                    return (
+                      <div key={key} className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-xl border text-[10px] font-bold',
+                        finding?.status === 'Approved' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
+                        finding?.status === 'Rejected' ? 'bg-rose-50 border-rose-100 text-rose-700' :
+                        'bg-slate-50 border-slate-100 text-slate-400'
+                      )}>
+                        <CheckCircle2 size={13} className={
+                          finding?.status === 'Approved' ? 'text-emerald-500' :
+                          finding?.status === 'Rejected' ? 'text-rose-400' : 'text-slate-300'
+                        } />
+                        <span>{label}</span>
+                        <span className="ml-auto uppercase text-[8px] tracking-widest">
+                          {finding?.status || 'Pending'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Staff Notes */}
+            {reviewSummaryData.staffReview.verificationNotes && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Review Notes</p>
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-sm font-medium text-slate-600 italic leading-relaxed">
+                  "{reviewSummaryData.staffReview.verificationNotes}"
+                </div>
+              </div>
+            )}
+
+            {/* Admin Decision Status */}
+            <div className={cn(
+              'p-4 rounded-2xl border',
+              reviewSummaryData.adminDecision?.decision === 'Approved' ? 'bg-emerald-50 border-emerald-200' :
+              reviewSummaryData.adminDecision?.decision === 'Rejected' ? 'bg-rose-50 border-rose-200' :
+              reviewSummaryData.adminDecision?.decision === 'Hold'     ? 'bg-amber-50 border-amber-200' :
+              'bg-slate-50 border-slate-100'
+            )}>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Admin Decision Status</p>
+              <p className={cn('text-sm font-black',
+                reviewSummaryData.adminDecision?.decision === 'Approved' ? 'text-emerald-700' :
+                reviewSummaryData.adminDecision?.decision === 'Rejected' ? 'text-rose-700' :
+                reviewSummaryData.adminDecision?.decision === 'Hold'     ? 'text-amber-700' :
+                'text-slate-500'
+              )}>
+                {reviewSummaryData.adminDecision?.decision === 'Approved' ? '✅ Approved by Admin' :
+                 reviewSummaryData.adminDecision?.decision === 'Rejected' ? '❌ Rejected by Admin' :
+                 reviewSummaryData.adminDecision?.decision === 'Hold'     ? '⏸ Put On Hold by Admin' :
+                 '⏳ Waiting for Admin Decision'}
+              </p>
+              <p className="text-[9px] font-medium text-slate-400 mt-1 italic">
+                Staff recommendation is advisory — only Admin can approve, reject or hold the final application.
+              </p>
+            </div>
+
+            <div className="pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => { setIsReviewSummaryOpen(false); setReviewSummaryData(null); }}
+                className="w-full font-black uppercase tracking-widest text-[10px] py-4 border-slate-200"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="py-12 text-center">
+            <p className="text-sm font-bold text-slate-400">No review has been submitted for this application yet.</p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
@@ -851,5 +1036,38 @@ const ReviewDocCard = ({ name, file }) => (
     )}
   </div>
 );
+
+const REVIEW_RECOMMENDATION_STYLES = {
+  'Recommended':               { label: '✅ Recommended Approval',  card: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
+  'Recommended for Approval':  { label: '✅ Recommended Approval',  card: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
+  'Recommend Approval':        { label: '✅ Recommended Approval',  card: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700' },
+  'Rejected':                  { label: '❌ Recommended Rejection', card: 'bg-rose-50 border-rose-200',       text: 'text-rose-700' },
+  'Rejected Recommendation':   { label: '❌ Recommended Rejection', card: 'bg-rose-50 border-rose-200',       text: 'text-rose-700' },
+  'Recommended for Rejection': { label: '❌ Recommended Rejection', card: 'bg-rose-50 border-rose-200',       text: 'text-rose-700' },
+  'Recommend Rejection':       { label: '❌ Recommended Rejection', card: 'bg-rose-50 border-rose-200',       text: 'text-rose-700' },
+  'Put On Hold':               { label: '⏸ Hold Recommended',       card: 'bg-amber-50 border-amber-200',    text: 'text-amber-700' },
+};
+
+const ReviewResultBadge = ({ staffReview }) => {
+  if (!staffReview?.recommendation || staffReview.recommendation === 'Pending') {
+    return <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">—</span>;
+  }
+  const cfg = REVIEW_RECOMMENDATION_STYLES[staffReview.recommendation];
+  if (!cfg) {
+    return (
+      <span className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border bg-slate-50 border-slate-100 text-slate-500">
+        {staffReview.recommendation}
+      </span>
+    );
+  }
+  return (
+    <span className={cn(
+      'px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border inline-block',
+      cfg.card, cfg.text
+    )}>
+      {cfg.label}
+    </span>
+  );
+};
 
 export default LoanReview;

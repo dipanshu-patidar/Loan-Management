@@ -254,7 +254,8 @@ const LoanRequests = () => {
                 <th className="px-8 py-6 border-b border-slate-100">Borrower</th>
                 <th className="px-8 py-6 border-b border-slate-100">Loan Info</th>
                 <th className="px-8 py-6 border-b border-slate-100">Docs Status</th>
-                <th className="px-8 py-6 border-b border-slate-100">Status</th>
+                <th className="px-8 py-6 border-b border-slate-100">Review Status</th>
+                <th className="px-8 py-6 border-b border-slate-100">Review Result</th>
                 <th className="px-8 py-6 border-b border-slate-100">Submitted</th>
                 <th className="px-8 py-6 border-b border-slate-100 text-right">Actions</th>
               </tr>
@@ -311,6 +312,9 @@ const LoanRequests = () => {
                     </td>
                     <td className="px-8 py-5">
                       <StatusBadge status={app.reviewStatus} />
+                    </td>
+                    <td className="px-8 py-5">
+                      <ReviewResultBadge staffReview={app.staffReview} />
                     </td>
                     <td className="px-8 py-5 text-xs font-bold text-slate-400 uppercase tracking-widest">
                       {new Date(app.submittedDate).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -673,6 +677,40 @@ const VerificationDocItem = ({ name, status, notes, fileUrl, isActive, onClick, 
     </div>
   </div>
 );
+
+const RECOMMENDATION_CFG = {
+  'Recommended':               { label: '✅ Recommended Approval',  cls: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  'Recommended for Approval':  { label: '✅ Recommended Approval',  cls: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  'Recommend Approval':        { label: '✅ Recommended Approval',  cls: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  'Rejected':                  { label: '❌ Recommended Rejection', cls: 'bg-rose-50   text-rose-700   border-rose-100' },
+  'Rejected Recommendation':   { label: '❌ Recommended Rejection', cls: 'bg-rose-50   text-rose-700   border-rose-100' },
+  'Recommended for Rejection': { label: '❌ Recommended Rejection', cls: 'bg-rose-50   text-rose-700   border-rose-100' },
+  'Recommend Rejection':       { label: '❌ Recommended Rejection', cls: 'bg-rose-50   text-rose-700   border-rose-100' },
+  'Put On Hold':               { label: '⏸ Hold Recommended',       cls: 'bg-amber-50 text-amber-700 border-amber-100' },
+};
+
+const ReviewResultBadge = ({ staffReview }) => {
+  if (!staffReview?.recommendation || staffReview.recommendation === 'Pending') {
+    return <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">—</span>;
+  }
+  const cfg = RECOMMENDATION_CFG[staffReview.recommendation];
+  if (!cfg) return <span className="text-[9px] font-bold text-slate-500 uppercase">{staffReview.recommendation}</span>;
+  return (
+    <div className="space-y-0.5">
+      <span className={cn('inline-flex px-2.5 py-1 rounded-xl border text-[9px] font-black uppercase tracking-widest whitespace-nowrap', cfg.cls)}>
+        {cfg.label}
+      </span>
+      {staffReview.riskLevel && staffReview.riskLevel !== 'N/A' && (
+        <p className={cn('text-[8px] font-black uppercase tracking-widest',
+          staffReview.riskLevel === 'Low' ? 'text-emerald-500' :
+          staffReview.riskLevel === 'Medium' ? 'text-amber-500' : 'text-rose-500'
+        )}>
+          {staffReview.riskLevel} Risk
+        </p>
+      )}
+    </div>
+  );
+};
 
 const Plus = ({ size, className }) => <FileText size={size} className={className} />;
 const Check = ({ size, strokeWidth, className }) => <CheckCircle2 size={size} strokeWidth={strokeWidth} className={className} />;

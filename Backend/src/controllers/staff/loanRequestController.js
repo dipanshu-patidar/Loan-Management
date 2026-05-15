@@ -86,7 +86,14 @@ const getLoanRequests = asyncHandler(async (req, res) => {
     loanType: app.loanType || 'General',
     requestedAmount: app.requestedAmount,
     uploadedDocsStatus: app.uploadedDocsStatus || 'Pending',
-    reviewStatus: app.status,
+    reviewStatus: app.reviewStatus,       // ← was app.status — now uses same field as LoanReview
+    applicationStatus: app.status,        // kept for reference
+    staffReview: app.staffReview?.verificationDate ? {
+      recommendation: app.staffReview.recommendation,
+      riskLevel: app.staffReview.riskLevel,
+      verificationNotes: app.staffReview.verificationNotes,
+      submittedAt: app.staffReview.verificationDate,
+    } : null,
     submittedDate: app.createdAt
   }));
 

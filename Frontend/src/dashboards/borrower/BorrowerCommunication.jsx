@@ -251,14 +251,29 @@ const BorrowerCommunication = () => {
     return conv.participants.find(p => p._id?.toString() !== currentUser?._id?.toString());
   };
 
-  // Unified contact list: every authorized participant + their conversation (if one exists)
-  const mergedContacts = participants.map(p => ({
-    ...p,
-    conversation: conversations.find(c => {
+  // Unified contact list: 
+  // 1. First, include everyone the borrower already has a conversation with
+  const conversationPartners = conversations.map(c => {
+    const partner = c.chatPartner || getOtherParticipant(c);
+    if (!partner) return null;
+    return {
+      ...partner,
+      conversation: c
+    };
+  }).filter(Boolean);
+
+  // 2. Then, add authorized participants who don't have a conversation yet
+  const potentialPartners = participants.filter(p => 
+    !conversations.some(c => {
       const partner = c.chatPartner || getOtherParticipant(c);
       return partner?._id?.toString() === p._id?.toString();
-    }) || null,
+    })
+  ).map(p => ({
+    ...p,
+    conversation: null
   }));
+
+  const mergedContacts = [...conversationPartners, ...potentialPartners];
 
   const filteredContacts = activeFilter === 'All'
     ? mergedContacts

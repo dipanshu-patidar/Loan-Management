@@ -59,32 +59,45 @@ const getConversations = asyncHandler(async (req, res) => {
 
   // 4. Merge into a unified list for the sidebar
   let potentialUsers = [];
-  if (!filter || filter === 'all' || filter === 'All') {
-    potentialUsers = [...assignedBorrowers, ...relatedStaff, ...adminSupport];
-  } else if (filter === 'borrower' || filter === 'Borrower') {
-    potentialUsers = assignedBorrowers;
-  } else if (filter === 'staff' || filter === 'Staff') {
-    potentialUsers = relatedStaff;
-  } else if (filter === 'admin' || filter === 'Admin') {
-    potentialUsers = adminSupport;
-  }
+  const rawPotential = (!filter || filter === 'all' || filter === 'All') 
+    ? [...assignedBorrowers, ...relatedStaff, ...adminSupport]
+    : (filter === 'borrower' || filter === 'Borrower') ? assignedBorrowers
+    : (filter === 'staff' || filter === 'Staff') ? relatedStaff
+    : (filter === 'admin' || filter === 'Admin') ? adminSupport
+    : [];
+
+  // Deduplicate potential users by ID
+  const uniquePotentialMap = new Map();
+  rawPotential.forEach(u => uniquePotentialMap.set(u._id.toString(), u));
+  potentialUsers = Array.from(uniquePotentialMap.values());
 
   const existingConvMap = new Map();
   conversations.forEach(c => {
     const peer = c.participants.find(p => p._id.toString() !== agentId.toString());
     if (peer) {
-      existingConvMap.set(peer._id.toString(), c);
+      // Store the most recent conversation if multiple exist
+      const existing = existingConvMap.get(peer._id.toString());
+      if (!existing || new Date(c.updatedAt) > new Date(existing.updatedAt)) {
+        existingConvMap.set(peer._id.toString(), c);
+      }
     }
   });
 
   const unifiedList = [];
-  // First, add existing conversations that match the filter
+  const seenPeerIds = new Set();
+
+  // First, add existing conversations that match the filter (deduplicated by peer)
   conversations.forEach(conv => {
     const peer = conv.participants.find(p => p._id.toString() !== agentId.toString());
     if (peer) {
-      const isAllowed = potentialUsers.some(u => u._id.toString() === peer._id.toString());
+      const peerIdStr = peer._id.toString();
+      if (seenPeerIds.has(peerIdStr)) return;
+
+      const isAllowed = potentialUsers.some(u => u._id.toString() === peerIdStr);
       if (isAllowed) {
-        unifiedList.push(conv);
+        // Use the most recent conversation from our map
+        unifiedList.push(existingConvMap.get(peerIdStr));
+        seenPeerIds.add(peerIdStr);
       }
     }
   });
@@ -92,7 +105,7 @@ const getConversations = asyncHandler(async (req, res) => {
   // Then, add potential users who don't have a conversation yet (Virtual Conversations)
   potentialUsers.forEach(user => {
     const userIdStr = user._id.toString();
-    if (!existingConvMap.has(userIdStr)) {
+    if (!seenPeerIds.has(userIdStr)) {
       unifiedList.push({
         _id: user._id,
         id: user._id, // Support both _id and id
@@ -104,13 +117,16 @@ const getConversations = asyncHandler(async (req, res) => {
         lastMessage: 'No messages yet.',
         lastMessageTime: null
       });
+      seenPeerIds.add(userIdStr);
     }
   });
 
   // Sort: Active conversations first, then virtual ones
   unifiedList.sort((a, b) => {
-    const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
-    const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
+    const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 
+                 a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 
+                 b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
     return timeB - timeA;
   });
 
@@ -453,10 +469,30 @@ const searchConversations = asyncHandler(async (req, res) => {
     c.participants.find(p => p._id.toString() !== agentId.toString())._id.toString()
   );
 
-  // 4. Create virtual conversations for users found in search but no conversation exists
-  const unifiedResults = [...conversations];
+  // 4. Merge results with deduplication
+  const unifiedResults = [];
+  const seenPeerIds = new Set();
+
+  // First, add existing conversations (keeping most recent if duplicates exist)
+  const sortedConversations = [...conversations].sort((a, b) => 
+    new Date(b.updatedAt) - new Date(a.updatedAt)
+  );
+
+  sortedConversations.forEach(c => {
+    const peer = c.participants.find(p => p._id.toString() !== agentId.toString());
+    if (peer) {
+      const peerIdStr = peer._id.toString();
+      if (!seenPeerIds.has(peerIdStr)) {
+        unifiedResults.push(c);
+        seenPeerIds.add(peerIdStr);
+      }
+    }
+  });
+
+  // Then, add virtual ones for users who don't have a conversation yet
   users.forEach(user => {
-    if (!existingPeerIds.includes(user._id.toString())) {
+    const userIdStr = user._id.toString();
+    if (!seenPeerIds.has(userIdStr)) {
       unifiedResults.push({
         _id: user._id,
         id: user._id,
@@ -467,6 +503,7 @@ const searchConversations = asyncHandler(async (req, res) => {
         lastMessage: 'No messages yet.',
         lastMessageTime: null
       });
+      seenPeerIds.add(userIdStr);
     }
   });
 

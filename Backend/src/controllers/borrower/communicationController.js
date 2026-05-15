@@ -267,10 +267,8 @@ exports.getParticipants = asyncHandler(async (req, res) => {
     }).populate('assignedAgentId assignedStaffId', 'fullName role email profilePhoto isActive isDeleted');
 
     assignments.forEach(a => {
-      // Agent: only show if MANUALLY assigned by admin — auto-assignment during submission
-      // is an internal routing step, not a communication relationship
-      const isManuallyAssigned = a.assignmentType !== 'Auto';
-      if (a.assignedAgentId && isManuallyAssigned &&
+      // Agent: show if assigned to borrower's application
+      if (a.assignedAgentId && 
           a.assignedAgentId.isActive !== false && !a.assignedAgentId.isDeleted) {
         participantMap.set(a.assignedAgentId._id.toString(), a.assignedAgentId.toObject());
       }

@@ -95,6 +95,13 @@ const getLoanReviews = asyncHandler(async (req, res) => {
     requestedAmount: app.requestedAmount,
     affordabilityStatus: app.affordabilityStatus || 'Pending',
     reviewStatus: app.reviewStatus,
+    applicationStatus: app.status,
+    staffReview: app.staffReview?.verificationDate ? {
+      recommendation: app.staffReview.recommendation,
+      riskLevel: app.staffReview.riskLevel,
+      verificationNotes: app.staffReview.verificationNotes,
+      submittedAt: app.staffReview.verificationDate,
+    } : null,
     submittedDate: app.createdAt
   }));
 
@@ -172,7 +179,32 @@ const getLoanReviewById = asyncHandler(async (req, res) => {
       internalReviewNotes: app.internalReviewNotes || '',
       recommendationNotes: app.recommendationNotes || '',
       adminComments: app.adminDecision?.adminNotes || app.adminComments || ''
-    }
+    },
+
+    // Full staff review submission — used by Review Summary modal
+    staffReview: app.staffReview?.verificationDate ? {
+      recommendation: app.staffReview.recommendation,
+      riskLevel: app.staffReview.riskLevel,
+      verificationNotes: app.staffReview.verificationNotes,
+      staffName: app.staffReview.staffName,
+      submittedAt: app.staffReview.verificationDate,
+    } : null,
+
+    // Per-document verification findings
+    documentVerification: {
+      idProof:       { status: app.documentVerification?.idProofStatus       || 'Pending', notes: app.documentVerification?.idProofNotes       || '' },
+      payslip:       { status: app.documentVerification?.payslipStatus       || 'Pending', notes: app.documentVerification?.payslipNotes       || '' },
+      bankStatement: { status: app.documentVerification?.bankStatementStatus || 'Pending', notes: app.documentVerification?.bankStatementNotes || '' },
+      proofOfAddress:{ status: app.documentVerification?.proofOfAddressStatus|| 'Pending', notes: app.documentVerification?.proofOfAddressNotes|| '' },
+    },
+
+    // Admin final decision for showing outcome to staff
+    adminDecision: {
+      decision:   app.adminDecision?.decision   || 'Pending',
+      adminNotes: app.adminDecision?.adminNotes || '',
+      decidedAt:  app.adminDecision?.approvedDate || app.adminDecision?.rejectedDate || app.adminDecision?.holdDate || null,
+    },
+    applicationStatus: app.status,
   };
 
   sendSuccess(res, 'Review details loaded', responseData);

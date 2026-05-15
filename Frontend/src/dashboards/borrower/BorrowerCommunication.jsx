@@ -246,17 +246,23 @@ const BorrowerCommunication = () => {
     }
   };
 
-  const filteredConversations = activeFilter === 'All' 
-    ? conversations 
-    : conversations.filter(c => {
-        const otherParticipant = c.participants.find(p => p._id?.toString() !== currentUser?._id?.toString());
-        return otherParticipant?.role?.toLowerCase() === activeFilter.toLowerCase();
-      });
-
   const getOtherParticipant = (conv) => {
     if (!conv || !conv.participants) return null;
     return conv.participants.find(p => p._id?.toString() !== currentUser?._id?.toString());
   };
+
+  // Unified contact list: every authorized participant + their conversation (if one exists)
+  const mergedContacts = participants.map(p => ({
+    ...p,
+    conversation: conversations.find(c => {
+      const partner = c.chatPartner || getOtherParticipant(c);
+      return partner?._id?.toString() === p._id?.toString();
+    }) || null,
+  }));
+
+  const filteredContacts = activeFilter === 'All'
+    ? mergedContacts
+    : mergedContacts.filter(c => c.role?.toLowerCase() === activeFilter.toLowerCase());
 
   return (
     <div className="h-[calc(100vh-100px)] flex gap-6 overflow-hidden -mt-6">
@@ -291,71 +297,52 @@ const BorrowerCommunication = () => {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
-          {filteredConversations.length > 0 ? (
-            filteredConversations.map(chat => {
-              const otherUser = chat.chatPartner || getOtherParticipant(chat);
+          {filteredContacts.length > 0 ? (
+            filteredContacts.map(contact => {
+              const conv = contact.conversation;
+              const isSelected = conv && selectedChat?._id === conv._id;
               return (
                 <button
-                  key={chat._id}
-                  onClick={() => setSelectedChat(chat)}
+                  key={contact._id}
+                  onClick={() => conv ? setSelectedChat(conv) : handleStartConversation(contact._id)}
                   className={cn(
                     "w-full p-5 rounded-[2rem] flex items-center gap-4 transition-all group relative border-l-4 text-left",
-                    selectedChat?._id === chat._id ? "bg-primary/5 border-primary shadow-sm" : "border-transparent hover:bg-slate-50"
+                    isSelected ? "bg-primary/5 border-primary shadow-sm" : "border-transparent hover:bg-slate-50"
                   )}
                 >
                   <div className="relative">
-                    <div className={cn(
-                      "w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-black transition-all",
-                      otherUser?.role === 'agent' ? "bg-blue-50 text-blue-600" :
-                      otherUser?.role === 'staff' ? "bg-emerald-50 text-emerald-600" :
-                      "bg-primary/5 text-primary"
-                    )}>
-                      {otherUser?.fullName?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
-                    </div>
+                    <UserAvatar user={contact} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                      <h4 className="text-sm font-black text-slate-900 truncate tracking-tight group-hover:text-primary transition-colors">{otherUser?.fullName}</h4>
-                      <span className="text-[9px] font-bold text-slate-400">{chat.lastMessageAt ? format(new Date(chat.lastMessageAt), 'HH:mm') : ''}</span>
+                      <h4 className="text-sm font-black text-slate-900 truncate tracking-tight group-hover:text-primary transition-colors">
+                        {contact.fullName}
+                      </h4>
+                      {conv?.lastMessageAt && (
+                        <span className="text-[9px] font-bold text-slate-400">
+                          {format(new Date(conv.lastMessageAt), 'HH:mm')}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{otherUser?.role}</p>
-                    <p className="text-[11px] font-medium text-slate-500 truncate">{chat.lastMessage}</p>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{contact.role}</p>
+                    <p className="text-[11px] font-medium text-slate-500 truncate">
+                      {conv?.lastMessage || 'Tap to start conversation'}
+                    </p>
                   </div>
-                  {(chat.unreadCounts?.[currentUser?._id] > 0) && (
+                  {(conv?.unreadCounts?.[currentUser?._id] > 0) && (
                     <div className="w-5 h-5 bg-primary text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg shadow-primary/20 animate-pulse shrink-0">
-                      {chat.unreadCounts[currentUser?._id]}
+                      {conv.unreadCounts[currentUser?._id]}
                     </div>
                   )}
                 </button>
               );
             })
           ) : (
-            <div className="py-10 px-4 space-y-6">
-               <div className="text-center space-y-2">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Suggested Support</p>
-                  <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic">Start a conversation with your assigned team.</p>
-               </div>
-               <div className="space-y-3">
-                  {participants.slice(0, 3).map(p => (
-                     <button 
-                        key={p._id}
-                        onClick={() => handleStartConversation(p._id)}
-                        className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-center gap-4 hover:border-primary transition-all text-left group"
-                     >
-                        <div className={cn(
-                          "w-10 h-10 rounded-xl flex items-center justify-center text-xs font-black",
-                          p.role === 'agent' ? "bg-blue-100 text-blue-600" : "bg-primary/10 text-primary"
-                        )}>
-                          {p.fullName?.[0]}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h5 className="text-[11px] font-black text-slate-900 truncate">{p.fullName}</h5>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{p.role}</p>
-                        </div>
-                        <ArrowRight size={14} className="text-slate-300 group-hover:text-primary transition-all" />
-                     </button>
-                  ))}
-               </div>
+            <div className="py-16 text-center space-y-2 px-6">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No Contacts Yet</p>
+              <p className="text-xs font-medium text-slate-400 leading-relaxed">
+                Your assigned agent and staff will appear here once your loan application is assigned.
+              </p>
             </div>
           )}
         </div>
@@ -373,14 +360,7 @@ const BorrowerCommunication = () => {
             {/* CHAT HEADER */}
             <div className="p-6 border-b border-slate-50 flex items-center justify-between bg-white/50 backdrop-blur-md sticky top-0 z-10">
               <div className="flex items-center gap-4">
-                <div className={cn(
-                  "w-12 h-12 rounded-2xl flex items-center justify-center text-xs font-black",
-                  getOtherParticipant(selectedChat)?.role === 'agent' ? "bg-blue-50 text-blue-600" :
-                  getOtherParticipant(selectedChat)?.role === 'staff' ? "bg-emerald-50 text-emerald-600" :
-                  "bg-primary/5 text-primary"
-                )}>
-                  {getOtherParticipant(selectedChat)?.fullName?.split(' ').map(n => n[0]).join('').toUpperCase()}
-                </div>
+                <UserAvatar user={getOtherParticipant(selectedChat)} textClass="text-xs" />
                 <div>
                   <h3 className="text-md font-black text-slate-900 tracking-tight">{getOtherParticipant(selectedChat)?.fullName}</h3>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -533,14 +513,7 @@ const BorrowerCommunication = () => {
                                  onClick={() => handleStartConversation(user._id)}
                                  className="w-full p-4 rounded-2xl flex items-center gap-4 hover:bg-slate-50 transition-all text-left border border-slate-100 group"
                               >
-                                 <div className={cn(
-                                    "w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-black",
-                                    user.role === 'agent' ? "bg-blue-50 text-blue-600" :
-                                    user.role === 'staff' ? "bg-emerald-50 text-emerald-600" :
-                                    "bg-primary/5 text-primary"
-                                 )}>
-                                    {user.fullName?.split(' ').map(n => n[0]).join('').toUpperCase()}
-                                 </div>
+                                 <UserAvatar user={user} />
                                  <div className="flex-1 min-w-0">
                                     <h4 className="text-sm font-black text-slate-900 truncate tracking-tight">{user.fullName}</h4>
                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{user.role}</p>
@@ -640,6 +613,34 @@ const BorrowerCommunication = () => {
 };
 
 // --- SUB-COMPONENTS ---
+
+// Resolves profilePhoto regardless of whether it's stored as a string URL or {url} object
+const getPhotoUrl = (user) => {
+  if (!user?.profilePhoto) return null;
+  if (typeof user.profilePhoto === 'string' && user.profilePhoto !== 'no-photo.jpg') return user.profilePhoto;
+  if (user.profilePhoto?.url && user.profilePhoto.url !== 'no-photo.jpg') return user.profilePhoto.url;
+  return null;
+};
+
+const ROLE_COLOR = {
+  agent: 'bg-blue-50 text-blue-600',
+  staff: 'bg-emerald-50 text-emerald-600',
+  admin: 'bg-primary/5 text-primary',
+};
+
+const UserAvatar = ({ user, sizeClass = 'w-12 h-12', radiusClass = 'rounded-2xl', textClass = 'text-sm' }) => {
+  const photoUrl = getPhotoUrl(user);
+  const initials = (user?.fullName || 'U').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  const colorClass = ROLE_COLOR[user?.role] || 'bg-primary/5 text-primary';
+  if (photoUrl) {
+    return <img src={photoUrl} alt={user?.fullName || ''} className={cn(sizeClass, radiusClass, 'object-cover shrink-0')} />;
+  }
+  return (
+    <div className={cn(sizeClass, radiusClass, 'flex items-center justify-center font-black shrink-0', textClass, colorClass)}>
+      {initials}
+    </div>
+  );
+};
 
 const QuickTemplate = ({ label, onClick }) => (
    <button 

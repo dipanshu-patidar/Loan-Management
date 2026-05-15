@@ -17,13 +17,10 @@ const imagekit = require('../../config/imagekit');
 exports.getConversations = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
-  // Only return direct 1:1 conversations (2 participants) to avoid group conversations
-  // created when staff is added to the borrower-admin thread
   const conversations = await Conversation.find({
     participants: userId,
     isActive: true,
-    isDeleted: false,
-    $expr: { $eq: [{ $size: '$participants' }, 2] }
+    isDeleted: false
   })
   .populate('participants', 'fullName role profilePhoto email')
   .sort({ updatedAt: -1 });
@@ -247,8 +244,8 @@ exports.getParticipants = asyncHandler(async (req, res) => {
 
   const participantMap = new Map();
 
-  // 1. Always include admins — use $ne so documents without the field are also matched
-  const admins = await User.find({ role: 'admin', isActive: { $ne: false }, isDeleted: { $ne: true } })
+  // 1. Always include active admins
+  const admins = await User.find({ role: 'admin', isActive: true, isDeleted: false })
     .select('fullName role email profilePhoto');
   admins.forEach(a => participantMap.set(a._id.toString(), a.toObject()));
 
@@ -267,16 +264,10 @@ exports.getParticipants = asyncHandler(async (req, res) => {
     }).populate('assignedAgentId assignedStaffId', 'fullName role email profilePhoto isActive isDeleted');
 
     assignments.forEach(a => {
-      // Agent: only show if MANUALLY assigned by admin — auto-assignment during submission
-      // is an internal routing step, not a communication relationship
-      const isManuallyAssigned = a.assignmentType !== 'Auto';
-      if (a.assignedAgentId && isManuallyAssigned &&
-          a.assignedAgentId.isActive !== false && !a.assignedAgentId.isDeleted) {
+      if (a.assignedAgentId && a.assignedAgentId.isActive !== false && !a.assignedAgentId.isDeleted) {
         participantMap.set(a.assignedAgentId._id.toString(), a.assignedAgentId.toObject());
       }
-      // Staff: include regardless of assignment type (admin always explicitly assigns staff)
-      if (a.assignedStaffId &&
-          a.assignedStaffId.isActive !== false && !a.assignedStaffId.isDeleted) {
+      if (a.assignedStaffId && a.assignedStaffId.isActive !== false && !a.assignedStaffId.isDeleted) {
         participantMap.set(a.assignedStaffId._id.toString(), a.assignedStaffId.toObject());
       }
     });
@@ -286,8 +277,8 @@ exports.getParticipants = asyncHandler(async (req, res) => {
     if (reviewerIds.length > 0) {
       const reviewers = await User.find({
         _id: { $in: reviewerIds },
-        isActive: { $ne: false },
-        isDeleted: { $ne: true }
+        isActive: true,
+        isDeleted: false
       }).select('fullName role email profilePhoto');
       reviewers.forEach(r => participantMap.set(r._id.toString(), r.toObject()));
     }
@@ -346,12 +337,9 @@ exports.startConversation = asyncHandler(async (req, res) => {
     }
   }
 
-  // 3. Reuse existing DIRECT (2-person) conversation if one exists
-  // Using $size: 2 prevents accidentally finding the group conversation where staff
-  // was added to the borrower-admin thread via $addToSet during loan assignment
+  // 3. Reuse existing conversation if one already exists
   let conversation = await Conversation.findOne({
     participants: { $all: [userId, participantId] },
-    $expr: { $eq: [{ $size: '$participants' }, 2] },
     isActive: true,
     isDeleted: false
   });

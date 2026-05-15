@@ -745,9 +745,14 @@ const assignReviewer = asyncHandler(async (req, res) => {
       relatedModel: 'LoanApplication'
     });
 
-    // E. Each party gets their own direct 1:1 conversation with the borrower.
-    // Do NOT add staff to the borrower-admin thread — that would create a group chat
-    // and cause startConversation to return the wrong conversation for each party.
+    // E. Communication Thread (Check/Add Staff to conversation)
+    if (application.conversationId) {
+      await Conversation.findByIdAndUpdate(
+        application.conversationId,
+        { $addToSet: { participants: staffId } },
+        { session }
+      );
+    }
 
     await session.commitTransaction();
     session.endSession();

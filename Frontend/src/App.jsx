@@ -20,6 +20,7 @@ import Borrowers from './dashboards/admin/Borrowers';
 import Agents from './dashboards/admin/Agents';
 import Staff from './dashboards/admin/Staff';
 import Applications from './dashboards/admin/Applications';
+import ApplicationDetail from './dashboards/admin/ApplicationDetail';
 import ActiveLoans from './dashboards/admin/ActiveLoans';
 import PaymentHistory from './dashboards/admin/PaymentHistory';
 import DuePayments from './dashboards/admin/DuePayments';
@@ -105,6 +106,7 @@ function App() {
           <Route path="agents" element={<Agents />} />
           <Route path="staff" element={<Staff />} />
           <Route path="applications" element={<Applications />} />
+          <Route path="applications/:id" element={<ApplicationDetail />} />
           <Route path="active-loans" element={<ActiveLoans />} />
           <Route path="payment-history" element={<PaymentHistory />} />
           <Route path="due-payments" element={<DuePayments />} />

@@ -183,7 +183,7 @@ const getLoanReviewById = asyncHandler(async (req, res) => {
  * @route   PUT /api/staff/loan-review/:id/recommend-approval
  */
 const recommendApproval = asyncHandler(async (req, res) => {
-  const { recommendationNotes } = req.body;
+  const { recommendationNotes, riskLevel, verificationNotes } = req.body;
   const app = await LoanApplication.findById(req.params.id);
   if (!app) {
     return sendError(res, 'Application not found', 404);
@@ -192,35 +192,57 @@ const recommendApproval = asyncHandler(async (req, res) => {
   // State transition
   app.reviewStatus = 'Recommendation Submitted';
   app.status = 'Reviewed';
-  app.recommendationNotes = recommendationNotes || '';
-  
-  // Update staff audit stamp
+  app.recommendationNotes = recommendationNotes || verificationNotes || '';
+
+  // Full staff audit stamp with risk + verification details
   app.staffReview = {
     reviewedBy: req.user._id,
     staffName: req.user.fullName,
     recommendation: 'Recommended',
+    riskLevel: riskLevel || 'Low',
+    verificationNotes: verificationNotes || recommendationNotes || '',
     verificationDate: new Date()
   };
 
   await app.save();
 
-  // System Notification to Admin
+  // Admin notification (existing pattern preserved)
   try {
     await createNotification({
-      title: 'New Loan Recommendation Submitted',
-      message: `Staff member ${req.user.fullName} recommended approval for Application ${app.applicationId}.`,
+      title: 'Loan Review Completed — Approval Recommended',
+      message: `${req.user.fullName} reviewed Application ${app.applicationId} and recommends APPROVAL. Risk: ${riskLevel || 'Low'}.`,
       notificationType: 'Approval Alert',
+      receiverRole: 'admin',
       priority: 'High',
       borrowerId: app.borrowerId
     });
   } catch (err) {}
 
-  // Socket IO Broadcasts
+  // Borrower notification — customer-safe message only
+  try {
+    await createNotification({
+      receiverId: app.borrowerId,
+      receiverRole: 'borrower',
+      senderId: req.user._id,
+      senderRole: 'staff',
+      type: 'ReviewCompleted',
+      title: 'Application Review Completed',
+      message: 'Your loan application has been reviewed by our team. A final decision will be communicated to you shortly.',
+      priority: 'High',
+      loanApplicationId: app._id
+    });
+  } catch (err) {}
+
+  // Socket events — keep existing + add new targeted events
   try {
     const io = getIO();
     io.emit('recommendation:submitted', { applicationId: app.applicationId, status: 'Recommendation Submitted' });
     io.emit('review:updated', { applicationId: app.applicationId, trigger: 'recommended' });
     io.emit('dashboard:update', { trigger: 'review_process' });
+    // New targeted events
+    io.emit('review-submitted', { applicationId: app.applicationId, recommendation: 'Recommended', reviewerName: req.user.fullName });
+    io.emit('admin-review-alert', { applicationId: app.applicationId, recommendation: 'Recommended', reviewerName: req.user.fullName, riskLevel: riskLevel || 'Low' });
+    io.to(app.borrowerId.toString()).emit('borrower-review-status-updated', { applicationId: app.applicationId, status: 'Review Completed' });
   } catch (ioErr) {}
 
   sendSuccess(res, 'Approval recommendation logged to workflow', app);
@@ -231,7 +253,7 @@ const recommendApproval = asyncHandler(async (req, res) => {
  * @route   PUT /api/staff/loan-review/:id/recommend-rejection
  */
 const recommendRejection = asyncHandler(async (req, res) => {
-  const { rejectionReason, notes } = req.body;
+  const { rejectionReason, notes, riskLevel, verificationNotes } = req.body;
   const app = await LoanApplication.findById(req.params.id);
   if (!app) {
     return sendError(res, 'Application not found', 404);
@@ -239,37 +261,59 @@ const recommendRejection = asyncHandler(async (req, res) => {
 
   // State transition
   app.reviewStatus = 'Rejected Recommendation';
-  app.status = 'Reviewed'; // Handed to admin for official veto/rejection execution
+  app.status = 'Reviewed';
   app.rejectionReason = rejectionReason || 'General Affordability Issue';
-  app.recommendationNotes = notes || '';
+  app.recommendationNotes = notes || verificationNotes || '';
 
-  // Update staff audit stamp
+  // Full staff audit stamp with risk + verification details
   app.staffReview = {
     reviewedBy: req.user._id,
     staffName: req.user.fullName,
     recommendation: 'Rejected',
+    riskLevel: riskLevel || 'High',
+    verificationNotes: verificationNotes || notes || '',
     verificationDate: new Date()
   };
 
   await app.save();
 
-  // System Notification to Admin
+  // Admin notification (existing pattern preserved)
   try {
     await createNotification({
-      title: 'Rejection Recommendation Raised',
-      message: `Staff member ${req.user.fullName} suggested rejecting Application ${app.applicationId}. Reason: ${rejectionReason}`,
+      title: 'Loan Review Completed — Rejection Recommended',
+      message: `${req.user.fullName} reviewed Application ${app.applicationId} and recommends REJECTION. Reason: ${rejectionReason || 'N/A'}. Risk: ${riskLevel || 'High'}.`,
       notificationType: 'System Alert',
-      priority: 'Normal',
+      receiverRole: 'admin',
+      priority: 'High',
       borrowerId: app.borrowerId
     });
   } catch (err) {}
 
-  // Websocket emits
+  // Borrower notification — customer-safe, no internal recommendation details
+  try {
+    await createNotification({
+      receiverId: app.borrowerId,
+      receiverRole: 'borrower',
+      senderId: req.user._id,
+      senderRole: 'staff',
+      type: 'ReviewCompleted',
+      title: 'Application Review Completed',
+      message: 'Your loan application has been reviewed by our team. We will be in touch with the outcome shortly.',
+      priority: 'High',
+      loanApplicationId: app._id
+    });
+  } catch (err) {}
+
+  // Socket events — keep existing + add new targeted events
   try {
     const io = getIO();
     io.emit('recommendation:rejected', { applicationId: app.applicationId, reason: rejectionReason });
     io.emit('review:updated', { applicationId: app.applicationId, trigger: 'rejected_rec' });
     io.emit('dashboard:update', { trigger: 'review_process' });
+    // New targeted events
+    io.emit('review-submitted', { applicationId: app.applicationId, recommendation: 'Rejected', reviewerName: req.user.fullName });
+    io.emit('admin-review-alert', { applicationId: app.applicationId, recommendation: 'Rejected', reviewerName: req.user.fullName, riskLevel: riskLevel || 'High' });
+    io.to(app.borrowerId.toString()).emit('borrower-review-status-updated', { applicationId: app.applicationId, status: 'Review Completed' });
   } catch (ioErr) {}
 
   sendSuccess(res, 'Rejection recommendation submitted successfully', app);

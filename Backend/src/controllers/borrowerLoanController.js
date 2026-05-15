@@ -73,15 +73,18 @@ exports.uploadOnly = asyncHandler(async (req, res, next) => {
 // @route   POST /api/borrower/apply-loan/submit-full
 // @access  Protected
 exports.submitFullApplication = asyncHandler(async (req, res, next) => {
-  const { 
-    personal, 
-    employment, 
-    banking, 
-    documents, 
-    confirmationAccepted 
+  const {
+    personal,
+    employment,
+    banking,
+    documents,
+    confirmationAccepted,
+    creditConsentAccepted,
+    creditConsentAcceptedAt,
   } = req.body;
 
   if (!confirmationAccepted) return sendError(res, 'Please accept confirmation', 400);
+  if (!creditConsentAccepted) return sendError(res, 'Credit check consent is required', 400);
 
   if (!personal || !employment || !banking) {
     return sendError(res, 'Missing required information blocks', 400);
@@ -116,6 +119,18 @@ exports.submitFullApplication = asyncHandler(async (req, res, next) => {
   const totalRepayment = amount + totalInterest + processingFee;
   const estimatedMonthlyEMI = totalRepayment / duration;
 
+  // Compute credit-risk readiness fields
+  const REQUIRED_DOC_TYPES = ['ID Document', 'Payslip', 'Bank Statement', 'Proof Of Address'];
+  const submittedDocTypes = (documents || []).map(d => d.type);
+  const allDocsPresent = REQUIRED_DOC_TYPES.every(t => submittedDocTypes.includes(t));
+
+  const documentVerificationStatus = allDocsPresent ? 'Complete' : submittedDocTypes.length > 0 ? 'Incomplete' : 'Pending';
+  const creditRiskReady = allDocsPresent && !!creditConsentAccepted;
+  let applicationAuditStatus = 'Incomplete';
+  if (creditRiskReady) applicationAuditStatus = 'Ready For Review';
+  else if (!allDocsPresent) applicationAuditStatus = 'Missing Documents';
+  else if (!creditConsentAccepted) applicationAuditStatus = 'Credit Consent Missing';
+
   // --- START TRANSACTION ---
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -138,7 +153,12 @@ exports.submitFullApplication = asyncHandler(async (req, res, next) => {
       totalRepayment,
       status: 'Submitted',
       confirmationAccepted: true,
-      submittedAt: new Date()
+      submittedAt: new Date(),
+      creditConsentAccepted: true,
+      creditConsentAcceptedAt: creditConsentAcceptedAt ? new Date(creditConsentAcceptedAt) : new Date(),
+      documentVerificationStatus,
+      creditRiskReady,
+      applicationAuditStatus,
     }], { session });
 
     // 2. Create Related Records

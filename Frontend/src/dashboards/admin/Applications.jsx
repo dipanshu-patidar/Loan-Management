@@ -11,6 +11,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { cn } from '../../utils/cn';
 import loanApplicationService from '../../services/loanApplicationService';
@@ -22,6 +23,7 @@ import Button from '../../ui/Button';
 import Input from '../../ui/Input';
 
 const Applications = () => {
+  const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedApp, setSelectedApp] = useState(null);
@@ -92,18 +94,6 @@ const Applications = () => {
     }
   };
 
-  const handleViewDetails = async (id) => {
-    try {
-      setLoading(true);
-      const response = await loanApplicationService.getApplicationDetails(id);
-      setSelectedApp(response.data);
-      setIsDrawerOpen(true);
-    } catch (error) {
-      toast.error('Failed to fetch application details');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openDecisionModal = (type, app = null) => {
     if (app) setSelectedApp(app);
@@ -381,6 +371,7 @@ const Applications = () => {
                   <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">EMI Estimate</th>
                   <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Staff Reviewer</th>
                   <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+                  <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Review Outcome</th>
                   <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
                 </tr>
               </thead>
@@ -432,6 +423,9 @@ const Applications = () => {
                     <td className="px-6 py-5 text-center">
                       <StatusBadge status={app.status} />
                     </td>
+                    <td className="px-6 py-5">
+                      <ReviewOutcomeBadge staffReview={app.staffReview} />
+                    </td>
                     <td className="px-8 py-5">
                       <div className="flex items-center justify-end gap-1">
                         <button 
@@ -441,8 +435,8 @@ const Applications = () => {
                         >
                           <UserPlus size={18} />
                         </button>
-                        <button 
-                          onClick={() => handleViewDetails(app._id)}
+                        <button
+                          onClick={() => navigate(`/admin/applications/${app._id}`)}
                           className="p-2 rounded-xl text-primary hover:bg-primary/5 transition-all"
                           title="View Application"
                         >
@@ -641,45 +635,99 @@ const Applications = () => {
                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
                        <ShieldCheck size={16} className="text-primary" /> Staff Review
                      </h3>
-                     <div className="p-6 bg-white rounded-[2rem] border-2 border-slate-100 space-y-6 shadow-sm">
-                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl">
-                           <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center font-black">
-                              {selectedApp.staffReviewer?.fullName?.charAt(0) || 'U'}
-                           </div>
-                           <div>
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reviewer</p>
-                              <p className="text-sm font-bold text-slate-900">{selectedApp.staffReviewer?.fullName || 'Unassigned'}</p>
-                           </div>
-                        </div>
+                     <div className="p-6 bg-white rounded-[2rem] border-2 border-slate-100 space-y-5 shadow-sm">
 
-                        <div className="space-y-4">
-                           <div className="flex items-center justify-between">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verification Date</p>
-                              <p className="text-[11px] font-bold text-slate-600">
-                                {selectedApp.staffReview?.verifiedAt ? new Date(selectedApp.staffReview.verifiedAt).toLocaleDateString() : 'Pending'}
+                        {/* Reviewer info */}
+                        <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl">
+                           <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center font-black text-sm">
+                              {(selectedApp.staffReview?.staffName || selectedApp.staffReviewer?.fullName || 'U').charAt(0)}
+                           </div>
+                           <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Reviewer</p>
+                              <p className="text-sm font-bold text-slate-900 truncate">
+                                {selectedApp.staffReview?.staffName || selectedApp.staffReviewer?.fullName || 'Unassigned'}
                               </p>
                            </div>
-                           <div className="flex items-center justify-between">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risk Level</p>
-                              <span className={cn(
-                                "px-3 py-1 rounded-lg text-[10px] font-black uppercase",
-                                selectedApp.staffReview?.riskLevel === 'Low' ? "bg-emerald-100 text-emerald-700" :
-                                selectedApp.staffReview?.riskLevel === 'Medium' ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
-                              )}>
-                                {selectedApp.staffReview?.riskLevel || 'N/A'}
-                              </span>
-                           </div>
-                           <div className="flex items-center justify-between">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recommendation</p>
-                              <span className="text-[11px] font-black text-primary uppercase">{selectedApp.staffReview?.recommendation || 'None'}</span>
-                           </div>
-                           <div className="space-y-2 pt-2">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verification Notes</p>
-                              <div className="p-3 bg-slate-50 rounded-xl text-xs font-medium text-slate-600 border border-slate-100 italic min-h-[60px]">
-                                "{selectedApp.staffReview?.verificationNotes || 'No notes provided.'}"
-                              </div>
-                           </div>
+                           {selectedApp.staffReview?.verificationDate && (
+                             <p className="text-[10px] font-bold text-slate-400 shrink-0">
+                               {new Date(selectedApp.staffReview.verificationDate).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })}
+                             </p>
+                           )}
                         </div>
+
+                        {/* Recommendation outcome — prominent banner */}
+                        {selectedApp.staffReview?.recommendation && selectedApp.staffReview.recommendation !== 'Pending' ? (
+                          <div className={cn(
+                            'p-4 rounded-2xl border flex items-center justify-between gap-3',
+                            selectedApp.staffReview.recommendation === 'Recommended'
+                              ? 'bg-emerald-50 border-emerald-200'
+                              : selectedApp.staffReview.recommendation === 'Rejected'
+                                ? 'bg-rose-50 border-rose-200'
+                                : 'bg-amber-50 border-amber-200'
+                          )}>
+                            <div>
+                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Staff Recommendation</p>
+                              <p className={cn(
+                                'text-sm font-black mt-0.5',
+                                selectedApp.staffReview.recommendation === 'Recommended' ? 'text-emerald-700' :
+                                selectedApp.staffReview.recommendation === 'Rejected' ? 'text-rose-700' : 'text-amber-700'
+                              )}>
+                                {selectedApp.staffReview.recommendation === 'Recommended' ? '✅ Recommended for Approval' :
+                                 selectedApp.staffReview.recommendation === 'Rejected' ? '❌ Recommended for Rejection' :
+                                 '⏸ Hold Recommended'}
+                              </p>
+                            </div>
+                            {/* Risk Level badge */}
+                            <span className={cn(
+                              'px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shrink-0',
+                              selectedApp.staffReview.riskLevel === 'Low' ? 'bg-emerald-100 text-emerald-700' :
+                              selectedApp.staffReview.riskLevel === 'Medium' ? 'bg-amber-100 text-amber-700' :
+                              selectedApp.staffReview.riskLevel === 'High' ? 'bg-rose-100 text-rose-700' :
+                              selectedApp.staffReview.riskLevel === 'Critical' ? 'bg-red-100 text-red-700' :
+                              'bg-slate-100 text-slate-500'
+                            )}>
+                              {selectedApp.staffReview.riskLevel || 'N/A'} Risk
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No Review Submitted Yet</p>
+                          </div>
+                        )}
+
+                        {/* Verification Summary checklist */}
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verification Findings</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {[
+                              { label: 'Employment', key: 'idProof' },
+                              { label: 'Banking', key: 'bankStatement' },
+                              { label: 'Identity', key: 'idProof' },
+                              { label: 'Address', key: 'addressProof' },
+                            ].map(({ label, key }) => {
+                              const verified = selectedApp.documents?.[key];
+                              return (
+                                <div key={label} className={cn(
+                                  'flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold',
+                                  verified ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-400'
+                                )}>
+                                  <CheckCircle2 size={12} className={verified ? 'text-emerald-500' : 'text-slate-300'} />
+                                  {label}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Verification notes */}
+                        {selectedApp.staffReview?.verificationNotes && (
+                          <div className="space-y-2">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Staff Notes</p>
+                            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-xs font-medium text-slate-600 italic leading-relaxed">
+                              "{selectedApp.staffReview.verificationNotes}"
+                            </div>
+                          </div>
+                        )}
                      </div>
                   </section>
 
@@ -952,6 +1000,48 @@ const DetailItem = ({ label, value, isBold, isPrimary }) => (
     )}>{value || 'N/A'}</p>
   </div>
 );
+
+const APPROVAL_CFG  = { label: '✅ Recommended Approval',  className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+const REJECT_CFG   = { label: '❌ Recommended Rejection', className: 'bg-rose-50    text-rose-700    border-rose-100' };
+const HOLD_CFG     = { label: '⏸ Hold Recommended',       className: 'bg-amber-50  text-amber-700   border-amber-100' };
+
+const REVIEW_OUTCOME_CONFIG = {
+  // Approval variants (all enum values the schema allows)
+  'Recommended':               APPROVAL_CFG,
+  'Recommended for Approval':  APPROVAL_CFG,
+  'Recommend Approval':        APPROVAL_CFG,
+  // Rejection variants
+  'Rejected':                  REJECT_CFG,
+  'Rejected Recommendation':   REJECT_CFG,
+  'Recommended for Rejection': REJECT_CFG,
+  'Recommend Rejection':       REJECT_CFG,
+  // Hold variants
+  'Put On Hold':               HOLD_CFG,
+};
+
+const ReviewOutcomeBadge = ({ staffReview }) => {
+  if (!staffReview?.recommendation || staffReview.recommendation === 'Pending') {
+    return <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">—</span>;
+  }
+  const cfg = REVIEW_OUTCOME_CONFIG[staffReview.recommendation];
+  if (!cfg) return <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{staffReview.recommendation}</span>;
+  return (
+    <div className="space-y-1">
+      <span className={cn('inline-flex px-2.5 py-1 rounded-xl border text-[9px] font-black uppercase tracking-widest whitespace-nowrap', cfg.className)}>
+        {cfg.label}
+      </span>
+      {staffReview.riskLevel && staffReview.riskLevel !== 'N/A' && (
+        <p className={cn(
+          'text-[8px] font-black uppercase tracking-widest',
+          staffReview.riskLevel === 'Low' ? 'text-emerald-500' :
+          staffReview.riskLevel === 'Medium' ? 'text-amber-500' : 'text-rose-500'
+        )}>
+          {staffReview.riskLevel} Risk
+        </p>
+      )}
+    </div>
+  );
+};
 
 const ExportCard = ({ label, icon: Icon, active, onClick }) => (
   <button 

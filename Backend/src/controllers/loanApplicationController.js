@@ -73,19 +73,46 @@ const getAllApplications = asyncHandler(async (req, res) => {
 
   const total = await LoanApplication.countDocuments(query);
 
-  const responseData = applications.map(app => ({
-    _id: app._id,
-    applicationId: app.applicationId,
-    borrowerName: app.fullName, // Mapping fullName to borrowerName for frontend
-    requestedAmount: app.requestedAmount,
-    requestedDuration: app.requestedDuration, // Keep original name for consistency
-    loanDuration: app.requestedDuration, // Keep alias for backward compatibility
-    interestRate: app.interestRate,
-    estimatedEMI: app.estimatedMonthlyEMI,
-    staffReviewer: app.staffReview?.staffName ? { fullName: app.staffReview.staffName } : null,
-    status: app.status,
-    submittedDate: app.createdAt,
-  }));
+  // Batch-fetch borrower profiles so each row has a photo (avoids N+1 queries)
+  const borrowerUserIds = applications.map(a => a.borrowerId).filter(Boolean);
+  const borrowerProfiles = await Borrower.find({ userId: { $in: borrowerUserIds } })
+    .select('userId fullName profilePhoto borrowerCode')
+    .lean();
+  const borrowerMap = {};
+  borrowerProfiles.forEach(b => {
+    if (b.userId) borrowerMap[b.userId.toString()] = b;
+  });
+
+  const responseData = applications.map(app => {
+    const bp = borrowerMap[app.borrowerId?.toString()];
+    const photoUrl = bp?.profilePhoto && bp.profilePhoto !== 'no-photo.jpg' ? bp.profilePhoto : null;
+    return {
+      _id: app._id,
+      applicationId: app.applicationId,
+      borrowerName: app.fullName,
+      borrower: {
+        fullName: app.fullName,
+        profilePhoto: photoUrl ? { url: photoUrl } : null,
+        borrowerId: bp?.borrowerCode || null,
+      },
+      requestedAmount: app.requestedAmount,
+      requestedDuration: app.requestedDuration,
+      loanDuration: app.requestedDuration,
+      interestRate: app.interestRate,
+      estimatedEMI: app.estimatedMonthlyEMI,
+      staffReviewer: app.staffReview?.staffName ? { fullName: app.staffReview.staffName } : null,
+      status: app.status,
+      submittedDate: app.createdAt,
+      // Full staff review details for admin visibility
+      staffReview: app.staffReview?.verificationDate ? {
+        recommendation: app.staffReview.recommendation,
+        riskLevel: app.staffReview.riskLevel,
+        staffName: app.staffReview.staffName,
+        verificationDate: app.staffReview.verificationDate,
+        verificationNotes: app.staffReview.verificationNotes,
+      } : null,
+    };
+  });
 
   sendSuccess(res, 'Loan applications fetched successfully', {
     applications: responseData,
@@ -172,14 +199,28 @@ const getApplicationDetails = asyncHandler(async (req, res) => {
     });
   }
 
+  // Fetch borrower profile for photo and code
+  const borrowerProfile = await Borrower.findOne({ userId: application.borrowerId })
+    .select('fullName profilePhoto borrowerCode')
+    .lean();
+
+  const photoUrl = borrowerProfile?.profilePhoto && borrowerProfile.profilePhoto !== 'no-photo.jpg'
+    ? borrowerProfile.profilePhoto
+    : null;
+
   // Combine data and fix field name mismatches for frontend
   const fullApplication = {
     ...employment,
     ...banking,
     ...application, // Spread application last to preserve its _id, createdAt, etc.
-    yearsOfService: employment?.employmentDuration, // Map duration to yearsOfService
-    accountHolder: banking?.accountHolderName, // Map name to accountHolder
-    documents: formattedDocs
+    yearsOfService: employment?.employmentDuration,
+    accountHolder: banking?.accountHolderName,
+    documents: formattedDocs,
+    borrower: {
+      fullName: application.fullName,
+      profilePhoto: photoUrl ? { url: photoUrl } : null,
+      borrowerId: borrowerProfile?.borrowerCode || null,
+    },
   };
 
   sendSuccess(res, 'Loan application details fetched successfully', fullApplication);

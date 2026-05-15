@@ -62,6 +62,8 @@ const LoanReview = () => {
 
   // Form States
   const [notesPayload, setNotesPayload] = useState('');
+  const [verificationNotes, setVerificationNotes] = useState('');
+  const [riskLevel, setRiskLevel] = useState('Low');
   const [rejectionReason, setRejectionReason] = useState('Low Affordability Score');
   const [requestedDocType, setRequestedDocType] = useState('ID Document');
 
@@ -142,13 +144,19 @@ const LoanReview = () => {
     if (!selectedId) return;
     try {
       setSubmitting(true);
-      const payload = { recommendationNotes: notesPayload };
+      const payload = {
+        recommendationNotes: notesPayload,
+        riskLevel,
+        verificationNotes,
+      };
       const res = await staffLoanReviewService.recommendApproval(selectedId, payload);
       if (res.success) {
         toast.success('Recommendation dispatched to Admin queues.');
         setIsApprovalModalOpen(false);
         setIsDrawerOpen(false);
         setNotesPayload('');
+        setVerificationNotes('');
+        setRiskLevel('Low');
         fetchQueue(pagination.page);
         fetchOverview();
       }
@@ -164,13 +172,20 @@ const LoanReview = () => {
     if (!selectedId) return;
     try {
       setSubmitting(true);
-      const payload = { rejectionReason, notes: notesPayload };
+      const payload = {
+        rejectionReason,
+        notes: notesPayload,
+        riskLevel,
+        verificationNotes,
+      };
       const res = await staffLoanReviewService.recommendRejection(selectedId, payload);
       if (res.success) {
         toast.success('Rejection suggestion submitted to Admin.');
         setIsRejectionModalOpen(false);
         setIsDrawerOpen(false);
         setNotesPayload('');
+        setVerificationNotes('');
+        setRiskLevel('Low');
         fetchQueue(pagination.page);
         fetchOverview();
       }
@@ -585,19 +600,43 @@ const LoanReview = () => {
               </div>
             </div>
           </div>
-          <div className="space-y-3">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recommendation Notes</label>
-            <textarea 
-              placeholder="Write assessment summary providing context on affordability and files to final Admin..." 
-              value={notesPayload}
-              onChange={(e) => setNotesPayload(e.target.value)}
-              className="w-full bg-slate-50 border-none rounded-2xl p-5 text-sm font-medium text-slate-700 min-h-[120px] focus:ring-2 focus:ring-primary/10 outline-none" 
-            />
+          <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risk Level Assessment</label>
+              <select
+                value={riskLevel}
+                onChange={(e) => setRiskLevel(e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option value="Low">Low Risk</option>
+                <option value="Medium">Medium Risk</option>
+                <option value="High">High Risk</option>
+                <option value="Critical">Critical Risk</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verification Summary</label>
+              <textarea
+                placeholder="e.g. Income verified. Bank statements consistent. Documents authentic."
+                value={verificationNotes}
+                onChange={(e) => setVerificationNotes(e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-2xl p-5 text-sm font-medium text-slate-700 min-h-[80px] focus:ring-2 focus:ring-primary/10 outline-none"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recommendation Notes (Internal)</label>
+              <textarea
+                placeholder="Write assessment summary providing context on affordability and files to final Admin..."
+                value={notesPayload}
+                onChange={(e) => setNotesPayload(e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-2xl p-5 text-sm font-medium text-slate-700 min-h-[80px] focus:ring-2 focus:ring-primary/10 outline-none"
+              />
+            </div>
           </div>
           <div className="flex gap-4 pt-4">
             <Button variant="secondary" className="flex-1 font-bold border-slate-200" onClick={() => setIsApprovalModalOpen(false)}>Cancel</Button>
-            <Button 
-              className="flex-1 font-bold shadow-lg shadow-emerald-500/20 bg-emerald-500 hover:bg-emerald-600" 
+            <Button
+              className="flex-1 font-bold shadow-lg shadow-emerald-500/20 bg-emerald-500 hover:bg-emerald-600"
               disabled={submitting}
               onClick={handleSubmitApproval}
             >
@@ -630,20 +669,42 @@ const LoanReview = () => {
                 <option>High Debt-To-Income Ratio</option>
               </select>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risk Level Assessment</label>
+              <select
+                value={riskLevel}
+                onChange={(e) => setRiskLevel(e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/10"
+              >
+                <option value="Low">Low Risk</option>
+                <option value="Medium">Medium Risk</option>
+                <option value="High">High Risk</option>
+                <option value="Critical">Critical Risk</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Verification Summary</label>
+              <textarea
+                placeholder="e.g. Insufficient proof of income. Bank statements show irregular deposits."
+                value={verificationNotes}
+                onChange={(e) => setVerificationNotes(e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-2xl p-5 text-sm font-medium text-slate-700 min-h-[70px] focus:ring-2 focus:ring-primary/10 outline-none"
+              />
+            </div>
+            <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Internal Narrative</label>
-              <textarea 
-                placeholder="Detail specifics why rejection was endorsed..." 
+              <textarea
+                placeholder="Detail specifics why rejection was endorsed..."
                 value={notesPayload}
                 onChange={(e) => setNotesPayload(e.target.value)}
-                className="w-full bg-slate-50 border-none rounded-2xl p-5 text-sm font-medium text-slate-700 min-h-[120px] focus:ring-2 focus:ring-primary/10 outline-none" 
+                className="w-full bg-slate-50 border-none rounded-2xl p-5 text-sm font-medium text-slate-700 min-h-[70px] focus:ring-2 focus:ring-primary/10 outline-none"
               />
             </div>
           </div>
           <div className="flex gap-4 pt-4 border-t border-slate-50">
             <Button variant="secondary" className="flex-1 font-bold border-slate-200" onClick={() => setIsRejectionModalOpen(false)}>Cancel</Button>
-            <Button 
-              className="flex-1 font-bold shadow-lg shadow-rose-500/20 bg-rose-500 hover:bg-rose-600" 
+            <Button
+              className="flex-1 font-bold shadow-lg shadow-rose-500/20 bg-rose-500 hover:bg-rose-600"
               disabled={submitting}
               onClick={handleSubmitRejection}
             >

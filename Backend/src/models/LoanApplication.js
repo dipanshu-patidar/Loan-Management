@@ -39,6 +39,21 @@ const loanApplicationSchema = new mongoose.Schema(
     // Submission flags
     confirmationAccepted: { type: Boolean, default: false },
     submittedAt: { type: Date },
+
+    // Credit-risk API readiness fields (populated at submission, used by future bureau integrations)
+    creditConsentAccepted: { type: Boolean, default: false },
+    creditConsentAcceptedAt: { type: Date },
+    documentVerificationStatus: {
+      type: String,
+      enum: ['Pending', 'Complete', 'Incomplete'],
+      default: 'Pending',
+    },
+    creditRiskReady: { type: Boolean, default: false },
+    applicationAuditStatus: {
+      type: String,
+      enum: ['Ready For Review', 'Missing Documents', 'Awaiting Verification', 'Credit Consent Missing', 'Incomplete'],
+      default: 'Incomplete',
+    },
     
     reviewStatus: {
       type: String,

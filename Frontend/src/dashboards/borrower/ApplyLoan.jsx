@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  User, Briefcase, Landmark, FileText, 
-  CheckCircle2, ArrowRight, ArrowLeft, 
+import {
+  User, Briefcase, Landmark, FileText,
+  CheckCircle2, ArrowRight, ArrowLeft,
   Info, ShieldCheck, Calculator, Clock,
   Mail, Phone, Calendar, Building2, MapPin, Wallet,
-  TrendingUp, Activity
+  TrendingUp, Activity, Shield, ClipboardList, AlertTriangle
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -36,8 +36,11 @@ const ApplyLoan = () => {
   const [estimate, setEstimate] = useState(null);
   const [referenceNo, setReferenceNo] = useState('');
   const [uploadedDocs, setUploadedDocs] = useState([]);
+  const [creditConsentAccepted, setCreditConsentAccepted] = useState(false);
+  const [creditConsentError, setCreditConsentError] = useState(false);
 
   const { register, handleSubmit, formState: { errors }, setValue, watch, trigger } = useForm({
+    mode: 'onTouched',
     defaultValues: {
       fullName: '',
       phoneNumber: '',
@@ -119,12 +122,40 @@ const ApplyLoan = () => {
     });
   };
 
+  const handleDocRemove = (docType) => {
+    setUploadedDocs(prev => prev.filter(d => d.type !== docType));
+  };
+
+  const REQUIRED_DOC_TYPES = ['ID Document', 'Payslip', 'Bank Statement', 'Proof Of Address'];
+
+  const getAuditStatus = () => {
+    const allDocs = REQUIRED_DOC_TYPES.every(t => uploadedDocs.find(d => d.type === t));
+    if (!allDocs) return { label: 'Missing Required Documents', color: 'red' };
+    if (!creditConsentAccepted) return { label: 'Credit Consent Missing', color: 'amber' };
+    return { label: 'Ready For Review Stage', color: 'emerald' };
+  };
+
   const onFinalSubmit = async (data) => {
+    // Step 1: Validate all required documents
+    const missingDocs = REQUIRED_DOC_TYPES.filter(t => !uploadedDocs.find(d => d.type === t));
+    if (missingDocs.length > 0) {
+      toast.error(`Please upload: ${missingDocs.join(', ')}`);
+      return;
+    }
+
+    // Step 2: Validate credit consent
+    if (!creditConsentAccepted) {
+      setCreditConsentError(true);
+      toast.error('Please accept the credit check consent to proceed');
+      return;
+    }
+
+    // Step 3: Validate confirmation (existing)
     if (!data.confirmationAccepted) {
       toast.error('Please confirm that the information is correct');
       return;
     }
-    
+
     setIsLoading(true);
     try {
       const payload = {
@@ -152,7 +183,9 @@ const ApplyLoan = () => {
           requestedDuration: data.requestedDuration
         },
         documents: uploadedDocs,
-        confirmationAccepted: true
+        confirmationAccepted: true,
+        creditConsentAccepted: true,
+        creditConsentAcceptedAt: new Date().toISOString()
       };
 
       const res = await BorrowerLoanService.submitFullApplication(payload);
@@ -221,7 +254,7 @@ const ApplyLoan = () => {
                                  <ValidationMessage message={errors.emailAddress?.message} />
                               </div>
                               <div>
-                                 <Input label="Phone Number" placeholder="Enter phone number" icon={Phone} {...register('phoneNumber', { required: 'Phone is required', pattern: { value: /^\+?\d{7,15}$/, message: 'Invalid phone number format' } })} />
+                                 <Input label="Phone Number" placeholder="e.g. 0821234567" icon={Phone} {...register('phoneNumber', { required: 'Phone number is required', pattern: { value: /^0\d{9}$/, message: 'Enter a valid SA phone number (e.g. 0821234567)' } })} />
                                  <ValidationMessage message={errors.phoneNumber?.message} />
                               </div>
                               <div>
@@ -367,11 +400,13 @@ const ApplyLoan = () => {
 
                      {currentStep === 5 && (
                         <div className="space-y-10">
+                           {/* ── Header ── */}
                            <div>
-                              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Review & Submit</h2>
-                              <p className="text-sm font-medium text-slate-500 mt-1">Please confirm that all your information is accurate.</p>
+                              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Review &amp; Documents</h2>
+                              <p className="text-sm font-medium text-slate-500 mt-1">Confirm your information, review uploaded documents, and complete compliance checks before submitting.</p>
                            </div>
-                           
+
+                           {/* ── Application Summary ── */}
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                               <LoanSummaryCard title="Personal" data={[
                                  { label: 'Name', value: watch('fullName') },
@@ -389,7 +424,6 @@ const ApplyLoan = () => {
                                  { label: 'Account', value: watch('accountNumber') },
                                  { label: 'Amount', value: `R${watch('requestedLoanAmount')}` }
                               ]} />
-                              
                               <div className="bg-primary p-8 rounded-[2rem] text-white space-y-4 shadow-lg shadow-primary/20 flex flex-col justify-center">
                                  <p className="text-[10px] font-black uppercase tracking-widest opacity-60 text-white">Final Loan Summary</p>
                                  <div className="flex justify-between items-end">
@@ -405,6 +439,143 @@ const ApplyLoan = () => {
                               </div>
                            </div>
 
+                           {/* ── Divider ── */}
+                           <div className="border-t border-slate-100" />
+
+                           {/* ── Documents Review Section ── */}
+                           <div className="space-y-6">
+                              <div>
+                                 <h3 className="text-base font-black text-slate-900 tracking-tight">Uploaded Documents</h3>
+                                 <p className="text-xs font-medium text-slate-500 mt-0.5">Review your documents below. You may replace or remove any file before submitting.</p>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                 <UploadDocumentCard
+                                    label="South African ID"
+                                    desc="Clear scan of RSA ID / Passport"
+                                    type="ID Document"
+                                    onUploadSuccess={handleDocUpload}
+                                    onRemove={handleDocRemove}
+                                    existingFile={uploadedDocs.find(d => d.type === 'ID Document')?.fileName}
+                                    existingFileData={uploadedDocs.find(d => d.type === 'ID Document')}
+                                 />
+                                 <UploadDocumentCard
+                                    label="Last 3 Months Payslips"
+                                    desc="Proof of monthly income"
+                                    type="Payslip"
+                                    onUploadSuccess={handleDocUpload}
+                                    onRemove={handleDocRemove}
+                                    existingFile={uploadedDocs.find(d => d.type === 'Payslip')?.fileName}
+                                    existingFileData={uploadedDocs.find(d => d.type === 'Payslip')}
+                                 />
+                                 <UploadDocumentCard
+                                    label="Bank Statement"
+                                    desc="3-month banking history"
+                                    type="Bank Statement"
+                                    onUploadSuccess={handleDocUpload}
+                                    onRemove={handleDocRemove}
+                                    existingFile={uploadedDocs.find(d => d.type === 'Bank Statement')?.fileName}
+                                    existingFileData={uploadedDocs.find(d => d.type === 'Bank Statement')}
+                                 />
+                                 <UploadDocumentCard
+                                    label="Proof of Residence"
+                                    desc="Utility bill or lease agreement"
+                                    type="Proof Of Address"
+                                    onUploadSuccess={handleDocUpload}
+                                    onRemove={handleDocRemove}
+                                    existingFile={uploadedDocs.find(d => d.type === 'Proof Of Address')?.fileName}
+                                    existingFileData={uploadedDocs.find(d => d.type === 'Proof Of Address')}
+                                 />
+                              </div>
+                           </div>
+
+                           {/* ── Divider ── */}
+                           <div className="border-t border-slate-100" />
+
+                           {/* ── Credit Check Consent ── */}
+                           <div className="space-y-5">
+                              <div className="flex items-center gap-3">
+                                 <div className="w-9 h-9 bg-primary/10 text-primary rounded-xl flex items-center justify-center shrink-0">
+                                    <Shield size={18} />
+                                 </div>
+                                 <div>
+                                    <h3 className="text-base font-black text-slate-900">Credit Check Consent</h3>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">NCA Compliance Required</p>
+                                 </div>
+                              </div>
+
+                              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                                 <p className="text-sm font-medium text-slate-600 leading-relaxed">
+                                    I consent to the Credit Provider accessing my credit information from registered Credit Bureaus for assessment and verification in line with the National Credit Act (NCA). I confirm that my information is accurate and authorise lawful sharing of my payment behaviour.
+                                 </p>
+                              </div>
+
+                              <label
+                                 onClick={() => { setCreditConsentAccepted(v => !v); setCreditConsentError(false); }}
+                                 className={`flex items-center gap-4 p-5 rounded-2xl border cursor-pointer group transition-all ${
+                                    creditConsentAccepted
+                                       ? 'bg-primary/5 border-primary/20'
+                                       : creditConsentError
+                                          ? 'bg-red-50 border-red-200'
+                                          : 'bg-slate-50 border-slate-100 hover:border-primary/20'
+                                 }`}
+                              >
+                                 <div className="relative shrink-0">
+                                    <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                                       creditConsentAccepted
+                                          ? 'bg-primary border-primary'
+                                          : creditConsentError
+                                             ? 'bg-white border-red-400'
+                                             : 'bg-white border-slate-200'
+                                    }`}>
+                                       {creditConsentAccepted && <CheckCircle2 size={14} className="text-white" />}
+                                    </div>
+                                 </div>
+                                 <span className={`text-sm font-bold transition-colors ${
+                                    creditConsentAccepted ? 'text-primary' : creditConsentError ? 'text-red-600' : 'text-slate-600 group-hover:text-slate-900'
+                                 }`}>
+                                    I agree to the credit check
+                                 </span>
+                              </label>
+
+                              {creditConsentError && (
+                                 <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-100 rounded-2xl">
+                                    <AlertTriangle size={13} className="text-red-400 shrink-0" />
+                                    <p className="text-[10px] font-bold text-red-600">Credit check consent is required before submitting your application.</p>
+                                 </div>
+                              )}
+                           </div>
+
+                           {/* ── Divider ── */}
+                           <div className="border-t border-slate-100" />
+
+                           {/* ── Final Application Audit ── */}
+                           {(() => {
+                              const audit = getAuditStatus();
+                              const auditStyles = {
+                                 emerald: { bg: 'bg-primary', text: 'text-white', badge: 'bg-white/20 text-white', icon: 'text-white' },
+                                 amber:   { bg: 'bg-amber-500', text: 'text-white', badge: 'bg-white/20 text-white', icon: 'text-white' },
+                                 red:     { bg: 'bg-red-500', text: 'text-white', badge: 'bg-white/20 text-white', icon: 'text-white' },
+                              };
+                              const s = auditStyles[audit.color];
+                              return (
+                                 <div className={`${s.bg} p-6 rounded-[2rem] flex items-center justify-between shadow-lg`}>
+                                    <div className="space-y-1">
+                                       <p className={`text-[10px] font-black uppercase tracking-widest ${s.text} opacity-70`}>Final Application Audit</p>
+                                       <p className={`text-base font-black ${s.text}`}>{audit.label}</p>
+                                    </div>
+                                    <div className={`w-12 h-12 rounded-2xl ${s.badge} flex items-center justify-center shrink-0`}>
+                                       {audit.color === 'emerald'
+                                          ? <CheckCircle2 size={24} className={s.icon} />
+                                          : audit.color === 'amber'
+                                             ? <ClipboardList size={24} className={s.icon} />
+                                             : <AlertTriangle size={24} className={s.icon} />
+                                       }
+                                    </div>
+                                 </div>
+                              );
+                           })()}
+
+                           {/* ── Existing Confirmation Checkbox ── */}
                            <label className="flex items-center gap-4 p-6 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer group">
                               <div className="relative">
                                  <input type="checkbox" {...register('confirmationAccepted')} className="sr-only peer" />

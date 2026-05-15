@@ -33,7 +33,7 @@ const SuccessScreen = ({ referenceNo, navigate }) => (
     </div>
 
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <Button className="font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-primary/20 h-14" onClick={() => navigate('/borrower/loans')}>
+      <Button className="font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-primary/20 h-14" onClick={() => navigate('/borrower/my-loans')}>
         View My Loans
       </Button>
       <Button variant="secondary" className="font-black uppercase tracking-widest text-[10px] py-4 bg-white border-slate-200 h-14" onClick={() => navigate('/borrower/dashboard')}>

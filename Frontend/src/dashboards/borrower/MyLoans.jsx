@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { 
-  Briefcase, Clock, AlertCircle, 
-  ChevronRight, ArrowRight, Download, Eye, 
-  Calendar, FileText, CheckCircle2, History, 
+import {
+  Briefcase, Clock, AlertCircle,
+  ChevronRight, ArrowRight, Download, Eye,
+  Calendar, FileText, CheckCircle2, History,
   Wallet, TrendingUp, Info, Activity,
-  X, Filter, PieChart, ShieldCheck, Loader2
+  X, Filter, PieChart, ShieldCheck, Loader2,
+  ClipboardList
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
@@ -48,6 +49,11 @@ const MyLoans = () => {
 
     socket.on('emi-paid', (data) => {
       toast.success('EMI Payment Confirmed!', { icon: '✅' });
+      fetchDashboardData();
+    });
+
+    socket.on('borrower-review-status-updated', () => {
+      toast.success('Your loan application review has been completed.', { icon: '📋' });
       fetchDashboardData();
     });
 
@@ -103,6 +109,7 @@ const MyLoans = () => {
 
   const data = dashboardData || {};
   const activeLoan = data.activeLoans?.[0];
+  const loanApplications = data.loanApplications || [];
 
   return (
     <div className="space-y-10 pb-20">
@@ -152,6 +159,158 @@ const MyLoans = () => {
         <StatCard title="Next EMI" value={loading ? "..." : (data.nextEmi ? `R${data.nextEmi.amount?.toLocaleString()}` : "R0")} icon={Calendar} color="accent" />
         <StatCard title="Total Penalties" value={loading ? "..." : `R${(data.totalPenalties || 0).toLocaleString()}`} icon={AlertCircle} color="rose" />
       </section>
+
+      {/* 4. LOAN APPLICATIONS SECTION */}
+      {(loading || loanApplications.length > 0) && (
+        <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-hidden">
+          <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
+            <div className="flex items-center gap-4">
+              <div className="w-11 h-11 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+                <ClipboardList size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 tracking-tight">My Loan Applications</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Submitted &amp; Pending Review</p>
+              </div>
+            </div>
+            {!loading && (
+              <span className="px-4 py-1.5 bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest rounded-xl">
+                {loanApplications.length} {loanApplications.length === 1 ? 'Application' : 'Applications'}
+              </span>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="p-16 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50/50">
+                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-[0.12em]">
+                    <th className="px-8 py-5">Application ID</th>
+                    <th className="px-8 py-5">Requested Amount</th>
+                    <th className="px-8 py-5">Duration</th>
+                    <th className="px-8 py-5">Est. EMI</th>
+                    <th className="px-8 py-5">Status</th>
+                    <th className="px-8 py-5">Review Progress</th>
+                    <th className="px-8 py-5">Submitted</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {loanApplications.map((app) => (
+                    <tr key={app._id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-8 py-5">
+                        <span className="text-xs font-black text-primary">{app.applicationId}</span>
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className="text-sm font-black text-slate-900">R{Number(app.requestedAmount).toLocaleString()}</span>
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className="text-xs font-bold text-slate-500">{app.requestedDuration} Months</span>
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className="text-xs font-black text-slate-700">
+                          {app.estimatedMonthlyEMI ? `R${Math.round(app.estimatedMonthlyEMI).toLocaleString()}` : '—'}
+                        </span>
+                      </td>
+                      <td className="px-8 py-5">
+                        <ApplicationStatusBadge status={app.status} />
+                      </td>
+                      <td className="px-8 py-5">
+                        <BorrowerReviewStatus reviewStatus={app.reviewStatus} reviewInfo={app.reviewInfo} />
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className="text-[11px] font-bold text-slate-400">
+                          {app.submittedAt ? new Date(app.submittedAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* REVIEW FEEDBACK CARDS — shown when any application has been reviewed */}
+      {!loading && loanApplications.some(a => a.reviewInfo) && (
+        <section className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-primary/10 text-primary rounded-xl flex items-center justify-center shrink-0">
+              <ClipboardList size={16} />
+            </div>
+            <h3 className="text-base font-black text-slate-900 tracking-tight">Review Feedback</h3>
+          </div>
+          <div className="space-y-3">
+            {loanApplications.filter(a => a.reviewInfo).map(app => {
+              const { outcome, title, message, reviewerDisplay, reviewedAt } = app.reviewInfo;
+              const style = {
+                success: {
+                  card:  'bg-emerald-50 border-emerald-200',
+                  icon:  'bg-emerald-500 text-white',
+                  badge: 'bg-emerald-100 text-emerald-700',
+                  title: 'text-emerald-800',
+                  meta:  'text-emerald-600',
+                  body:  'text-emerald-900',
+                  Icon:  CheckCircle2,
+                },
+                error: {
+                  card:  'bg-red-50 border-red-200',
+                  icon:  'bg-red-500 text-white',
+                  badge: 'bg-red-100 text-red-700',
+                  title: 'text-red-800',
+                  meta:  'text-red-500',
+                  body:  'text-red-900',
+                  Icon:  AlertCircle,
+                },
+                warning: {
+                  card:  'bg-amber-50 border-amber-200',
+                  icon:  'bg-amber-500 text-white',
+                  badge: 'bg-amber-100 text-amber-700',
+                  title: 'text-amber-800',
+                  meta:  'text-amber-600',
+                  body:  'text-amber-900',
+                  Icon:  AlertCircle,
+                },
+              }[outcome] || {
+                card:  'bg-blue-50 border-blue-200',
+                icon:  'bg-blue-500 text-white',
+                badge: 'bg-blue-100 text-blue-700',
+                title: 'text-blue-800',
+                meta:  'text-blue-600',
+                body:  'text-blue-900',
+                Icon:  ClipboardList,
+              };
+
+              return (
+                <div key={app._id} className={cn('p-5 rounded-[2rem] border shadow-sm flex flex-col sm:flex-row sm:items-start gap-4', style.card)}>
+                  <div className={cn('w-10 h-10 rounded-2xl flex items-center justify-center shrink-0', style.icon)}>
+                    <style.Icon size={20} />
+                  </div>
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-black text-primary">{app.applicationId}</span>
+                      <span className={cn('px-2.5 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest', style.badge)}>
+                        {title}
+                      </span>
+                    </div>
+                    <p className={cn('text-[10px] font-bold uppercase tracking-widest', style.meta)}>
+                      {reviewerDisplay} •{' '}
+                      {new Date(reviewedAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </p>
+                    <p className={cn('text-sm font-medium leading-relaxed pt-0.5', style.body)}>
+                      {message}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         {/* LEFT COLUMN: LOAN DETAILS & SCHEDULE */}
@@ -529,6 +688,55 @@ const DrawerRow = ({ label, value, color }) => (
       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-slate-600 transition-colors">{label}</span>
       <span className={cn("text-sm font-black text-slate-900", color)}>{value}</span>
    </div>
+);
+
+const APPLICATION_STATUS_STYLES = {
+  'Submitted':           'bg-blue-50 text-blue-600',
+  'New':                 'bg-blue-50 text-blue-600',
+  'Pending Review':      'bg-amber-50 text-amber-600',
+  'Under Review':        'bg-amber-50 text-amber-600',
+  'Reviewed':            'bg-violet-50 text-violet-600',
+  'Recommended':         'bg-violet-50 text-violet-600',
+  'Pending Verification':'bg-orange-50 text-orange-600',
+  'Approved':            'bg-emerald-50 text-emerald-600',
+  'Disbursed':           'bg-emerald-50 text-emerald-600',
+  'Rejected':            'bg-red-50 text-red-500',
+  'Hold':                'bg-orange-50 text-orange-600',
+};
+
+const BORROWER_REVIEW_STATUS_MAP = {
+  'Pending':                    { label: 'Awaiting Assignment',       className: 'bg-slate-50 text-slate-400' },
+  'Pending Review':             { label: 'Under Review',              className: 'bg-amber-50 text-amber-600' },
+  'Under Review':               { label: 'Under Review',              className: 'bg-amber-50 text-amber-600' },
+  'Recommendation Submitted':   { label: 'Review Completed',          className: 'bg-emerald-50 text-emerald-600' },
+  'Rejected Recommendation':    { label: 'Under Final Assessment',    className: 'bg-violet-50 text-violet-600' },
+  'Pending Verification':       { label: 'Verification Required',     className: 'bg-orange-50 text-orange-600' },
+};
+
+const BorrowerReviewStatus = ({ reviewStatus, reviewInfo }) => {
+  if (reviewInfo?.reviewCompleted) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase tracking-widest">
+        <CheckCircle2 size={10} /> Review Completed
+      </span>
+    );
+  }
+  const cfg = BORROWER_REVIEW_STATUS_MAP[reviewStatus];
+  if (!cfg) return <span className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">—</span>;
+  return (
+    <span className={cn('inline-flex px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-widest', cfg.className)}>
+      {cfg.label}
+    </span>
+  );
+};
+
+const ApplicationStatusBadge = ({ status }) => (
+  <span className={cn(
+    'px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-widest',
+    APPLICATION_STATUS_STYLES[status] || 'bg-slate-50 text-slate-500'
+  )}>
+    {status}
+  </span>
 );
 
 const ExportFormatOption = ({ label, active }) => (

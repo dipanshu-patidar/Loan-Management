@@ -67,7 +67,9 @@ const ApplyLoan = () => {
     if (!amount || !duration) return;
     try {
       const res = await BorrowerLoanService.getLoanEstimate(amount, duration);
-      setEstimate(res);
+      if (res?.success) {
+        setEstimate(res.data);
+      }
     } catch (error) {
       console.error('Error fetching estimate:', error);
     }

@@ -17,6 +17,8 @@ const messageSchema = new mongoose.Schema({
   
   attachments: [{ type: String }], // Explicit support for files array
   attachmentUrl: { type: String }, // Compatibility
+  attachment: { type: String }, // Explicit field requested
+  attachmentName: { type: String }, // Explicit field requested
   
   readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Requested tracking array
   isRead: { type: Boolean, default: false }, // Compatibility

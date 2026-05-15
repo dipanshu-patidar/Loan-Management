@@ -7,6 +7,9 @@ const asyncHandler = require('../../utils/asyncHandler');
 const { sendSuccess, sendError } = require('../../utils/responseHandler');
 const { getIO } = require('../../socket/socketServer');
 const { createNotification } = require('../../utils/notificationHelper');
+const RepaymentSchedule = require('../../models/RepaymentSchedule');
+const BorrowerAlert = require('../../models/BorrowerAlert');
+const LoanActivity = require('../../models/LoanActivity');
 
 /**
  * @desc    Get Staff Payment Verification Stats Summary
@@ -214,6 +217,16 @@ const verifyPayment = asyncHandler(async (req, res) => {
           { loanId: activeLoan._id, installmentNumber: emi.installmentNumber },
           { dueStatus: 'Paid' }
         );
+
+        // SYNC WITH NEW REPAYMENT SCHEDULE COLLECTION
+        await RepaymentSchedule.findOneAndUpdate(
+          { loanId: activeLoan._id, emiNumber: emi.installmentNumber },
+          { 
+            status: 'Paid', 
+            paidAt: new Date(),
+            lateDays: emi.paymentStatus === 'Overdue' ? Math.floor((new Date() - new Date(emi.dueDate)) / (1000 * 60 * 60 * 24)) : 0
+          }
+        );
       } else {
         break;
       }
@@ -256,6 +269,8 @@ const verifyPayment = asyncHandler(async (req, res) => {
 
   // 6. Create Borrower & Admin Notifications
   try {
+    const borrower = await Borrower.findById(payment.borrowerId);
+    
     // Notify Borrower
     await createNotification({
       receiverId: payment.borrowerId,
@@ -270,6 +285,24 @@ const verifyPayment = asyncHandler(async (req, res) => {
       priority: 'normal'
     });
 
+    // Create BorrowerAlert
+    await BorrowerAlert.create({
+      borrowerId: payment.borrowerId,
+      title: 'Payment Verified',
+      message: `Your payment of R ${payment.paymentAmount} has been verified and applied to your loan.`,
+      alertType: 'PAYMENT_VERIFIED',
+      priority: 'Medium'
+    });
+
+    // Log Activity
+    await LoanActivity.create({
+      loanId: activeLoan._id,
+      borrowerId: payment.borrowerId,
+      title: 'Payment Verified',
+      message: `Staff ${req.user.fullName} verified payment of R ${payment.paymentAmount}.`,
+      type: 'Payment'
+    });
+
     // Notify Admin
     await createNotification({
       receiverRole: 'admin',
@@ -282,17 +315,26 @@ const verifyPayment = asyncHandler(async (req, res) => {
       relatedModel: 'Payment',
       priority: 'important'
     });
+
+    // 7. Real-time Broadcasts (Socket.IO)
+    const io = getIO();
+    if (borrower && borrower.userId) {
+      const borrowerUserId = borrower.userId.toString();
+      io.to(borrowerUserId).emit('payment-verified', { 
+        paymentId: payment.transactionId, 
+        amount: payment.paymentAmount,
+        message: 'Your payment has been verified'
+      });
+      io.to(borrowerUserId).emit('dashboard-updated');
+      io.to(borrowerUserId).emit('notification-created');
+    }
+    
+    // General update for admin/staff
+    io.emit('dashboard:update', { trigger: 'payment_verified' });
+    
   } catch (notifErr) {
     console.error('Notification dispatch error:', notifErr);
   }
-
-  // 7. Real-time Broadcasts (Socket.IO)
-  try {
-    const io = getIO();
-    io.emit('payment:verified', { paymentId: payment.transactionId, amount: payment.paymentAmount });
-    io.emit('payment:updated', { paymentId: payment.transactionId, status: 'Verified' });
-    io.emit('dashboard:update', { trigger: 'payment_verified' });
-  } catch (err) {}
 
   sendSuccess(res, 'Payment verified and processed successfully', { payment, activeLoan });
 });
@@ -411,11 +453,88 @@ const getVerificationHistory = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * @desc    Manual Record Payment (Staff/Admin)
+ * @route   POST /api/staff/payment-verification/manual
+ */
+const manualRecordPayment = asyncHandler(async (req, res) => {
+  const { loanId, amount, paymentMethod, paymentDate, notes } = req.body;
+
+  const activeLoan = await ActiveLoan.findById(loanId);
+  if (!activeLoan) return sendError(res, 'Loan not found', 404);
+
+  const payment = await Payment.create({
+    borrowerId: activeLoan.borrowerId,
+    borrowerName: activeLoan.borrowerName,
+    borrowerPhone: activeLoan.borrowerPhone,
+    loanId: activeLoan._id,
+    loanCode: activeLoan.loanCode,
+    paymentAmount: amount,
+    paymentDate: paymentDate || new Date(),
+    paymentMethod,
+    paymentStatus: 'Verified',
+    verifiedBy: req.user._id,
+    verifiedDate: new Date(),
+    notes: notes || 'Manually recorded by staff'
+  });
+
+  // Apply payment to balance and schedule (Simplified logic reuse)
+  activeLoan.remainingBalance = Math.max(0, activeLoan.remainingBalance - amount);
+  
+  let remainingAmount = amount;
+  for (let emi of activeLoan.repaymentSchedule) {
+    if (emi.paymentStatus !== 'Paid' && remainingAmount >= emi.emiAmount) {
+      emi.paymentStatus = 'Paid';
+      emi.paidDate = new Date();
+      remainingAmount -= emi.emiAmount;
+
+      await RepaymentSchedule.findOneAndUpdate(
+        { loanId: activeLoan._id, emiNumber: emi.installmentNumber },
+        { status: 'Paid', paidAt: new Date() }
+      );
+    }
+  }
+
+  await activeLoan.save();
+
+  sendSuccess(res, 'Manual payment recorded and verified', { payment, activeLoan });
+});
+
+/**
+ * @desc    Mark Field Visit Follow-up
+ * @route   POST /api/staff/payment-verification/field-visit
+ */
+const markFieldVisit = asyncHandler(async (req, res) => {
+  const { loanId, borrowerId, outcome, notes, locationVerified } = req.body;
+
+  // This could log to a new FieldVisit model or just update borrower/loan notes
+  // For now, we'll update the loan notes and send a notification
+  const activeLoan = await ActiveLoan.findById(loanId);
+  if (!activeLoan) return sendError(res, 'Loan not found', 404);
+
+  activeLoan.followUpHistory = activeLoan.followUpHistory || [];
+  activeLoan.followUpHistory.push({
+    date: new Date(),
+    staffId: req.user._id,
+    staffName: req.user.fullName,
+    type: 'Field Visit',
+    outcome,
+    notes,
+    locationVerified
+  });
+
+  await activeLoan.save();
+
+  sendSuccess(res, 'Field visit outcome logged successfully');
+});
+
 module.exports = {
   getPaymentVerificationOverview,
   getPaymentVerifications,
   getPaymentVerificationById,
   verifyPayment,
   rejectPayment,
-  getVerificationHistory
+  getVerificationHistory,
+  manualRecordPayment,
+  markFieldVisit
 };

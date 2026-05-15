@@ -8,7 +8,9 @@ const {
   getPaymentVerificationById,
   verifyPayment,
   rejectPayment,
-  getVerificationHistory
+  getVerificationHistory,
+  manualRecordPayment,
+  markFieldVisit
 } = require('../../controllers/staff/paymentVerificationController');
 
 // Secure endpoint access exclusively to authenticated Staff
@@ -21,5 +23,7 @@ router.get('/', getPaymentVerifications);
 router.get('/:id', getPaymentVerificationById);
 router.put('/:id/verify', verifyPayment);
 router.put('/:id/reject', rejectPayment);
+router.post('/manual', manualRecordPayment);
+router.post('/field-visit', markFieldVisit);
 
 module.exports = router;

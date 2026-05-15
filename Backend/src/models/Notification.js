@@ -70,6 +70,7 @@ const notificationSchema = new mongoose.Schema({
   },
   actionType: { type: String },
   dueAmount: { type: Number },
+  relatedConversation: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation' },
   isRead: { type: Boolean, default: false },
   readAt: { type: Date },
   metadata: { type: mongoose.Schema.Types.Mixed },

@@ -17,6 +17,7 @@ import agentDashboardService from '../../services/agentDashboardService';
 import { toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import DashboardSkeleton from '../../components/DashboardSkeleton';
+import { initiateSocketConnection, disconnectSocket } from '../../socket/socketClient';
 
 const AgentDashboard = () => {
   const navigate = useNavigate();
@@ -29,6 +30,35 @@ const AgentDashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
+
+    const token = localStorage.getItem('token');
+    const socket = initiateSocketConnection(token);
+
+    socket.on('emi-reminder', (data) => {
+      toast.success(data.message, { icon: '⏰' });
+      fetchDashboardData();
+    });
+
+    socket.on('recovery-alert', (data) => {
+      toast.error(data.message, { icon: '🚨' });
+      fetchDashboardData();
+    });
+
+    socket.on('emi-paid', () => {
+      fetchDashboardData();
+    });
+
+    socket.on('dashboard-update', () => {
+      fetchDashboardData();
+    });
+
+    return () => {
+      socket.off('emi-reminder');
+      socket.off('recovery-alert');
+      socket.off('emi-paid');
+      socket.off('dashboard-update');
+      disconnectSocket();
+    };
   }, []);
 
   const fetchDashboardData = async () => {

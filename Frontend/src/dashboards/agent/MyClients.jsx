@@ -15,8 +15,10 @@ import StatCard from '../../components/StatCard';
 import StatusBadge from '../../components/StatusBadge';
 import Modal from '../../ui/Modal';
 import agentClientsService from '../../services/agentClientsService';
+import repaymentService from '../../services/repaymentService';
 import { toast } from 'react-hot-toast';
 import { initiateSocketConnection, disconnectSocket } from '../../socket/socketClient';
+import axios from 'axios';
 
 const MyClients = () => {
   // State for data
@@ -40,7 +42,10 @@ const MyClients = () => {
   // State for modals
   const [isAssistModalOpen, setIsAssistModalOpen] = useState(false);
   const [isFollowUpModalOpen, setIsFollowUpModalOpen] = useState(false);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
+  const [repaymentSchedule, setRepaymentSchedule] = useState([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
 
   // Form states for modals
   const [assistanceForm, setAssistanceForm] = useState({ supportType: 'Loan Inquiry', supportNotes: '', communicationMessage: '' });
@@ -131,6 +136,24 @@ const MyClients = () => {
       setIsDrawerOpen(false);
     } finally {
       setDrawerLoading(false);
+    }
+  };
+
+  const handleOpenSchedule = async () => {
+    const loanId = borrowerDetails?.loan?.loanId || borrowerDetails?.loan?._id;
+    if (!loanId) return toast.error('Loan record not found');
+
+    setIsScheduleModalOpen(true);
+    setScheduleLoading(true);
+    try {
+      const res = await repaymentService.getLoanSchedule(loanId);
+      if (res.data.success) {
+        setRepaymentSchedule(res.data.data);
+      }
+    } catch (error) {
+      toast.error('Failed to load repayment schedule');
+    } finally {
+      setScheduleLoading(false);
     }
   };
 
@@ -467,6 +490,14 @@ const MyClients = () => {
                 </Button>
                 <Button 
                   disabled={drawerLoading}
+                  variant="secondary"
+                  className="w-full font-black uppercase tracking-widest text-[10px] py-4 border-slate-200"
+                  onClick={handleOpenSchedule}
+                >
+                  Repayment Schedule
+                </Button>
+                <Button 
+                  disabled={drawerLoading}
                   variant="secondary" 
                   className="w-full font-black uppercase tracking-widest text-[10px] py-4 border-slate-200" 
                   onClick={() => setIsFollowUpModalOpen(true)}
@@ -642,6 +673,59 @@ const MyClients = () => {
                 {modalLoading ? <RefreshCw className="animate-spin" size={18} /> : 'Save Follow-Up'}
               </Button>
            </div>
+        </div>
+      </Modal>
+
+      {/* 📊 REPAYMENT SCHEDULE MODAL */}
+      <Modal isOpen={isScheduleModalOpen} onClose={() => setIsScheduleModalOpen(false)} title="Repayment Schedule" maxWidth="max-w-2xl">
+        <div className="space-y-6">
+          <div className="p-6 bg-slate-900 rounded-[2rem] text-white flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Borrower</p>
+              <p className="text-lg font-black">{borrowerDetails?.profile?.fullName}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Balance</p>
+              <p className="text-lg font-black text-primary">{formatCurrency(borrowerDetails?.summary?.remainingBalance || 0)}</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-[2rem] border border-slate-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50/50">
+                  <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    <th className="px-6 py-4 border-b border-slate-100">EMI #</th>
+                    <th className="px-6 py-4 border-b border-slate-100">Due Date</th>
+                    <th className="px-6 py-4 border-b border-slate-100">Amount</th>
+                    <th className="px-6 py-4 border-b border-slate-100">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {scheduleLoading ? (
+                    Array(3).fill(0).map((_, i) => (
+                      <tr key={i} className="animate-pulse">
+                        <td colSpan="4" className="px-6 py-4 h-12 bg-slate-50/20" />
+                      </tr>
+                    ))
+                  ) : repaymentSchedule.map((emi) => (
+                    <tr key={emi._id} className="text-[11px] font-bold text-slate-600">
+                      <td className="px-6 py-4">{emi.emiNumber}</td>
+                      <td className="px-6 py-4">{formatDate(emi.dueDate)}</td>
+                      <td className="px-6 py-4">{formatCurrency(emi.amount)}</td>
+                      <td className="px-6 py-4">
+                        <EMIStatusBadge status={emi.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t border-slate-50">
+            <Button variant="secondary" className="px-8 font-bold border-slate-200" onClick={() => setIsScheduleModalOpen(false)}>Close</Button>
+          </div>
         </div>
       </Modal>
     </div>

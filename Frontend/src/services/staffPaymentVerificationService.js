@@ -47,6 +47,22 @@ const staffPaymentVerificationService = {
   getVerificationHistory: async (params = {}) => {
     const response = await api.get('/staff/payment-verification/history', { params });
     return response.data;
+  },
+
+  /**
+   * POST /api/staff/payment-verification/manual
+   */
+  manualRecordPayment: async (payload) => {
+    const response = await api.post('/staff/payment-verification/manual', payload);
+    return response.data;
+  },
+
+  /**
+   * POST /api/staff/payment-verification/field-visit
+   */
+  markFieldVisit: async (payload) => {
+    const response = await api.post('/staff/payment-verification/field-visit', payload);
+    return response.data;
   }
 };
 

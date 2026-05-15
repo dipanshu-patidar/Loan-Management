@@ -7,7 +7,7 @@ import {
   Plus, Eye, Upload, FileText, X,
   ChevronRight, Bookmark, ArrowRight,
   Zap, MessageCircle, MoreHorizontal,
-  Smile, CheckCircle2, ShieldAlert
+  Smile, CheckCircle2, ShieldAlert, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
@@ -15,72 +15,248 @@ import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
 import StatusBadge from '../../components/StatusBadge';
 
+import { toast } from 'react-hot-toast';
+import { useSocket } from '../../context/SocketContext';
+import { format } from 'date-fns';
+import api from '../../services/api';
+
 const BorrowerCommunication = () => {
+  const [conversations, setConversations] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isLoanDrawerOpen, setIsLoanDrawerOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [typingStatus, setTypingStatus] = useState(null);
   const chatContainerRef = useRef(null);
-
-  const chats = [
-    { 
-      id: 1, 
-      name: 'Agent Sarah', 
-      role: 'Assigned Agent', 
-      roleKey: 'Agent',
-      lastMessage: 'I have received your payment proof. Checking now.', 
-      time: '10:30 AM', 
-      unread: 2, 
-      status: 'online',
-      avatar: 'AS'
-    },
-    { 
-      id: 2, 
-      name: 'Support Team', 
-      role: 'Staff Support', 
-      roleKey: 'Staff',
-      lastMessage: 'Please upload your latest payslip for verification.', 
-      time: '09:15 AM', 
-      unread: 0, 
-      status: 'away',
-      avatar: 'ST'
-    },
-    { 
-      id: 3, 
-      name: 'Admin Desk', 
-      role: 'Escalation Support', 
-      roleKey: 'Admin',
-      lastMessage: 'Your interest rate inquiry has been forwarded.', 
-      time: 'Yesterday', 
-      unread: 0, 
-      status: 'offline',
-      avatar: 'AD'
-    },
-  ];
-
-  const messages = [
-    { id: 1, text: 'Hi Sarah, I just made the EMI payment for May.', sender: 'me', time: '10:15 AM', status: 'read' },
-    { id: 2, text: 'Here is the proof of payment.', sender: 'me', time: '10:16 AM', status: 'read', attachment: 'receipt.pdf' },
-    { id: 3, text: 'Great! I have received your payment proof. Checking now.', sender: 'other', time: '10:30 AM', status: 'received' },
-  ];
+  const { socket } = useSocket();
+  const [currentUser, setCurrentUser] = useState(null);
+  const [participants, setParticipants] = useState([]);
+  const [participantsLoading, setParticipantsLoading] = useState(false);
+  const [participantSearch, setParticipantSearch] = useState('');
 
   useEffect(() => {
+    fetchConversations();
+    fetchParticipants();
+    const user = JSON.parse(localStorage.getItem('user'));
+    setCurrentUser(user);
+  }, []);
+
+  useEffect(() => {
+    if (isNewChatModalOpen) {
+      fetchParticipants();
+    }
+  }, [isNewChatModalOpen]);
+
+  useEffect(() => {
+    if (selectedChat) {
+      fetchMessages(selectedChat._id);
+      if (socket) {
+        socket.emit('join-conversation', selectedChat._id);
+      }
+    }
+  }, [selectedChat, socket]);
+
+  useEffect(() => {
+    if (socket) {
+      socket.on('message-received', (newMessage) => {
+        if (selectedChat && newMessage.conversationId?.toString() === selectedChat._id?.toString()) {
+          setMessages(prev => [...prev, newMessage]);
+          scrollToBottom();
+          // Mark as read
+          markAsRead(selectedChat._id);
+        }
+        // Update conversation list
+        fetchConversations();
+      });
+
+      socket.on('message-notification', (data) => {
+        if (!selectedChat || data.conversationId !== selectedChat._id) {
+          toast.success(`New message from ${data.senderName}`, {
+            icon: '💬',
+            duration: 4000
+          });
+        }
+      });
+
+      socket.on('typing-status', (data) => {
+        if (selectedChat && data.conversationId?.toString() === selectedChat._id?.toString() && data.userId?.toString() !== currentUser?._id?.toString()) {
+          setTypingStatus(data.isTyping ? data : null);
+        }
+      });
+
+      socket.on('messages-read', (data) => {
+        if (selectedChat && data.conversationId?.toString() === selectedChat._id?.toString()) {
+          setMessages(prev => prev.map(m => m.senderId?.toString() !== data.userId?.toString() ? { ...m, isRead: true } : m));
+        }
+      });
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('message-received');
+        socket.off('message-notification');
+        socket.off('typing-status');
+        socket.off('messages-read');
+      }
+    };
+  }, [socket, selectedChat, currentUser]);
+
+  const fetchConversations = async () => {
+    try {
+      const response = await api.get('/borrower/communications/conversations');
+      if (response.data.success) {
+        setConversations(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+    }
+  };
+
+  const fetchMessages = async (convId) => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/borrower/communications/conversations/${convId}/messages`);
+      if (response.data.success) {
+        setMessages(response.data.data);
+        setTimeout(scrollToBottom, 100);
+      }
+    } catch (error) {
+      toast.error('Failed to load messages');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const markAsRead = async (convId) => {
+    try {
+      await api.patch('/borrower/communications/messages/read', { conversationId: convId });
+      if (socket) {
+        socket.emit('mark-messages-read', { conversationId: convId, userId: currentUser?._id });
+      }
+    } catch (error) {
+      console.error('Error marking as read:', error);
+    }
+  };
+
+  const scrollToBottom = () => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
-  }, [selectedChat]);
-
-  const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (!message.trim()) return;
-    setMessage('');
   };
 
-  const filteredChats = activeFilter === 'All' 
-    ? chats 
-    : chats.filter(c => c.roleKey === activeFilter);
+  const fetchParticipants = async () => {
+    try {
+      setParticipantsLoading(true);
+      const response = await api.get('/borrower/communications/participants');
+      if (response.data.success) {
+        setParticipants(response.data.data);
+      }
+    } catch (error) {
+      toast.error('Failed to load contacts');
+    } finally {
+      setParticipantsLoading(false);
+    }
+  };
+
+  const handleStartConversation = async (participantId) => {
+    try {
+      const response = await api.post('/borrower/communications/conversations/start', {
+        participantId
+      });
+      if (response.data.success) {
+        const newConv = response.data.data;
+        setConversations(prev => {
+          const exists = prev.find(c => c._id === newConv._id);
+          if (exists) return prev;
+          return [newConv, ...prev];
+        });
+        setSelectedChat(newConv);
+        setIsNewChatModalOpen(false);
+      }
+    } catch (error) {
+      toast.error('Failed to start conversation');
+    }
+  };
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!message.trim()) return;
+
+    try {
+      const msgText = message;
+      setMessage('');
+      
+      const response = await api.post('/borrower/communications/messages/send', {
+        conversationId: selectedChat._id,
+        message: msgText,
+        messageType: 'text'
+      });
+
+      if (response.data.success) {
+        // Message will be received via socket
+        if (socket) {
+          socket.emit('typing-stop', { conversationId: selectedChat._id, userId: currentUser?._id });
+        }
+      }
+    } catch (error) {
+      toast.error('Failed to send message');
+      setMessage(message);
+    }
+  };
+
+  const handleFileUpload = async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append('conversationId', selectedChat._id);
+      formData.append('attachment', file);
+      formData.append('message', `Attached a file: ${file.name}`);
+
+      toast.loading('Uploading file...');
+      const response = await api.post('/borrower/communications/messages/send', formData);
+      toast.dismiss();
+
+      if (response.data.success) {
+        setIsUploadModalOpen(false);
+        toast.success('File sent');
+      }
+    } catch (error) {
+      toast.dismiss();
+      toast.error('Upload failed');
+    }
+  };
+
+  const handleTyping = (e) => {
+    setMessage(e.target.value);
+    if (socket && selectedChat) {
+      socket.emit('typing-start', { 
+        conversationId: selectedChat._id, 
+        userId: currentUser?._id,
+        userName: currentUser?.fullName
+      });
+
+      // Stop typing after 3 seconds of inactivity
+      if (window.typingTimeout) clearTimeout(window.typingTimeout);
+      window.typingTimeout = setTimeout(() => {
+        socket.emit('typing-stop', { conversationId: selectedChat._id, userId: currentUser?._id });
+      }, 3000);
+    }
+  };
+
+  const filteredConversations = activeFilter === 'All' 
+    ? conversations 
+    : conversations.filter(c => {
+        const otherParticipant = c.participants.find(p => p._id?.toString() !== currentUser?._id?.toString());
+        return otherParticipant?.role?.toLowerCase() === activeFilter.toLowerCase();
+      });
+
+  const getOtherParticipant = (conv) => {
+    if (!conv || !conv.participants) return null;
+    return conv.participants.find(p => p._id?.toString() !== currentUser?._id?.toString());
+  };
 
   return (
     <div className="h-[calc(100vh-100px)] flex gap-6 overflow-hidden -mt-6">
@@ -115,45 +291,73 @@ const BorrowerCommunication = () => {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
-          {filteredChats.map(chat => (
-            <button
-              key={chat.id}
-              onClick={() => setSelectedChat(chat)}
-              className={cn(
-                "w-full p-5 rounded-[2rem] flex items-center gap-4 transition-all group relative border-l-4",
-                selectedChat?.id === chat.id ? "bg-primary/5 border-primary shadow-sm" : "border-transparent hover:bg-slate-50"
-              )}
-            >
-              <div className="relative">
-                <div className={cn(
-                  "w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-black transition-all",
-                  chat.roleKey === 'Agent' ? "bg-blue-50 text-blue-600" :
-                  chat.roleKey === 'Staff' ? "bg-emerald-50 text-emerald-600" :
-                  "bg-primary/5 text-primary"
-                )}>
-                  {chat.avatar}
-                </div>
-                <div className={cn(
-                  "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white",
-                  chat.status === 'online' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" :
-                  chat.status === 'away' ? "bg-amber-500" : "bg-slate-300"
-                )} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-0.5">
-                  <h4 className="text-sm font-black text-slate-900 truncate tracking-tight group-hover:text-primary transition-colors">{chat.name}</h4>
-                  <span className="text-[9px] font-bold text-slate-400">{chat.time}</span>
-                </div>
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{chat.role}</p>
-                <p className="text-[11px] font-medium text-slate-500 truncate">{chat.lastMessage}</p>
-              </div>
-              {chat.unread > 0 && (
-                <div className="w-5 h-5 bg-primary text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg shadow-primary/20 animate-pulse shrink-0">
-                  {chat.unread}
-                </div>
-              )}
-            </button>
-          ))}
+          {filteredConversations.length > 0 ? (
+            filteredConversations.map(chat => {
+              const otherUser = chat.chatPartner || getOtherParticipant(chat);
+              return (
+                <button
+                  key={chat._id}
+                  onClick={() => setSelectedChat(chat)}
+                  className={cn(
+                    "w-full p-5 rounded-[2rem] flex items-center gap-4 transition-all group relative border-l-4 text-left",
+                    selectedChat?._id === chat._id ? "bg-primary/5 border-primary shadow-sm" : "border-transparent hover:bg-slate-50"
+                  )}
+                >
+                  <div className="relative">
+                    <div className={cn(
+                      "w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-black transition-all",
+                      otherUser?.role === 'agent' ? "bg-blue-50 text-blue-600" :
+                      otherUser?.role === 'staff' ? "bg-emerald-50 text-emerald-600" :
+                      "bg-primary/5 text-primary"
+                    )}>
+                      {otherUser?.fullName?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <h4 className="text-sm font-black text-slate-900 truncate tracking-tight group-hover:text-primary transition-colors">{otherUser?.fullName}</h4>
+                      <span className="text-[9px] font-bold text-slate-400">{chat.lastMessageAt ? format(new Date(chat.lastMessageAt), 'HH:mm') : ''}</span>
+                    </div>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{otherUser?.role}</p>
+                    <p className="text-[11px] font-medium text-slate-500 truncate">{chat.lastMessage}</p>
+                  </div>
+                  {(chat.unreadCounts?.[currentUser?._id] > 0) && (
+                    <div className="w-5 h-5 bg-primary text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg shadow-primary/20 animate-pulse shrink-0">
+                      {chat.unreadCounts[currentUser?._id]}
+                    </div>
+                  )}
+                </button>
+              );
+            })
+          ) : (
+            <div className="py-10 px-4 space-y-6">
+               <div className="text-center space-y-2">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Suggested Support</p>
+                  <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic">Start a conversation with your assigned team.</p>
+               </div>
+               <div className="space-y-3">
+                  {participants.slice(0, 3).map(p => (
+                     <button 
+                        key={p._id}
+                        onClick={() => handleStartConversation(p._id)}
+                        className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-center gap-4 hover:border-primary transition-all text-left group"
+                     >
+                        <div className={cn(
+                          "w-10 h-10 rounded-xl flex items-center justify-center text-xs font-black",
+                          p.role === 'agent' ? "bg-blue-100 text-blue-600" : "bg-primary/10 text-primary"
+                        )}>
+                          {p.fullName?.[0]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h5 className="text-[11px] font-black text-slate-900 truncate">{p.fullName}</h5>
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{p.role}</p>
+                        </div>
+                        <ArrowRight size={14} className="text-slate-300 group-hover:text-primary transition-all" />
+                     </button>
+                  ))}
+               </div>
+            </div>
+          )}
         </div>
         <div className="p-6 border-t border-slate-50">
            <Button onClick={() => setIsNewChatModalOpen(true)} className="w-full flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest py-4 shadow-lg shadow-primary/20">
@@ -171,17 +375,17 @@ const BorrowerCommunication = () => {
               <div className="flex items-center gap-4">
                 <div className={cn(
                   "w-12 h-12 rounded-2xl flex items-center justify-center text-xs font-black",
-                  selectedChat.roleKey === 'Agent' ? "bg-blue-50 text-blue-600" :
-                  selectedChat.roleKey === 'Staff' ? "bg-emerald-50 text-emerald-600" :
+                  getOtherParticipant(selectedChat)?.role === 'agent' ? "bg-blue-50 text-blue-600" :
+                  getOtherParticipant(selectedChat)?.role === 'staff' ? "bg-emerald-50 text-emerald-600" :
                   "bg-primary/5 text-primary"
                 )}>
-                  {selectedChat.avatar}
+                  {getOtherParticipant(selectedChat)?.fullName?.split(' ').map(n => n[0]).join('').toUpperCase()}
                 </div>
                 <div>
-                  <h3 className="text-md font-black text-slate-900 tracking-tight">{selectedChat.name}</h3>
+                  <h3 className="text-md font-black text-slate-900 tracking-tight">{getOtherParticipant(selectedChat)?.fullName}</h3>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <div className={cn("w-1.5 h-1.5 rounded-full", selectedChat.status === 'online' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-slate-300")} />
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{selectedChat.role} • {selectedChat.status}</p>
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{getOtherParticipant(selectedChat)?.role} • active</p>
                   </div>
                 </div>
               </div>
@@ -194,45 +398,62 @@ const BorrowerCommunication = () => {
             {/* MESSAGES AREA */}
             <div ref={chatContainerRef} className="flex-1 overflow-y-auto custom-scrollbar p-10 space-y-8 bg-slate-50/20">
               <div className="flex justify-center">
-                <span className="px-4 py-1.5 bg-white border border-slate-100 rounded-full text-[9px] font-black text-slate-400 uppercase tracking-widest shadow-sm">Today, 10 May 2026</span>
+                <span className="px-4 py-1.5 bg-white border border-slate-100 rounded-full text-[9px] font-black text-slate-400 uppercase tracking-widest shadow-sm">Today, {format(new Date(), 'dd MMM yyyy')}</span>
               </div>
+              
               {messages.map((msg, i) => (
                 <motion.div 
-                  key={i} 
+                  key={msg._id || i} 
                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   className={cn(
                     "flex flex-col gap-2 max-w-[80%]",
-                    msg.sender === 'me' ? "ml-auto items-end" : "mr-auto items-start"
+                    (msg.senderId?.toString() === currentUser?._id?.toString() || msg.senderId?._id?.toString() === currentUser?._id?.toString()) ? "ml-auto items-end" : "mr-auto items-start"
                   )}
                 >
                   <div className={cn(
                     "p-5 rounded-[2rem] text-sm font-medium shadow-sm leading-relaxed relative",
-                    msg.sender === 'me' ? "bg-primary text-white rounded-tr-none shadow-primary/10" : "bg-white text-slate-700 border border-slate-100 rounded-tl-none"
+                    (msg.senderId?.toString() === currentUser?._id?.toString() || msg.senderId?._id?.toString() === currentUser?._id?.toString()) ? "bg-primary text-white rounded-tr-none shadow-primary/10" : "bg-white text-slate-700 border border-slate-100 rounded-tl-none"
                   )}>
-                    {msg.text}
-                    {msg.attachment && (
+                    {msg.message}
+                    {(msg.attachment || msg.attachmentUrl) && (
                       <div className={cn(
                         "mt-4 p-4 rounded-2xl flex items-center gap-4 border",
-                        msg.sender === 'me' ? "bg-white/10 border-white/20" : "bg-slate-50 border-slate-100"
+                        (msg.senderId === currentUser?._id || msg.senderId?._id === currentUser?._id) ? "bg-white/10 border-white/20" : "bg-slate-50 border-slate-100"
                       )}>
                         <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary"><FileText size={18} /></div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-[11px] font-black truncate">{msg.attachment}</p>
-                          <p className="text-[9px] font-bold uppercase opacity-60 tracking-widest">PDF • 1.2 MB</p>
+                          <p className="text-[11px] font-black truncate">{msg.attachmentName || 'Attachment'}</p>
+                          <p className="text-[9px] font-bold uppercase opacity-60 tracking-widest">FILE</p>
                         </div>
-                        <button className="p-2 hover:bg-black/5 rounded-lg transition-all"><Eye size={16} /></button>
+                        <button 
+                           onClick={() => window.open(msg.attachment || msg.attachmentUrl, '_blank')}
+                           className="p-2 hover:bg-black/5 rounded-lg transition-all"
+                        >
+                           <Eye size={16} />
+                        </button>
                       </div>
                     )}
                   </div>
                   <div className="flex items-center gap-2 mt-2 px-1">
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{msg.time}</span>
-                    {msg.sender === 'me' && (
-                      <CheckCheck size={12} className={msg.status === 'read' ? "text-primary" : "text-slate-300"} />
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{msg.createdAt ? format(new Date(msg.createdAt), 'HH:mm') : ''}</span>
+                    {(msg.senderId === currentUser?._id || msg.senderId?._id === currentUser?._id) && (
+                      <CheckCheck size={12} className={msg.isRead ? "text-primary" : "text-slate-300"} />
                     )}
                   </div>
                 </motion.div>
               ))}
+
+              {typingStatus && (
+                 <div className="flex items-center gap-2 text-slate-400">
+                    <div className="flex gap-1">
+                       <span className="w-1 h-1 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                       <span className="w-1 h-1 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '200ms' }} />
+                       <span className="w-1 h-1 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '400ms' }} />
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-widest">{typingStatus.userName} is typing...</span>
+                 </div>
+              )}
             </div>
 
             {/* MESSAGE INPUT */}
@@ -290,35 +511,50 @@ const BorrowerCommunication = () => {
             <Modal isOpen onClose={() => setIsNewChatModalOpen(false)} title="Start New Support Conversation" maxWidth="max-w-xl">
                <div className="space-y-8">
                   <div className="space-y-6">
+                     <div className="relative group">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors" size={16} />
+                        <input 
+                           type="text" 
+                           placeholder="Search contacts..." 
+                           value={participantSearch}
+                           onChange={(e) => setParticipantSearch(e.target.value)}
+                           className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold focus:ring-2 focus:ring-primary/10 outline-none transition-all"
+                        />
+                     </div>
                      <div className="space-y-3">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recipient Group</p>
-                        <div className="grid grid-cols-3 gap-3">
-                           {['Agent', 'Staff', 'Admin'].map(role => (
-                              <button key={role} className="p-4 rounded-2xl border-2 border-slate-50 hover:border-primary hover:bg-primary/5 transition-all flex flex-col items-center gap-2 group">
-                                 <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:text-primary group-hover:bg-white transition-all shadow-sm">
-                                    {role === 'Admin' ? <ShieldAlert size={20} /> : role === 'Staff' ? <Headset size={20} /> : <User size={20} />}
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Contacts</p>
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                           {participantsLoading ? (
+                              <div className="py-10 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
+                           ) : participants.filter(p => p.fullName?.toLowerCase().includes(participantSearch.toLowerCase())).length > 0 ? 
+                             participants.filter(p => p.fullName?.toLowerCase().includes(participantSearch.toLowerCase())).map((user) => (
+                              <button 
+                                 key={user._id}
+                                 onClick={() => handleStartConversation(user._id)}
+                                 className="w-full p-4 rounded-2xl flex items-center gap-4 hover:bg-slate-50 transition-all text-left border border-slate-100 group"
+                              >
+                                 <div className={cn(
+                                    "w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-black",
+                                    user.role === 'agent' ? "bg-blue-50 text-blue-600" :
+                                    user.role === 'staff' ? "bg-emerald-50 text-emerald-600" :
+                                    "bg-primary/5 text-primary"
+                                 )}>
+                                    {user.fullName?.split(' ').map(n => n[0]).join('').toUpperCase()}
                                  </div>
-                                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 group-hover:text-primary">{role}</span>
+                                 <div className="flex-1 min-w-0">
+                                    <h4 className="text-sm font-black text-slate-900 truncate tracking-tight">{user.fullName}</h4>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{user.role}</p>
+                                 </div>
+                                 <ChevronRight size={16} className="text-slate-300 group-hover:text-primary transition-all" />
                               </button>
-                           ))}
+                           )) : (
+                              <p className="text-center py-10 text-slate-400 text-xs font-medium">No contacts found.</p>
+                           )}
                         </div>
-                     </div>
-                     <div className="space-y-3">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Recipient</p>
-                        <select className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/10 shadow-inner">
-                           <option>Assigned Agent: Sarah Jones</option>
-                           <option>Branch Staff: Michael Nkosi</option>
-                           <option>System Admin Support</option>
-                        </select>
-                     </div>
-                     <div className="space-y-3">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Your Message</p>
-                        <textarea placeholder="Type your message or operational update..." className="w-full bg-slate-50 border-none rounded-2xl p-5 text-sm font-medium text-slate-700 min-h-[120px] focus:ring-2 focus:ring-primary/10 outline-none shadow-inner" />
                      </div>
                   </div>
                   <div className="flex gap-4 pt-4 border-t border-slate-50">
-                     <Button variant="secondary" onClick={() => setIsNewChatModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button onClick={() => setIsNewChatModalOpen(false)} className="flex-1 font-black uppercase text-[10px] shadow-lg shadow-primary/20">Send Message</Button>
+                     <Button variant="secondary" onClick={() => setIsNewChatModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Close</Button>
                   </div>
                </div>
             </Modal>
@@ -328,7 +564,12 @@ const BorrowerCommunication = () => {
          {isUploadModalOpen && (
             <Modal isOpen onClose={() => setIsUploadModalOpen(false)} title="Upload File Attachment">
                <div className="space-y-8">
-                  <div className="p-10 border-2 border-dashed border-slate-100 bg-slate-50/50 rounded-[2.5rem] text-center space-y-4 group hover:border-primary/20 transition-all cursor-pointer">
+                  <div className="p-10 border-2 border-dashed border-slate-100 bg-slate-50/50 rounded-[2.5rem] text-center space-y-4 group hover:border-primary/20 transition-all cursor-pointer relative">
+                     <input 
+                        type="file" 
+                        onChange={(e) => e.target.files[0] && handleFileUpload(e.target.files[0])}
+                        className="absolute inset-0 opacity-0 cursor-pointer" 
+                     />
                      <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-primary mx-auto shadow-sm group-hover:scale-110 transition-transform">
                         <Upload size={32} />
                      </div>
@@ -339,7 +580,6 @@ const BorrowerCommunication = () => {
                   </div>
                   <div className="flex gap-3 pt-4">
                      <Button variant="secondary" onClick={() => setIsUploadModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button className="flex-1 font-black uppercase text-[10px]">Upload Now</Button>
                   </div>
                </div>
             </Modal>

@@ -1,69 +1,50 @@
 const express = require('express');
 const router = express.Router();
 const { 
-  createBorrower, 
-  getAllBorrowers, 
-  getBorrowerById, 
-  updateBorrower, 
-  deleteBorrower,
-  freezeBorrower,
-  blacklistBorrower 
-} = require('../controllers/borrowerController');
+  getMyLoans, 
+  getEmiSchedule, 
+  downloadStatement 
+} = require('../controllers/borrower/loanController');
+const { 
+  getPaymentDashboard, 
+  submitPayment,
+  getPaymentHistory,
+  getReceiptDetails,
+  downloadReceipt,
+  exportPaymentHistory,
+  downloadPaymentStatement
+} = require('../controllers/borrower/paymentController');
+const {
+  getProfile,
+  updateProfile,
+  updateProfilePhoto,
+  updatePassword
+} = require('../controllers/borrower/profileController');
+const { getBorrowerDashboard } = require('../controllers/borrower/dashboardController');
 const { protect } = require('../middlewares/authMiddleware');
-const { authorize } = require('../middlewares/roleMiddleware');
-const { restrictInactive } = require('../middlewares/operationalMiddleware');
 const upload = require('../middlewares/uploadMiddleware');
 
-// All routes here are protected
+// All routes are protected and for borrowers
 router.use(protect);
 
-/**
- * @route   GET /api/admin/borrowers
- * @desc    Get all borrowers with search and filter
- * @access  Private (Admin, Staff)
- */
-router.get('/', authorize('admin', 'staff'), getAllBorrowers);
+router.get('/dashboard', getBorrowerDashboard);
+router.get('/my-loans', getMyLoans);
+router.get('/emi-schedule/:loanId', getEmiSchedule);
+router.post('/download-loan-statement', downloadStatement);
 
-/**
- * @route   POST /api/admin/borrowers/create
- * @desc    Create a new borrower manually
- * @access  Private (Admin, Staff, Agent)
- */
-router.post('/create', authorize('admin', 'staff', 'agent'), restrictInactive, upload.single('profilePhoto'), createBorrower);
+// Payment routes
+router.get('/payment-dashboard', getPaymentDashboard);
+router.post('/submit-payment', upload.single('paymentProof'), submitPayment);
+router.get('/payment-history', getPaymentHistory);
+router.get('/payment-receipt/:paymentId', getReceiptDetails);
+router.get('/download-receipt/:paymentId', downloadReceipt);
+router.post('/export-payment-history', exportPaymentHistory);
+router.post('/download-payment-statement', downloadPaymentStatement);
 
-/**
- * @route   GET /api/admin/borrowers/:id
- * @desc    Get single borrower
- * @access  Private (Admin, Staff, Agent)
- */
-router.get('/:id', authorize('admin', 'staff', 'agent'), getBorrowerById);
-
-/**
- * @route   PUT /api/admin/borrowers/:id
- * @desc    Update borrower
- * @access  Private (Admin, Staff, Agent)
- */
-router.put('/:id', authorize('admin', 'staff', 'agent'), restrictInactive, upload.single('profilePhoto'), updateBorrower);
-
-/**
- * @route   PATCH /api/admin/borrowers/:id/freeze
- * @desc    Freeze borrower
- * @access  Private (Admin, Staff)
- */
-router.patch('/:id/freeze', authorize('admin', 'staff'), restrictInactive, freezeBorrower);
-
-/**
- * @route   PATCH /api/admin/borrowers/:id/blacklist
- * @desc    Blacklist borrower
- * @access  Private (Admin, Staff)
- */
-router.patch('/:id/blacklist', authorize('admin', 'staff'), restrictInactive, blacklistBorrower);
-
-/**
- * @route   DELETE /api/admin/borrowers/:id
- * @desc    Delete borrower
- * @access  Private (Admin)
- */
-router.delete('/:id', authorize('admin'), deleteBorrower);
+// Profile routes
+router.get('/profile', getProfile);
+router.put('/profile/update', updateProfile);
+router.put('/profile/photo', upload.single('profilePhoto'), updateProfilePhoto);
+router.put('/profile/change-password', updatePassword);
 
 module.exports = router;

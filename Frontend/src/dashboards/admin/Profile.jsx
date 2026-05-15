@@ -12,6 +12,7 @@ import Input from '../../ui/Input';
 import StatusBadge from '../../components/StatusBadge';
 import profileService from '../../services/profileService';
 import staffProfileService from '../../services/staffProfileService';
+import borrowerProfileService from '../../services/borrowerProfileService';
 
 const Profile = () => {
   // Core States
@@ -59,6 +60,7 @@ const Profile = () => {
   // Role based service selection
   const getService = () => {
     if (isStaff) return staffProfileService;
+    if (isBorrower) return borrowerProfileService;
     return profileService;
   };
 
@@ -83,6 +85,8 @@ const Profile = () => {
       let response;
       if (isStaff) {
         response = await service.getStaffProfile();
+      } else if (isBorrower) {
+        response = await service.getBorrowerProfile();
       } else {
         response = await service.getAdminProfile();
       }
@@ -95,7 +99,7 @@ const Profile = () => {
           phoneNumber: data.phoneNumber || data.phone || '',
           dateOfBirth: formatDate(data.dateOfBirth),
           address: data.address || '',
-          primaryBranch: data.primaryBranch || '',
+          primaryBranch: data.primaryBranch || data.residentialArea || '',
           role: data.role || (isStaff ? 'Staff' : 'admin'),
           profilePhoto: data.profilePhoto || '',
           accountStatus: data.accountStatus || data.operationalStatus || (data.isActive ? 'Active' : 'Inactive'),
@@ -143,14 +147,18 @@ const Profile = () => {
         address: profileData.address,
       };
 
-      // Admin can update branch, staff cannot
-      if (!isStaff) {
+      // Admin can update branch, staff cannot, Borrower updates residentialArea
+      if (isBorrower) {
+        updatePayload.residentialArea = profileData.primaryBranch;
+      } else if (!isStaff) {
         updatePayload.primaryBranch = profileData.primaryBranch;
       }
 
       let res;
       if (isStaff) {
         res = await service.updateStaffProfile(updatePayload);
+      } else if (isBorrower) {
+        res = await service.updateBorrowerProfile(updatePayload);
       } else {
         res = await service.updateAdminProfile(updatePayload);
       }
@@ -205,6 +213,8 @@ const Profile = () => {
       let res;
       if (isStaff) {
         res = await service.uploadStaffProfilePhoto(formData);
+      } else if (isBorrower) {
+        res = await service.uploadBorrowerProfilePhoto(formData);
       } else {
         res = await service.updateProfilePhoto(formData);
       }
@@ -266,6 +276,12 @@ const Profile = () => {
       
       if (isStaff) {
         await service.changeStaffPassword({
+          currentPassword: currentPassword || '',
+          newPassword,
+          confirmPassword
+        });
+      } else if (isBorrower) {
+        await service.changeBorrowerPassword({
           currentPassword: currentPassword || '',
           newPassword,
           confirmPassword

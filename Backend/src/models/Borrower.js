@@ -32,6 +32,9 @@ const borrowerSchema = new mongoose.Schema(
     physicalAddress: {
       type: String,
     },
+    residentialArea: {
+      type: String,
+    },
     gender: {
       type: String,
       enum: ['Male', 'Female', 'Other'],

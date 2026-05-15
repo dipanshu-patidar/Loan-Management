@@ -4,8 +4,11 @@ const ActiveLoan = require('../models/ActiveLoan');
 const Notification = require('../models/Notification');
 const Borrower = require('../models/Borrower');
 const User = require('../models/User');
+const RepaymentSchedule = require('../models/RepaymentSchedule');
 const { sendSuccess, sendError } = require('../utils/responseHandler');
 const { createNotification } = require('../utils/notificationHelper');
+const BorrowerAlert = require('../models/BorrowerAlert');
+const LoanActivity = require('../models/LoanActivity');
 
 /**
  * @desc    Get all loan applications with pagination, search, and filters
@@ -301,6 +304,18 @@ const approveApplication = asyncHandler(async (req, res) => {
       approvedBy: req.user._id,
     }], { session });
 
+    // Create records in centralized RepaymentSchedule collection
+    const repaymentEntries = emiSchedule.map(emi => ({
+      loanId: activeLoan[0]._id,
+      borrowerId: application.borrowerId,
+      emiNumber: emi.installmentNumber,
+      dueDate: emi.dueDate,
+      amount: emi.emiAmount,
+      status: 'Pending'
+    }));
+
+    await RepaymentSchedule.insertMany(repaymentEntries, { session });
+
     // COMMISSION LOGIC: If borrower has an assigned agent, generate commission
     if (borrower && borrower.assignedAgent) {
       const Commission = require('../models/Commission');
@@ -320,8 +335,6 @@ const approveApplication = asyncHandler(async (req, res) => {
 
     // Trigger Real-time / Notifications (After commit)
     try {
-      const { createNotification } = require('../utils/notificationHelper');
-      
       // Notify Borrower
       if (borrower) {
         await createNotification({
@@ -333,6 +346,38 @@ const approveApplication = asyncHandler(async (req, res) => {
           receiverRole: 'borrower',
           applicationId: application._id
         });
+
+        // Create BorrowerAlert
+        await BorrowerAlert.create({
+          borrowerId: borrower._id,
+          title: 'Loan Approved',
+          message: `Congratulations! Your loan of R ${loanAmount} has been approved and is now active.`,
+          alertType: 'LOAN_APPROVED',
+          priority: 'High'
+        });
+
+        // Log Activity
+        await LoanActivity.create({
+          loanId: activeLoan[0]._id,
+          borrowerId: borrower._id,
+          title: 'Loan Approved',
+          message: `Your loan application ${application.applicationId} was approved for R ${loanAmount}.`,
+          type: 'StatusChange'
+        });
+
+        // Socket notification for borrower
+        const { getIO } = require('../socket/socketServer'); 
+        const io = getIO();
+        if (io && borrower.userId) {
+          const borrowerUserId = borrower.userId.toString();
+          io.to(borrowerUserId).emit('loan-updated', { 
+            status: 'Approved',
+            loanId: activeLoan[0]._id,
+            message: 'Your loan application has been approved'
+          });
+          io.to(borrowerUserId).emit('dashboard-updated');
+          io.to(borrowerUserId).emit('notification-created');
+        }
       }
 
       if (borrower && borrower.assignedAgent) {
@@ -362,7 +407,6 @@ const approveApplication = asyncHandler(async (req, res) => {
       }
     } catch (notifErr) {
       console.error('Notification failed after approval commit:', notifErr.message);
-      // Don't fail the whole request since loan is already committed
     }
 
     // --- COMMIT TRANSACTION ---
@@ -421,15 +465,32 @@ const rejectApplication = asyncHandler(async (req, res) => {
   const borrower = await Borrower.findById(application.borrowerId);
   if (borrower) {
     try {
-      const { createNotification } = require('../utils/notificationHelper');
       await createNotification({
         title: 'Approval Alert',
         message: `Loan application ${application.applicationId} has been REJECTED. Reason: ${rejectionReason || 'Policy mismatch'}`,
         notificationType: 'Approval Alert',
         priority: 'Important',
-        borrowerId: borrower._id,
+        receiverId: borrower._id,
+        receiverRole: 'borrower',
         applicationId: application._id
       });
+
+      // Create BorrowerAlert
+      await BorrowerAlert.create({
+        borrowerId: borrower._id,
+        title: 'Application Rejected',
+        message: `Your loan application ${application.applicationId} was rejected. Reason: ${rejectionReason || 'N/A'}`,
+        alertType: 'REJECTION',
+        priority: 'High'
+      });
+
+      // Socket notification
+      const { getIO } = require('../socket/socketServer'); 
+      const io = getIO();
+      if (io && borrower.userId) {
+        io.to(borrower.userId.toString()).emit('dashboard-updated');
+        io.to(borrower.userId.toString()).emit('notification-created');
+      }
     } catch (err) {}
   }
 
@@ -475,15 +536,32 @@ const holdApplication = asyncHandler(async (req, res) => {
   const borrower = await Borrower.findById(application.borrowerId);
   if (borrower) {
     try {
-      const { createNotification } = require('../utils/notificationHelper');
       await createNotification({
         title: 'Application Alert',
         message: `Loan application ${application.applicationId} has been placed ON HOLD.`,
         notificationType: 'System Alert',
         priority: 'Normal',
-        borrowerId: borrower._id,
+        receiverId: borrower._id,
+        receiverRole: 'borrower',
         applicationId: application._id
       });
+
+      // Create BorrowerAlert
+      await BorrowerAlert.create({
+        borrowerId: borrower._id,
+        title: 'Application On Hold',
+        message: `Your loan application ${application.applicationId} is currently on hold. Reason: ${holdReason || 'Review pending'}`,
+        alertType: 'SYSTEM_ALERT',
+        priority: 'Medium'
+      });
+
+      // Socket notification
+      const { getIO } = require('../socket/socketServer'); 
+      const io = getIO();
+      if (io && borrower.userId) {
+        io.to(borrower.userId.toString()).emit('dashboard-updated');
+        io.to(borrower.userId.toString()).emit('notification-created');
+      }
     } catch (err) {}
   }
 

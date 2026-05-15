@@ -1,35 +1,117 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   History, Download, Eye, FileText, 
   CheckCircle2, Clock, AlertCircle, 
   ArrowRight, Filter, Search, Calendar,
   Wallet, TrendingUp, X,
   Printer, Share2, ShieldCheck, Activity,
-  ChevronRight, CreditCard
+  ChevronRight, CreditCard, Loader2, PieChart, Landmark
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
 import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
 import StatusBadge from '../../components/StatusBadge';
+import api from '../../services/api';
+import { toast } from 'react-hot-toast';
+import { format } from 'date-fns';
+import { useSocket } from '../../context/SocketContext';
 
 const PaymentHistory = () => {
   const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [receiptData, setReceiptData] = useState(null);
   const [isReceiptDrawerOpen, setIsReceiptDrawerOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [historyData, setHistoryData] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const { socket } = useSocket();
 
-  const transactions = [
-    { id: 'TXN-99821', loanId: 'L-74291', emi: 14, amount: 'R825.50', date: '2026-04-14', method: 'Bank Transfer', status: 'Verified' },
-    { id: 'TXN-99712', loanId: 'L-74291', emi: 13, amount: 'R975.50', date: '2026-03-15', method: 'EFT', status: 'Verified' },
-    { id: 'TXN-99605', loanId: 'L-74291', emi: 12, amount: 'R825.50', date: '2026-02-15', method: 'Mobile Payment', status: 'Verified' },
-    { id: 'TXN-99550', loanId: 'L-74291', emi: 11, amount: 'R825.50', date: '2026-01-15', method: 'Cash Deposit', status: 'Completed' },
-    { id: 'TXN-88391', loanId: 'L-74291', emi: 15, amount: 'R825.50', date: '2026-05-09', method: 'Bank Transfer', status: 'Pending Verification' },
-  ];
+  useEffect(() => {
+    fetchHistory();
 
-  const handleViewReceipt = (txn) => {
-    setSelectedTransaction(txn);
-    setIsReceiptDrawerOpen(true);
+    if (socket) {
+      socket.on('payment-verified', () => {
+        fetchHistory();
+      });
+      socket.on('payment-rejected', () => {
+        fetchHistory();
+      });
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('payment-verified');
+        socket.off('payment-rejected');
+      }
+    };
+  }, [socket]);
+
+  const fetchHistory = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/borrower/payment-history');
+      if (response.data.success) {
+        setHistoryData(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching history:', error);
+      toast.error('Failed to load payment history');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleViewReceipt = async (txn) => {
+    try {
+      setSelectedTransaction(txn);
+      setLoading(true);
+      const response = await api.get(`/borrower/payment-receipt/${txn._id}`);
+      if (response.data.success) {
+        setReceiptData(response.data.data);
+        setIsReceiptDrawerOpen(true);
+      }
+    } catch (error) {
+      toast.error('Failed to load receipt details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredTransactions = historyData?.transactions?.filter(txn => 
+    txn.transactionId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    txn.loanCode?.toLowerCase().includes(searchQuery.toLowerCase())
+  ) || [];
+
+  const handleExport = async (format) => {
+    try {
+      toast.loading(`Exporting as ${format}...`);
+      const response = await api.post('/borrower/export-payment-history', { format });
+      if (response.data.success) {
+        toast.dismiss();
+        toast.success(`Export logic triggered. ${response.data.message}`);
+        setIsExportModalOpen(false);
+      }
+    } catch (error) {
+      toast.dismiss();
+      toast.error('Export failed');
+    }
+  };
+
+  const handleDownloadStatement = async () => {
+    try {
+      toast.loading('Generating statement...');
+      const response = await api.post('/borrower/download-payment-statement');
+      if (response.data.success) {
+        toast.dismiss();
+        toast.success(`Statement logic triggered. ${response.data.message}`);
+        setIsStatementModalOpen(false);
+      }
+    } catch (error) {
+      toast.dismiss();
+      toast.error('Statement download failed');
+    }
   };
 
   return (
@@ -63,20 +145,28 @@ const PaymentHistory = () => {
          <div className="flex flex-col md:flex-row items-center justify-between max-w-4xl mx-auto gap-8 md:gap-4">
             <WorkflowStep label="EMI Paid" status="completed" icon={Wallet} />
             <WorkflowArrow active />
-            <WorkflowStep label="Proof Verified" status="completed" icon={ShieldCheck} />
-            <WorkflowArrow active />
-            <WorkflowStep label="Confirmed" status="active" icon={CheckCircle2} />
+            <WorkflowStep 
+               label="Proof Verified" 
+               status={historyData?.transactions?.[0]?.paymentStatus === 'Verified' ? 'completed' : 'active'} 
+               icon={ShieldCheck} 
+            />
+            <WorkflowArrow active={historyData?.transactions?.[0]?.paymentStatus === 'Verified'} />
+            <WorkflowStep 
+               label="Confirmed" 
+               status={historyData?.transactions?.[0]?.paymentStatus === 'Verified' ? 'active' : 'pending'} 
+               icon={CheckCircle2} 
+            />
             <WorkflowArrow />
-            <WorkflowStep label="Receipt Generated" status="pending" icon={Printer} />
+            <WorkflowStep label="Receipt Generated" status={historyData?.transactions?.[0]?.paymentStatus === 'Verified' ? 'completed' : 'pending'} icon={Printer} />
          </div>
       </section>
 
       {/* 3. ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Total Paid EMIs" value="14" icon={History} color="navy" />
-        <StatCard title="Total Paid Amount" value="R11,557" icon={Wallet} color="blue" />
-        <StatCard title="Pending Verification" value="01" icon={Clock} color="accent" />
-        <StatCard title="Last Payment Date" value="14 Apr 2026" icon={Calendar} color="green" />
+        <StatCard title="Total Paid EMIs" value={loading ? "..." : (historyData?.stats?.totalPaidEmis || "0")} icon={History} color="navy" />
+        <StatCard title="Total Paid Amount" value={loading ? "..." : `R${(historyData?.stats?.totalPaidAmount || 0).toLocaleString()}`} icon={Wallet} color="blue" />
+        <StatCard title="Pending Verification" value={loading ? "..." : (historyData?.stats?.pendingVerifications || "0")} icon={Clock} color="accent" />
+        <StatCard title="Last Payment Date" value={loading ? "..." : (historyData?.stats?.lastPaymentDate ? format(new Date(historyData.stats.lastPaymentDate), 'dd MMM yyyy') : "N/A")} icon={Calendar} color="green" />
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
@@ -107,28 +197,28 @@ const PaymentHistory = () => {
                        </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                       {transactions.map((txn, i) => (
-                          <tr key={i} className="group hover:bg-slate-50/50 transition-colors">
-                             <td className="px-8 py-5 text-[10px] font-black text-slate-900">{txn.id}</td>
+                       {filteredTransactions.map((txn) => (
+                          <tr key={txn._id} className="group hover:bg-slate-50/50 transition-colors">
+                             <td className="px-8 py-5 text-[10px] font-black text-slate-900">{txn.transactionId}</td>
                              <td className="px-8 py-5">
                                 <div className="space-y-0.5">
-                                   <p className="text-[11px] font-black text-slate-900">{txn.loanId}</p>
-                                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">EMI #{txn.emi}</p>
+                                   <p className="text-[11px] font-black text-slate-900">{txn.loanCode}</p>
+                                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{txn.paymentType}</p>
                                 </div>
                              </td>
-                             <td className="px-8 py-5 text-xs font-black text-slate-900">{txn.amount}</td>
-                             <td className="px-8 py-5 text-xs font-bold text-slate-500">{txn.date}</td>
+                             <td className="px-8 py-5 text-xs font-black text-slate-900">R{txn.paymentAmount?.toLocaleString()}</td>
+                             <td className="px-8 py-5 text-xs font-bold text-slate-500">{format(new Date(txn.paymentDate), 'dd MMM yyyy')}</td>
                              <td className="px-8 py-5">
-                                <MethodBadge method={txn.method} />
+                                <MethodBadge method={txn.paymentMethod} />
                              </td>
                              <td className="px-8 py-5">
                                 <span className={cn(
                                    "px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border",
-                                   txn.status === 'Verified' || txn.status === 'Completed' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                                   txn.status === 'Rejected' ? "bg-rose-50 text-rose-600 border-rose-100" :
+                                   txn.paymentStatus === 'Verified' || txn.paymentStatus === 'Completed' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                                   txn.paymentStatus === 'Rejected' ? "bg-rose-50 text-rose-600 border-rose-100" :
                                    "bg-amber-50 text-amber-600 border-amber-100"
                                 )}>
-                                   {txn.status}
+                                   {txn.paymentStatus}
                                 </span>
                              </td>
                              <td className="px-8 py-5 text-right">
@@ -139,7 +229,10 @@ const PaymentHistory = () => {
                                    >
                                       <Eye size={16} />
                                    </button>
-                                   <button className="p-2 text-slate-400 hover:text-primary hover:bg-white rounded-lg border border-transparent hover:border-slate-100 transition-all shadow-sm">
+                                   <button 
+                                       onClick={() => window.open(txn.receiptImage, '_blank')}
+                                       className="p-2 text-slate-400 hover:text-primary hover:bg-white rounded-lg border border-transparent hover:border-slate-100 transition-all shadow-sm"
+                                    >
                                       <Download size={16} />
                                    </button>
                                 </div>
@@ -161,18 +254,26 @@ const PaymentHistory = () => {
                  <PieChart size={18} className="text-primary" /> Payment Summary
               </h3>
               <div className="space-y-4 relative z-10">
-                 <SummaryCard label="Total Amount Paid" value="R11,557" color="text-emerald-500" />
-                 <SummaryCard label="Completed EMIs" value="14 / 24" color="text-primary" />
-                 <SummaryCard label="Outstanding Balance" value="R8,450" color="text-slate-900" />
-                 <SummaryCard label="Penalties Paid" value="R150" color="text-rose-500" />
+                 <SummaryCard label="Total Amount Paid" value={`R${(historyData?.paymentSummary?.totalPaid || 0).toLocaleString()}`} color="text-emerald-500" />
+                 <SummaryCard label="Completed EMIs" value={historyData?.paymentSummary?.completedEmis || "0 / 0"} color="text-primary" />
+                 <SummaryCard label="Outstanding Balance" value={`R${(historyData?.paymentSummary?.balance || 0).toLocaleString()}`} color="text-slate-900" />
+                 <SummaryCard label="Penalties Paid" value={`R${(historyData?.paymentSummary?.penalties || 0).toLocaleString()}`} color="text-rose-500" />
               </div>
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 relative z-10">
                  <div className="flex justify-between items-center mb-2">
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Repayment Health</span>
-                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Excellent</span>
+                    <span className={cn(
+                       "text-[10px] font-black uppercase tracking-widest",
+                       historyData?.paymentSummary?.health === 'Excellent' ? "text-emerald-500" :
+                       historyData?.paymentSummary?.health === 'Risky' ? "text-rose-500" : "text-amber-500"
+                    )}>{historyData?.paymentSummary?.health || 'Moderate'}</span>
                  </div>
                  <div className="h-1.5 w-full bg-white rounded-full overflow-hidden border border-slate-100">
-                    <div className="h-full bg-emerald-500 w-[58%]" />
+                    <div className={cn(
+                       "h-full transition-all duration-1000",
+                       historyData?.paymentSummary?.health === 'Excellent' ? "bg-emerald-500 w-[100%]" :
+                       historyData?.paymentSummary?.health === 'Risky' ? "bg-rose-500 w-[30%]" : "bg-amber-500 w-[60%]"
+                    )} />
                  </div>
               </div>
            </section>
@@ -183,10 +284,18 @@ const PaymentHistory = () => {
                  <Activity size={18} className="text-primary" /> Recent Activities
               </h3>
               <div className="space-y-8 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-[1px] before:bg-slate-100">
-                 <ActivityItem icon={CheckCircle2} title="Payment Verified" desc="TXN-99821 has been verified" time="2 hours ago" color="text-emerald-500" />
-                 <ActivityItem icon={Clock} title="Proof Submitted" desc="Pending verification for TXN-88391" time="5 hours ago" color="text-amber-500" />
-                 <ActivityItem icon={Printer} title="Receipt Generated" desc="Receipt for EMI #14 is ready" time="1 day ago" color="text-primary" />
-                 <ActivityItem icon={Wallet} title="EMI Paid" desc="EMI #14 submitted for review" time="1 day ago" color="text-blue-500" />
+                 {historyData?.activities?.length > 0 ? historyData.activities.map((act) => (
+                    <ActivityItem 
+                       key={act._id}
+                       icon={act.type === 'Payment' ? Wallet : act.type === 'Alert' ? AlertCircle : Activity} 
+                       title={act.title} 
+                       desc={act.message} 
+                       time={format(new Date(act.createdAt), 'dd MMM, HH:mm')} 
+                       color={act.severity === 'error' ? "text-rose-500" : act.severity === 'success' ? "text-emerald-500" : "text-primary"} 
+                    />
+                 )) : (
+                    <p className="text-center py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">No recent activities</p>
+                 )}
               </div>
            </section>
         </div>
@@ -210,18 +319,18 @@ const PaymentHistory = () => {
                         </div>
                         <div>
                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount Verified</p>
-                           <h2 className="text-3xl font-black text-slate-900 tracking-tight">{selectedTransaction?.amount}</h2>
+                           <h2 className="text-3xl font-black text-slate-900 tracking-tight">R{receiptData?.payment?.amount?.toLocaleString() || "0"}</h2>
                         </div>
-                        <StatusBadge status={selectedTransaction?.status} />
+                        <StatusBadge status={receiptData?.payment?.status} />
                      </div>
 
                      <div className="space-y-6">
-                        <ReceiptRow label="Borrower" value="John Doe" />
-                        <ReceiptRow label="Transaction ID" value={selectedTransaction?.id} />
-                        <ReceiptRow label="Loan Account" value={selectedTransaction?.loanId} />
+                        <ReceiptRow label="Borrower" value={receiptData?.borrower?.fullName || "N/A"} />
+                        <ReceiptRow label="Transaction ID" value={receiptData?.payment?.transactionId || "N/A"} />
+                        <ReceiptRow label="Loan Account" value={receiptData?.loan?.loanCode || "N/A"} />
                         <ReceiptRow label="EMI Number" value={`#${selectedTransaction?.emi}`} />
-                        <ReceiptRow label="Payment Date" value={selectedTransaction?.date} />
-                        <ReceiptRow label="Method" value={selectedTransaction?.method} />
+                        <ReceiptRow label="Payment Date" value={receiptData?.payment?.date ? format(new Date(receiptData.payment.date), 'dd MMM yyyy') : "N/A"} />
+                        <ReceiptRow label="Method" value={receiptData?.payment?.method || "N/A"} />
                      </div>
 
                      <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
@@ -267,13 +376,13 @@ const PaymentHistory = () => {
                      </select>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
-                     <button className="py-3 bg-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest">PDF</button>
-                     <button className="py-3 bg-slate-50 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:text-primary transition-all">Excel</button>
-                     <button className="py-3 bg-slate-50 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:text-primary transition-all">CSV</button>
+                     <button onClick={() => handleExport('PDF')} className="py-3 bg-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest">PDF</button>
+                     <button onClick={() => handleExport('Excel')} className="py-3 bg-slate-50 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:text-primary transition-all">Excel</button>
+                     <button onClick={() => handleExport('CSV')} className="py-3 bg-slate-50 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:text-primary transition-all">CSV</button>
                   </div>
                   <div className="flex gap-3 pt-4">
                      <Button variant="secondary" onClick={() => setIsExportModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button onClick={() => setIsExportModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Export Now</Button>
+                     <Button onClick={() => handleExport('PDF')} className="flex-1 font-black uppercase text-[10px]">Export Now</Button>
                   </div>
                </div>
             </Modal>
@@ -315,7 +424,7 @@ const PaymentHistory = () => {
                   </div>
                   <div className="flex gap-3 pt-4">
                      <Button variant="secondary" onClick={() => setIsStatementModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button onClick={() => setIsStatementModalOpen(false)} className="flex-1 font-black uppercase text-[10px] shadow-lg shadow-primary/20">Download PDF</Button>
+                     <Button onClick={handleDownloadStatement} className="flex-1 font-black uppercase text-[10px] shadow-lg shadow-primary/20">Download PDF</Button>
                   </div>
                </div>
             </Modal>
@@ -412,14 +521,12 @@ const MethodBadge = ({ method }) => {
    );
 };
 
-const ReceiptRow = ({ label, value }) => (
+const ReceiptRow = ({ label, value, color }) => (
    <div className="flex items-center justify-between py-1">
       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</span>
-      <span className="text-sm font-black text-slate-900">{value}</span>
+      <span className={cn("text-sm font-black", color || "text-slate-900")}>{value}</span>
    </div>
 );
 
-// PieChart and other missing icons
-import { PieChart, Landmark } from 'lucide-react';
 
 export default PaymentHistory;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Bell, CheckCheck, Trash2, Eye, 
   Clock, AlertCircle, CheckCircle2, 
@@ -14,6 +14,11 @@ import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
 import StatusBadge from '../../components/StatusBadge';
 
+import { toast } from 'react-hot-toast';
+import { format } from 'date-fns';
+import { useSocket } from '../../context/SocketContext';
+import api from '../../services/api';
+
 const BorrowerNotifications = () => {
   const navigate = useNavigate();
   const [selectedNotification, setSelectedNotification] = useState(null);
@@ -21,68 +26,57 @@ const BorrowerNotifications = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [filterType, setFilterType] = useState('All');
+  const [loading, setLoading] = useState(false);
+  const { socket } = useSocket();
 
-  const [notifications, setNotifications] = useState([
-    { 
-      id: 1, 
-      type: 'EMI Reminder', 
-      message: 'Your EMI for Personal Loan (L-74291) is due in 5 days.', 
-      loanId: 'L-74291', 
-      date: '2026-05-10', 
-      time: '09:00 AM', 
-      status: 'Unread', 
-      priority: 'Urgent',
-      icon: Clock,
-      color: 'text-amber-500',
-      bg: 'bg-amber-50'
-    },
-    { 
-      id: 2, 
-      type: 'Payment Verified', 
-      message: 'Payment of R825.50 for EMI #14 has been verified.', 
-      loanId: 'L-74291', 
-      date: '2026-04-16', 
-      time: '02:30 PM', 
-      status: 'Read', 
-      priority: 'Normal',
-      icon: CheckCircle2,
-      color: 'text-emerald-500',
-      bg: 'bg-emerald-50'
-    },
-    { 
-      id: 3, 
-      type: 'Loan Approved', 
-      message: 'Congratulations! Your Personal Loan application has been approved.', 
-      loanId: 'L-74291', 
-      date: '2026-01-05', 
-      time: '11:15 AM', 
-      status: 'Read', 
-      priority: 'Important',
-      icon: ShieldCheck,
-      color: 'text-primary',
-      bg: 'bg-primary/5'
-    },
-    { 
-      id: 4, 
-      type: 'Document Request', 
-      message: 'Please upload a clear copy of your latest payslip for verification.', 
-      loanId: 'L-74291', 
-      date: '2026-05-09', 
-      time: '10:00 AM', 
-      status: 'Unread', 
-      priority: 'Urgent',
-      icon: FileText,
-      color: 'text-rose-500',
-      bg: 'bg-rose-50'
-    },
-  ]);
+  const [notifications, setNotifications] = useState([]);
 
-  const handleMarkAsRead = (id) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, status: 'Read' } : n));
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  useEffect(() => {
+    if (socket) {
+      socket.on('new-notification', (notif) => {
+        setNotifications(prev => [notif, ...prev]);
+        toast.success(notif.title, {
+          icon: '🔔',
+          duration: 5000
+        });
+      });
+    }
+    return () => {
+      if (socket) socket.off('new-notification');
+    };
+  }, [socket]);
+
+  const fetchNotifications = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/borrower/communications/notifications');
+      if (response.data.success) {
+        setNotifications(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDelete = () => {
-    setNotifications(prev => prev.filter(n => n.id !== selectedNotification.id));
+  const handleMarkAsRead = async (id) => {
+    try {
+      await api.patch(`/borrower/communications/notifications/${id}/read`);
+      setNotifications(prev => prev.map(n => n._id === id ? { ...n, isRead: true, status: 'READ' } : n));
+    } catch (error) {
+      toast.error('Failed to mark as read');
+    }
+  };
+
+  const handleDelete = async () => {
+    // API endpoint for delete not requested in prompt, but I can implement if needed.
+    // For now, local delete
+    setNotifications(prev => prev.filter(n => n._id !== selectedNotification._id));
     setIsDeleteModalOpen(false);
     setIsDrawerOpen(false);
   };
@@ -90,7 +84,26 @@ const BorrowerNotifications = () => {
   const handleView = (notif) => {
     setSelectedNotification(notif);
     setIsDrawerOpen(true);
-    if (notif.status === 'Unread') handleMarkAsRead(notif.id);
+    if (!notif.isRead) handleMarkAsRead(notif._id);
+  };
+
+  const getIcon = (type) => {
+    switch (type) {
+      case 'NewMessage': return Mail;
+      case 'LOAN_APPROVAL': return ShieldCheck;
+      case 'DUE_REMINDER': return Clock;
+      case 'PAYMENT_UPDATE': return CheckCircle2;
+      case 'DOCUMENT_REQUEST': return FileText;
+      default: return Bell;
+    }
+  };
+
+  const getColor = (priority) => {
+    switch (priority?.toUpperCase()) {
+      case 'URGENT': return 'text-rose-500';
+      case 'IMPORTANT': return 'text-primary';
+      default: return 'text-slate-400';
+    }
   };
 
   const filteredNotifications = filterType === 'All' 
@@ -137,10 +150,10 @@ const BorrowerNotifications = () => {
 
       {/* 3. ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="EMI Reminders" value="01" icon={Clock} color="amber" />
-        <StatCard title="Payment Updates" value="12" icon={CheckCircle2} color="green" />
-        <StatCard title="Loan Alerts" value="05" icon={ShieldCheck} color="navy" />
-        <StatCard title="Unread" value={notifications.filter(n => n.status === 'Unread').length} icon={Bell} color="rose" />
+        <StatCard title="EMI Reminders" value={notifications.filter(n => n.type === 'DUE_REMINDER').length} icon={Clock} color="amber" />
+        <StatCard title="Payment Updates" value={notifications.filter(n => n.type === 'PAYMENT_UPDATE').length} icon={CheckCircle2} color="green" />
+        <StatCard title="Loan Alerts" value={notifications.filter(n => n.type === 'LOAN_APPROVAL').length} icon={ShieldCheck} color="navy" />
+        <StatCard title="Unread" value={notifications.filter(n => !n.isRead).length} icon={Bell} color="rose" />
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
@@ -174,62 +187,64 @@ const BorrowerNotifications = () => {
 
            {/* LIST */}
            <section className="space-y-4">
-              {filteredNotifications.length > 0 ? filteredNotifications.map((notif) => (
-                 <motion.div 
-                  layout
-                  key={notif.id}
-                  onClick={() => handleView(notif)}
-                  className={cn(
-                    "group relative bg-white p-6 rounded-[2.5rem] border transition-all cursor-pointer",
-                    notif.status === 'Unread' ? "border-primary/20 shadow-lg shadow-primary/5 bg-primary/[0.01]" : "border-slate-100 shadow-premium hover:border-primary/20"
-                  )}
-                 >
-                    <div className="flex items-start gap-6">
-                       <div className={cn("w-14 h-14 rounded-2xl shrink-0 flex items-center justify-center transition-transform group-hover:scale-110", notif.bg, notif.color)}>
-                          <notif.icon size={24} />
-                       </div>
-                       <div className="flex-1 min-w-0 space-y-2">
-                          <div className="flex items-center justify-between">
-                             <div className="flex items-center gap-3">
-                                <span className={cn("text-[10px] font-black uppercase tracking-[0.15em]", notif.color)}>{notif.type}</span>
-                                <span className={cn(
-                                   "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border",
-                                   notif.priority === 'Urgent' ? "bg-rose-50 text-rose-500 border-rose-100" : "bg-slate-50 text-slate-400 border-slate-100"
-                                )}>{notif.priority}</span>
-                             </div>
-                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{notif.date}</p>
-                          </div>
-                          <p className={cn("text-sm leading-relaxed", notif.status === 'Unread' ? "font-black text-slate-900" : "font-medium text-slate-500")}>
-                             {notif.message}
-                          </p>
-                          <div className="flex items-center gap-4 pt-1">
-                             <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                <Bookmark size={12} /> {notif.loanId}
-                             </div>
-                             <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                <Clock size={12} /> {notif.time}
-                             </div>
-                          </div>
-                       </div>
-                       <div className="flex flex-col gap-2">
-                          <button 
-                           onClick={(e) => { e.stopPropagation(); handleMarkAsRead(notif.id); }}
-                           className="p-2.5 text-slate-300 hover:text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all"
-                           title="Mark as Read"
-                          >
-                             <CheckCheck size={18} />
-                          </button>
-                          <button 
-                           onClick={(e) => { e.stopPropagation(); setSelectedNotification(notif); setIsDeleteModalOpen(true); }}
-                           className="p-2.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
-                           title="Delete"
-                          >
-                             <Trash2 size={18} />
-                          </button>
-                       </div>
-                    </div>
-                 </motion.div>
-              )) : (
+              {filteredNotifications.length > 0 ? filteredNotifications.map((notif) => {
+                 const Icon = getIcon(notif.type);
+                 return (
+                   <motion.div 
+                    layout
+                    key={notif._id}
+                    onClick={() => handleView(notif)}
+                    className={cn(
+                      "group relative bg-white p-6 rounded-[2.5rem] border transition-all cursor-pointer",
+                      !notif.isRead ? "border-primary/20 shadow-lg shadow-primary/5 bg-primary/[0.01]" : "border-slate-100 shadow-premium hover:border-primary/20"
+                    )}
+                   >
+                      <div className="flex items-start gap-6">
+                         <div className={cn("w-14 h-14 rounded-2xl shrink-0 flex items-center justify-center transition-transform group-hover:scale-110", !notif.isRead ? "bg-primary/5 text-primary" : "bg-slate-50 text-slate-400")}>
+                            <Icon size={24} />
+                         </div>
+                         <div className="flex-1 min-w-0 space-y-2">
+                            <div className="flex items-center justify-between">
+                               <div className="flex items-center gap-3">
+                                  <span className={cn("text-[10px] font-black uppercase tracking-[0.15em]", getColor(notif.priority))}>{notif.type}</span>
+                                  <span className={cn(
+                                     "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border",
+                                     notif.priority?.toUpperCase() === 'URGENT' ? "bg-rose-50 text-rose-500 border-rose-100" : "bg-slate-50 text-slate-400 border-slate-100"
+                                  )}>{notif.priority}</span>
+                               </div>
+                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{format(new Date(notif.createdAt), 'dd MMM')}</p>
+                            </div>
+                            <p className={cn("text-sm leading-relaxed", !notif.isRead ? "font-black text-slate-900" : "font-medium text-slate-500")}>
+                               {notif.message}
+                            </p>
+                            <div className="flex items-center gap-4 pt-1">
+                               <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                  <Clock size={12} /> {format(new Date(notif.createdAt), 'HH:mm')}
+                               </div>
+                            </div>
+                         </div>
+                         <div className="flex flex-col gap-2">
+                            {!notif.isRead && (
+                              <button 
+                               onClick={(e) => { e.stopPropagation(); handleMarkAsRead(notif._id); }}
+                               className="p-2.5 text-slate-300 hover:text-emerald-500 hover:bg-emerald-50 rounded-xl transition-all"
+                               title="Mark as Read"
+                              >
+                                 <CheckCheck size={18} />
+                              </button>
+                            )}
+                            <button 
+                             onClick={(e) => { e.stopPropagation(); setSelectedNotification(notif); setIsDeleteModalOpen(true); }}
+                             className="p-2.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                             title="Delete"
+                            >
+                               <Trash2 size={18} />
+                            </button>
+                         </div>
+                      </div>
+                   </motion.div>
+                 );
+              }) : (
                 <div className="bg-white p-20 rounded-[3rem] border border-slate-100 shadow-premium text-center space-y-6">
                    <div className="w-20 h-20 bg-slate-50 text-slate-200 rounded-full flex items-center justify-center mx-auto">
                       <Bell size={40} />
@@ -285,8 +300,8 @@ const BorrowerNotifications = () => {
                   </div>
                   <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
                      <div className="space-y-6">
-                        <div className={cn("w-16 h-16 rounded-[1.5rem] flex items-center justify-center shadow-lg", selectedNotification.bg, selectedNotification.color)}>
-                           <selectedNotification.icon size={32} />
+                        <div className={cn("w-16 h-16 rounded-[1.5rem] flex items-center justify-center shadow-lg bg-primary/5 text-primary")}>
+                           {selectedNotification && React.createElement(getIcon(selectedNotification.type), { size: 32 })}
                         </div>
                         <div className="space-y-2">
                            <h2 className="text-2xl font-black text-slate-900 tracking-tight">{selectedNotification.type}</h2>
@@ -295,9 +310,8 @@ const BorrowerNotifications = () => {
                      </div>
 
                      <div className="space-y-6">
-                        <DrawerRow label="Time Sent" value={`${selectedNotification.date} at ${selectedNotification.time}`} />
-                        <DrawerRow label="Related Loan" value={selectedNotification.loanId} />
-                        <DrawerRow label="Priority" value={selectedNotification.priority} color={selectedNotification.priority === 'Urgent' ? 'text-rose-500' : 'text-primary'} />
+                        <DrawerRow label="Time Sent" value={selectedNotification.createdAt ? format(new Date(selectedNotification.createdAt), 'dd MMM yyyy HH:mm') : ''} />
+                        <DrawerRow label="Priority" value={selectedNotification.priority} color={getColor(selectedNotification.priority)} />
                      </div>
 
                      <div className="pt-8 space-y-3">

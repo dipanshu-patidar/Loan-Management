@@ -49,12 +49,31 @@ const initSocket = (server) => {
       socket.join(conversationId);
     });
 
+    socket.on('join-conversation', (conversationId) => {
+      socket.join(conversationId);
+      socket.join(`conversation_${conversationId}`);
+    });
+
     // Typing indicators
     socket.on('typing', ({ roomId, conversationId, userId, userName }) => {
       const targetId = roomId || conversationId;
       if (targetId) {
         socket.to(targetId).emit('typing', { userId, userName });
         socket.to(targetId).emit('userTyping', { conversationId: targetId, userId, userName, isTyping: true });
+      }
+    });
+
+    socket.on('typing-start', ({ conversationId, userId, userName }) => {
+      if (conversationId) {
+        socket.to(conversationId).emit('typing-status', { conversationId, userId, userName, isTyping: true });
+        socket.to(`conversation_${conversationId}`).emit('typing-status', { conversationId, userId, userName, isTyping: true });
+      }
+    });
+
+    socket.on('typing-stop', ({ conversationId, userId }) => {
+      if (conversationId) {
+        socket.to(conversationId).emit('typing-status', { conversationId, userId, isTyping: false });
+        socket.to(`conversation_${conversationId}`).emit('typing-status', { conversationId, userId, isTyping: false });
       }
     });
 
@@ -66,12 +85,6 @@ const initSocket = (server) => {
       }
     });
 
-    socket.on('stop_typing', ({ roomId, userId }) => {
-      if (roomId) {
-        socket.to(roomId).emit('stop_typing', { userId });
-      }
-    });
-
     // Mark read
     socket.on('mark_read', ({ roomId, userId }) => {
       socket.to(roomId).emit('mark_read', { userId });
@@ -79,6 +92,11 @@ const initSocket = (server) => {
 
     socket.on('markRead', ({ conversationId, userId }) => {
       socket.to(conversationId).emit('unreadUpdated', { conversationId, userId });
+    });
+
+    socket.on('mark-messages-read', ({ conversationId, userId }) => {
+      socket.to(conversationId).emit('messages-read', { conversationId, userId });
+      socket.to(`conversation_${conversationId}`).emit('messages-read', { conversationId, userId });
     });
 
     socket.on('disconnect', () => {

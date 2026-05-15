@@ -21,6 +21,7 @@ import agentService from '../../services/agentService';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2 } from 'lucide-react';
+import repaymentService from '../../services/repaymentService';
 
 const ActiveLoans = () => {
   const [loans, setLoans] = useState([]);
@@ -45,6 +46,8 @@ const ActiveLoans = () => {
   const [isDuePaymentsLoading, setIsDuePaymentsLoading] = useState(false);
 
   const [adminNotes, setAdminNotes] = useState('');
+  const [repaymentSchedule, setRepaymentSchedule] = useState([]);
+  const [isScheduleLoading, setIsScheduleLoading] = useState(false);
 
   const fetchDashboardData = async () => {
     try {
@@ -75,6 +78,46 @@ const ActiveLoans = () => {
     if (type === 'assign-agent') {
       fetchAvailableAgents();
       setAssignmentData({ agentId: '', notes: '', priority: 'Low' });
+    }
+
+    if (type === 'schedule') {
+      fetchRepaymentSchedule(loan._id);
+    }
+  };
+
+  const fetchRepaymentSchedule = async (loanId) => {
+    try {
+      setIsScheduleLoading(true);
+      const res = await repaymentService.getLoanSchedule(loanId);
+      setRepaymentSchedule(res.data.data || []);
+    } catch (err) {
+      toast.error('Failed to fetch real-time schedule');
+    } finally {
+      setIsScheduleLoading(false);
+    }
+  };
+
+  const handleWaivePenalty = async (repaymentId) => {
+    if (!window.confirm('Are you sure you want to waive this penalty?')) return;
+    try {
+      await repaymentService.waivePenalty(repaymentId);
+      toast.success('Penalty waived');
+      fetchRepaymentSchedule(selectedLoan._id);
+      fetchDashboardData();
+    } catch (err) {
+      toast.error('Failed to waive penalty');
+    }
+  };
+
+  const handleMarkDispute = async (repaymentId) => {
+    const reason = window.prompt('Enter dispute reason:');
+    if (!reason) return;
+    try {
+      await repaymentService.markDispute(repaymentId, reason);
+      toast.success('Marked as Disputed');
+      fetchRepaymentSchedule(selectedLoan._id);
+    } catch (err) {
+      toast.error('Failed to mark dispute');
     }
   };
 
@@ -610,19 +653,37 @@ const ActiveLoans = () => {
                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase">Due Date</th>
                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase">Amount</th>
                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase text-center">Status</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase text-right">Actions</th>
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                     {selectedLoan?.repaymentSchedule?.map((schedule, i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition-colors">
-                           <td className="px-6 py-4 font-bold text-slate-900">{schedule.installmentNumber}</td>
-                           <td className="px-6 py-4 text-xs font-bold text-slate-500">{new Date(schedule.dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                           <td className="px-6 py-4 font-black text-slate-900">R {schedule.emiAmount.toLocaleString()}</td>
-                           <td className="px-6 py-4 text-center">
-                              <StatusBadge status={schedule.paymentStatus} />
-                           </td>
-                        </tr>
-                     ))}
+                      {isScheduleLoading ? (
+                        <tr><td colSpan="5" className="py-10 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></td></tr>
+                      ) : repaymentSchedule.length > 0 ? repaymentSchedule.map((schedule, i) => (
+                         <tr key={schedule._id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4 font-bold text-slate-900">{schedule.emiNumber}</td>
+                            <td className="px-6 py-4 text-xs font-bold text-slate-500">{new Date(schedule.dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                            <td className="px-6 py-4">
+                               <div className="flex flex-col">
+                                  <span className="font-black text-slate-900">R {schedule.amount.toLocaleString()}</span>
+                                  {schedule.penaltyAmount > 0 && <span className="text-[10px] font-bold text-rose-500">+ R {schedule.penaltyAmount} Late Fee</span>}
+                               </div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                               <StatusBadge status={schedule.status} />
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                               <div className="flex items-center justify-end gap-2">
+                                  {schedule.penaltyAmount > 0 && (
+                                     <button onClick={() => handleWaivePenalty(schedule._id)} className="p-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 transition-colors" title="Waive Penalty"><ShieldCheck size={14} /></button>
+                                  )}
+                                  <button onClick={() => handleMarkDispute(schedule._id)} className="p-1.5 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition-colors" title="Mark Dispute"><AlertTriangle size={14} /></button>
+                               </div>
+                            </td>
+                         </tr>
+                      )) : (
+                        <tr><td colSpan="5" className="py-10 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">No schedule data found</td></tr>
+                      )}
                   </tbody>
                </table>
             </div>

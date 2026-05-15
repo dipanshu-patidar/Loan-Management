@@ -1,6 +1,8 @@
 const asyncHandler = require('express-async-handler');
 const Payment = require('../../models/Payment');
 const ActiveLoan = require('../../models/ActiveLoan');
+const RepaymentSchedule = require('../../models/RepaymentSchedule');
+const Commission = require('../../models/Commission');
 const { sendSuccess, sendError } = require('../../utils/responseHandler');
 
 /**
@@ -110,10 +112,39 @@ const verifyPayment = asyncHandler(async (req, res) => {
       if (remainingAmountToApply >= emi.emiAmount) {
         emi.paymentStatus = 'Paid';
         emi.paidDate = new Date();
+        
+        // Sync with centralized RepaymentSchedule collection
+        await RepaymentSchedule.findOneAndUpdate(
+          { loanId: activeLoan._id, emiNumber: emi.installmentNumber },
+          { status: 'Paid', paidAt: new Date() }
+        );
+
         remainingAmountToApply -= emi.emiAmount;
       } else {
+        // Handle partial payment status
+        if (remainingAmountToApply > 0) {
+           await RepaymentSchedule.findOneAndUpdate(
+            { loanId: activeLoan._id, emiNumber: emi.installmentNumber },
+            { status: 'Partial' }
+          );
+        }
         break;
       }
+    }
+  }
+
+  // Update Agent Earnings (Commissions)
+  const borrower = await require('../../models/Borrower').findById(activeLoan.borrowerId);
+  if (borrower && borrower.assignedAgent) {
+    const commission = await Commission.findOne({ 
+      loanId: activeLoan._id, 
+      agentId: borrower.assignedAgent,
+      status: 'Pending'
+    });
+    if (commission) {
+      commission.status = 'Paid';
+      commission.paidAt = new Date();
+      await commission.save();
     }
   }
 
@@ -145,7 +176,24 @@ const verifyPayment = asyncHandler(async (req, res) => {
       loanId: payment.loanId,
       paymentId: payment._id
     });
-  } catch (err) {}
+
+    // Realtime update via Socket.IO
+    const { getIO } = require('../../socket/socketServer');
+    const io = getIO();
+    if (io) {
+      io.emit('emi-paid', {
+        message: `EMI Paid for ${activeLoan.borrowerName}`,
+        loanId: activeLoan._id,
+        amount: payment.paymentAmount
+      });
+      io.to(activeLoan.borrowerId.toString()).emit('dashboard-update');
+      if (borrower && borrower.assignedAgent) {
+        io.to(borrower.assignedAgent.toString()).emit('dashboard-update');
+      }
+    }
+  } catch (err) {
+    console.error('Notification/Socket error in verifyPayment:', err);
+  }
 
   sendSuccess(res, 'Payment verified successfully', { payment, activeLoan });
 });

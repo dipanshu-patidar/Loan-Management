@@ -12,8 +12,10 @@ const adminRoutes = require('./routes/adminRoutes');
 const adminAgentRoutes = require('./routes/admin/agentRoutes');
 const agentMyClientsRoutes = require('./routes/agent/myClientsRoutes');
 const agentEarningsRoutes = require('./routes/agent/earningsRoutes');
-const borrowerRoutes = require('./routes/borrowerRoutes');
+const adminBorrowerRoutes = require('./routes/adminBorrowerRoutes');
+const borrowerDashboardRoutes = require('./routes/borrowerRoutes');
 const staffRoutes = require('./routes/staffRoutes');
+const repaymentRoutes = require('./routes/repaymentRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const loanApplicationRoutes = require('./routes/loanApplicationRoutes');
@@ -74,7 +76,7 @@ app.use(limiter);
 
 // Mount routers
 app.use('/api/auth', authRoutes);
-app.use('/api/admin/borrowers', borrowerRoutes);
+app.use('/api/admin/borrowers', adminBorrowerRoutes);
 app.use('/api/admin/agents', adminAgentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/staff', staffRoutes);
@@ -97,15 +99,19 @@ app.use('/api/staff/profile', staffProfileRoutes);
 app.use('/api/staff/notifications', staffNotificationRoutes);
 app.use('/api/staff/dashboard', staffDashboardRoutes);
 app.use('/api/borrower/payments', borrowerPaymentRoutes);
+app.use('/api/borrower/communications', require('./routes/borrower/communicationRoutes'));
+app.use('/api/borrower/apply-loan', borrowerApplyLoanRoutes);
+app.use('/api/borrower', borrowerDashboardRoutes);
+
 app.use('/api/agent/my-clients', agentMyClientsRoutes);
 app.use('/api/agent/earnings', agentEarningsRoutes);
 app.use('/api/agent/communications', agentCommunicationRoutes);
-    app.use('/api/agent/notifications', agentNotificationRoutes);
-    app.use('/api/agent/profile', agentProfileRoutes);
-    app.use('/api/agent/dashboard', agentDashboardRoutes);
-    app.use('/api/agent/follow-ups', agentFollowUpRoutes);
-    app.use('/api/agent', agentRoutes);
-    app.use('/api/borrower/apply-loan', borrowerApplyLoanRoutes);
+app.use('/api/agent/notifications', agentNotificationRoutes);
+app.use('/api/agent/profile', agentProfileRoutes);
+app.use('/api/agent/dashboard', agentDashboardRoutes);
+app.use('/api/agent/follow-ups', agentFollowUpRoutes);
+app.use('/api/agent', agentRoutes);
+app.use('/api/repayments', repaymentRoutes);
 
 
 app.use('/api/upload', uploadRoutes);

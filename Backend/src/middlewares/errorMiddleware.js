@@ -27,6 +27,11 @@ const errorHandler = (err, req, res, next) => {
     return sendError(res, message, 400);
   }
 
+  // Multer Error
+  if (err.message === 'Only images (jpg, jpeg, png) and PDFs are allowed!' || err.name === 'MulterError') {
+    return sendError(res, err.message, 400);
+  }
+
   sendError(res, error.message || 'Server Error', error.statusCode || 500);
 };
 

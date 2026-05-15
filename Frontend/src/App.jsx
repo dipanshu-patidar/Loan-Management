@@ -56,7 +56,38 @@ function App() {
     <SocketProvider>
       <Router>
 
-      <Toaster position="top-right" reverseOrder={false} />
+      <Toaster 
+        position="top-right" 
+        reverseOrder={false} 
+        containerStyle={{
+          zIndex: 999999,
+        }}
+        toastOptions={{
+          style: {
+            background: '#fff',
+            color: '#1e293b',
+            borderRadius: '16px',
+            padding: '12px 24px',
+            fontSize: '14px',
+            fontWeight: '600',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            border: '1px solid #f1f5f9',
+          },
+          success: {
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+            duration: 5000,
+          },
+        }}
+      />
       <Routes>
         {/* Landing Page */}
         <Route path="/" element={<LandingPage />} />

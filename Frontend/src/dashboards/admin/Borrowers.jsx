@@ -597,7 +597,7 @@ const Borrowers = () => {
                         />
                         <Input 
                            label="ID Number" 
-                           placeholder="8505125432081" 
+                           placeholder="Enter ID / Passport Number" 
                            value={formData.idNumber}
                            onChange={(e) => handleInputChange('idNumber', e.target.value)}
                         />
@@ -609,7 +609,7 @@ const Borrowers = () => {
                         />
                         <Input 
                            label="Phone Number" 
-                           placeholder="+27 00 000 0000" 
+                           placeholder="Enter phone number" 
                            value={formData.phoneNumber}
                            onChange={(e) => handleInputChange('phoneNumber', e.target.value)}
                         />

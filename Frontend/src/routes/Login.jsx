@@ -10,7 +10,7 @@ import { AuthModal } from '../components/landing/AuthModals';
 const Login = () => {
   const navigate = useNavigate();
   const [role, setRole] = useState('admin');
-  const [email, setEmail] = useState('admin@lms.com');
+  const [email, setEmail] = useState('admin@gmail.com');
   const [password, setPassword] = useState('admin123');
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -20,10 +20,10 @@ const Login = () => {
   const handleRoleSelect = (selectedRole) => {
     setRole(selectedRole);
     const credentials = {
-      admin: { email: 'admin@lms.com', password: 'admin123' },
-      staff: { email: 'staff@lms.com', password: 'staff123' },
-      agent: { email: 'agent@lms.com', password: 'agent123' },
-      borrower: { email: 'borrower@lms.com', password: 'borrower123' },
+      admin: { email: 'admin@gmail.com', password: 'admin123' },
+      staff: { email: 'staff@gmail.com', password: 'staff123' },
+      agent: { email: 'agent@gmail.com', password: 'agent123' },
+      borrower: { email: 'borrwer@gmail.com', password: 'borrwer123' },
     };
     setEmail(credentials[selectedRole].email);
     setPassword(credentials[selectedRole].password);

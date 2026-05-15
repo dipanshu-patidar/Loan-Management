@@ -43,6 +43,8 @@ const Staff = () => {
   });
   const [profilePhoto, setProfilePhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     fetchStaff();
@@ -149,6 +151,8 @@ const Staff = () => {
     setActiveModal(type);
     setOpenMenuId(null);
     setStep(1);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     
     if (type === 'add') {
       setFormData({
@@ -197,6 +201,7 @@ const Staff = () => {
           return toast.error('Passwords do not match');
         }
         data.append('password', formData.password);
+        data.append('confirmPassword', formData.confirmPassword);
       }
 
       // Handle Photo
@@ -504,8 +509,8 @@ const Staff = () => {
                     <div className="grid grid-cols-2 gap-4">
                        <Input name="fullName" label="Full Name" value={formData.fullName} onChange={handleInputChange} placeholder="e.g. Samuel Jackson" />
                        <Input name="email" label="Email Address" type="email" value={formData.email} onChange={handleInputChange} placeholder="sam@point47.com" />
-                       <Input name="phoneNumber" label="Phone Number" value={formData.phoneNumber} onChange={handleInputChange} placeholder="+27 00 000 0000" />
-                       <Input name="idNumber" label="ID Number" value={formData.idNumber} onChange={handleInputChange} placeholder="850512..." />
+                       <Input name="phoneNumber" label="Phone Number" value={formData.phoneNumber} onChange={handleInputChange} placeholder="Enter phone number" />
+                       <Input name="idNumber" label="ID Number" value={formData.idNumber} onChange={handleInputChange} placeholder="Enter ID / Passport Number" />
                        <div className="space-y-1.5">
                           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Gender</label>
                           <select name="gender" value={formData.gender} onChange={handleInputChange} className="w-full bg-slate-50 border-none rounded-xl px-4 py-3 text-sm font-bold">
@@ -591,8 +596,40 @@ const Staff = () => {
                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                     <h4 className="text-lg font-black text-slate-900 tracking-tight">Security Update & Review</h4>
                     <div className="grid grid-cols-2 gap-4">
-                       <Input name="password" label="New Password (Optional)" type="password" value={formData.password} onChange={handleInputChange} placeholder="Leave empty to keep current" />
-                       <Input name="confirmPassword" label="Confirm New Password" type="password" value={formData.confirmPassword} onChange={handleInputChange} placeholder="••••••••" />
+                        <div className="relative">
+                           <Input 
+                              name="password" 
+                              label="New Password (Optional)" 
+                              type={showPassword ? "text" : "password"} 
+                              value={formData.password} 
+                              onChange={handleInputChange} 
+                              placeholder="Leave empty to keep current" 
+                           />
+                           <button 
+                              type="button"
+                              onClick={() => setShowPassword(!showPassword)}
+                              className="absolute right-4 top-[38px] text-slate-400 hover:text-primary transition-colors"
+                           >
+                              {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                           </button>
+                        </div>
+                        <div className="relative">
+                           <Input 
+                              name="confirmPassword" 
+                              label="Confirm New Password" 
+                              type={showConfirmPassword ? "text" : "password"} 
+                              value={formData.confirmPassword} 
+                              onChange={handleInputChange} 
+                              placeholder="••••••••" 
+                           />
+                           <button 
+                              type="button"
+                              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                              className="absolute right-4 top-[38px] text-slate-400 hover:text-primary transition-colors"
+                           >
+                              {showConfirmPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                           </button>
+                        </div>
                     </div>
                     
                     <div className="p-6 bg-slate-50 rounded-[2rem] border border-slate-100 space-y-4">

@@ -409,6 +409,7 @@ const AdminCommunication = () => {
       name: peer.fullName || 'Unknown User',
       role: peer.role === 'borrower' ? 'Borrower' : peer.role === 'agent' ? 'Agent' : 'Staff',
       avatar: initials,
+      profilePhoto: typeof peer.profilePhoto === 'object' ? peer.profilePhoto?.url : peer.profilePhoto,
       status: isUserOnline ? 'online' : 'offline',
       raw: peer
     };
@@ -480,14 +481,8 @@ const AdminCommunication = () => {
                 )}
               >
                 <div className="relative">
-                  <div className={cn(
-                    "w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-black transition-all shadow-sm",
-                    details.role === 'Borrower' ? "bg-blue-50 text-blue-600" :
-                    details.role === 'Agent' ? "bg-amber-50 text-amber-600" :
-                    "bg-emerald-50 text-emerald-600"
-                  )}>
-                    {details.avatar}
-                  </div>
+                    <UserAvatar name={details.name} photo={details.profilePhoto} role={details.role} size="md" />
+
                   <div className={cn(
                     "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white",
                     details.status === 'online' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" : "bg-slate-300"
@@ -533,14 +528,8 @@ const AdminCommunication = () => {
                 <>
                   <div className="p-6 border-b border-slate-50 flex items-center justify-between bg-white/50 backdrop-blur-md sticky top-0 z-10">
                     <div className="flex items-center gap-4">
-                      <div className={cn(
-                        "w-12 h-12 rounded-2xl flex items-center justify-center text-xs font-black shadow-inner",
-                        details.role === 'Borrower' ? "bg-blue-50 text-blue-600" :
-                        details.role === 'Agent' ? "bg-amber-50 text-amber-600" :
-                        "bg-emerald-50 text-emerald-600"
-                      )}>
-                        {details.avatar}
-                      </div>
+                      <UserAvatar name={details.name} photo={details.profilePhoto} role={details.role} size="md" />
+
                       <div>
                         <h3 className="text-md font-black text-slate-900 tracking-tight">{details.name}</h3>
                         <div className="flex items-center gap-1.5 mt-0.5">
@@ -586,9 +575,12 @@ const AdminCommunication = () => {
                                 )}
                               >
                                 {!isMe && (
-                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 ml-1">
-                                    {msg.senderId?.fullName || 'Unknown Sender'}
-                                  </span>
+                                  <div className="flex items-center gap-2 mb-1.5 ml-1">
+                                    <UserAvatar name={msg.senderId?.fullName} photo={typeof msg.senderId?.profilePhoto === 'object' ? msg.senderId.profilePhoto?.url : msg.senderId?.profilePhoto} role={msg.senderId?.role} size="xs" />
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                      {msg.senderId?.fullName || 'Unknown Sender'}
+                                    </span>
+                                  </div>
                                 )}
                                 
                                 <div 
@@ -803,9 +795,7 @@ const AdminCommunication = () => {
                     return (
                       <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
                          <div className="text-center space-y-4">
-                            <div className="w-24 h-24 bg-primary/5 text-primary rounded-[2.5rem] flex items-center justify-center text-3xl font-black mx-auto shadow-inner">
-                               {details.avatar}
-                            </div>
+                            <UserAvatar name={details.name} photo={details.profilePhoto} role={details.role} size="xl" />
                             <div>
                                <h4 className="text-xl font-black text-slate-900">{details.name}</h4>
                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{details.role}</p>
@@ -882,6 +872,45 @@ const AdminCommunication = () => {
 };
 
 // --- SUB-COMPONENTS ---
+
+const roleColors = {
+  Borrower: { bg: 'bg-blue-50', text: 'text-blue-600' },
+  Agent:    { bg: 'bg-amber-50', text: 'text-amber-600' },
+  Staff:    { bg: 'bg-emerald-50', text: 'text-emerald-600' },
+  default:  { bg: 'bg-primary/5', text: 'text-primary' },
+};
+
+const sizeCls = {
+  xs: { wrap: 'w-5 h-5 rounded-lg text-[7px] border border-slate-100', txt: 'text-[7px]' },
+  md: { wrap: 'w-12 h-12 rounded-2xl text-sm shadow-sm', txt: 'text-sm' },
+  xl: { wrap: 'w-24 h-24 rounded-[2.5rem] text-3xl shadow-inner mx-auto', txt: 'text-3xl' },
+};
+
+const UserAvatar = ({ name, photo, role, size = 'md' }) => {
+  const [imgError, setImgError] = React.useState(false);
+  const colors = roleColors[role] || roleColors.default;
+  const sz = sizeCls[size] || sizeCls.md;
+  const firstLetter = name ? name.trim()[0].toUpperCase() : '?';
+
+  if (photo && !imgError) {
+    return (
+      <div className={`${sz.wrap} flex items-center justify-center overflow-hidden shrink-0`}>
+        <img
+          src={photo}
+          alt={name || ''}
+          className="w-full h-full object-cover"
+          onError={() => setImgError(true)}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`${sz.wrap} ${colors.bg} ${colors.text} flex items-center justify-center font-black shrink-0`}>
+      {firstLetter}
+    </div>
+  );
+};
 
 const QuickTemplate = ({ label, onClick }) => (
    <button 

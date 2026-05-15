@@ -211,7 +211,7 @@ const ApplyLoan = () => {
                                  <ValidationMessage message={errors.fullName?.message} />
                               </div>
                               <div>
-                                 <Input label="ID Number" placeholder="RSA ID Number" icon={FileText} {...register('idNumber', { required: 'ID Number is required' })} />
+                                 <Input label="ID Number" placeholder="ID / Passport Number" icon={FileText} {...register('idNumber', { required: 'ID Number is required' })} />
                                  <ValidationMessage message={errors.idNumber?.message} />
                               </div>
                               <div>
@@ -219,7 +219,7 @@ const ApplyLoan = () => {
                                  <ValidationMessage message={errors.emailAddress?.message} />
                               </div>
                               <div>
-                                 <Input label="Phone Number" placeholder="0XXXXXXXXX" icon={Phone} {...register('phoneNumber', { required: 'Phone is required', pattern: { value: /^0\d{9}$/, message: 'Invalid SA phone format' } })} />
+                                 <Input label="Phone Number" placeholder="Enter phone number" icon={Phone} {...register('phoneNumber', { required: 'Phone is required', pattern: { value: /^\+?\d{7,15}$/, message: 'Invalid phone number format' } })} />
                                  <ValidationMessage message={errors.phoneNumber?.message} />
                               </div>
                               <div>

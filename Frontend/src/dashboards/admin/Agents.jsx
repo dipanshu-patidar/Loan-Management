@@ -141,6 +141,21 @@ const Agents = () => {
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      // Client-side validation for file type
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+      if (!allowedTypes.includes(file.type)) {
+        toast.error('Only images (jpg, jpeg, png) and PDFs are allowed!');
+        e.target.value = null;
+        return;
+      }
+
+      // Max size 2MB
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error('File size must be less than 2MB');
+        e.target.value = null;
+        return;
+      }
+
       setProfilePhoto(file);
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -541,8 +556,8 @@ const Agents = () => {
                     <div className="grid grid-cols-2 gap-4">
                        <Input label="Full Name" name="fullName" value={formData.fullName} onChange={handleInputChange} placeholder="e.g. Samuel Jackson" />
                        <Input label="Email Address" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="name@point47.com" />
-                       <Input label="Phone Number" name="phoneNumber" value={formData.phoneNumber} onChange={handleInputChange} placeholder="+27 00 000 0000" />
-                       <Input label="ID Number" name="idNumber" value={formData.idNumber} onChange={handleInputChange} placeholder="850512..." />
+                       <Input label="Phone Number" name="phoneNumber" value={formData.phoneNumber} onChange={handleInputChange} placeholder="Enter phone number" />
+                       <Input label="ID Number" name="idNumber" value={formData.idNumber} onChange={handleInputChange} placeholder="Enter ID / Passport Number" />
                        
                        <div className="relative">
                           <Input 

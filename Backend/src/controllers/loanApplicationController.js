@@ -42,7 +42,15 @@ const getAllApplications = asyncHandler(async (req, res) => {
 
   // Filter by status
   if (status) {
-    query.status = status;
+    if (status === 'New') {
+      query.status = { $in: ['New', 'Submitted'] };
+    } else if (status === 'Under Review') {
+      query.status = { $in: ['Under Review', 'Pending Review', 'Reviewed'] };
+    } else if (status === 'Approved') {
+      query.status = { $in: ['Approved', 'Disbursed'] };
+    } else {
+      query.status = status;
+    }
   }
 
   // Filter by staff reviewer
@@ -102,6 +110,9 @@ const getAllApplications = asyncHandler(async (req, res) => {
       estimatedEMI: app.estimatedMonthlyEMI,
       staffReviewer: app.staffReview?.staffName ? { fullName: app.staffReview.staffName } : null,
       status: app.status,
+      reviewStatus: app.reviewStatus === 'Pending' && app.staffReview?.recommendation && app.staffReview.recommendation !== 'Pending'
+        ? (app.staffReview.recommendation.includes('Reject') ? 'Rejected Recommendation' : 'Recommendation Submitted')
+        : app.reviewStatus,
       submittedDate: app.createdAt,
       // Full staff review details for admin visibility
       staffReview: app.staffReview?.verificationDate ? {
@@ -153,8 +164,17 @@ const getApplicationStats = asyncHandler(async (req, res) => {
   };
 
   stats.forEach(stat => {
-    if (formattedStats[stat._id] !== undefined) {
-      formattedStats[stat._id] = stat.count;
+    const status = stat._id;
+    const count = stat.count;
+
+    if (['New', 'Submitted'].includes(status)) {
+      formattedStats.New += count;
+    } else if (['Under Review', 'Pending Review', 'Reviewed'].includes(status)) {
+      formattedStats['Under Review'] += count;
+    } else if (['Approved', 'Disbursed'].includes(status)) {
+      formattedStats.Approved += count;
+    } else if (formattedStats[status] !== undefined) {
+      formattedStats[status] += count;
     }
   });
 
@@ -221,6 +241,9 @@ const getApplicationDetails = asyncHandler(async (req, res) => {
       profilePhoto: photoUrl ? { url: photoUrl } : null,
       borrowerId: borrowerProfile?.borrowerCode || null,
     },
+    reviewStatus: application.reviewStatus === 'Pending' && application.staffReview?.recommendation && application.staffReview.recommendation !== 'Pending'
+      ? (application.staffReview.recommendation.includes('Reject') ? 'Rejected Recommendation' : 'Recommendation Submitted')
+      : application.reviewStatus,
   };
 
   sendSuccess(res, 'Loan application details fetched successfully', fullApplication);
@@ -239,7 +262,7 @@ const approveApplication = asyncHandler(async (req, res) => {
     interestOverride 
   } = req.body;
 
-  const application = await LoanApplication.findById(req.params.id);
+  let application = await LoanApplication.findById(req.params.id);
 
   if (!application) {
     return sendError(res, 'Loan application not found', 404);
@@ -268,8 +291,18 @@ const approveApplication = asyncHandler(async (req, res) => {
   session.startTransaction();
 
   try {
+    // Re-fetch inside session for consistency
+    application = await LoanApplication.findById(req.params.id).session(session);
+
+    if (!application) {
+      await session.abortTransaction();
+      session.endSession();
+      return sendError(res, 'Loan application not found', 404);
+    }
+
     // Update application status
     application.status = 'Approved';
+    application.reviewStatus = 'Approved'; // Ensure it leaves the review queue
     application.adminDecision = {
       decision: 'Approved',
       adminNotes,
@@ -487,6 +520,7 @@ const rejectApplication = asyncHandler(async (req, res) => {
   }
 
   application.status = 'Rejected';
+  application.reviewStatus = 'Rejected';
   application.adminDecision = {
     decision: 'Rejected',
     rejectionReason,
@@ -558,6 +592,7 @@ const holdApplication = asyncHandler(async (req, res) => {
   }
 
   application.status = 'Hold';
+  application.reviewStatus = 'Hold';
   application.adminDecision = {
     decision: 'Hold',
     holdReason,

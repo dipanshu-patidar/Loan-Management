@@ -371,6 +371,7 @@ const Applications = () => {
                   <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">EMI Estimate</th>
                   <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Staff Reviewer</th>
                   <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+                  <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Staff Review Status</th>
                   <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Review Outcome</th>
                   <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
                 </tr>
@@ -423,6 +424,9 @@ const Applications = () => {
                     <td className="px-6 py-5 text-center">
                       <StatusBadge status={app.status} />
                     </td>
+                    <td className="px-6 py-5 text-center">
+                      <StatusBadge status={app.reviewStatus} className="text-[9px]" />
+                    </td>
                     <td className="px-6 py-5">
                       <ReviewOutcomeBadge staffReview={app.staffReview} />
                     </td>
@@ -444,10 +448,10 @@ const Applications = () => {
                         </button>
                         <button 
                           onClick={() => openDecisionModal('approve', app)}
-                          disabled={app.status === 'Submitted'}
+                          disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
                           className={cn(
                             "p-2 rounded-xl text-emerald-500 hover:bg-emerald-50 transition-all",
-                            app.status === 'Submitted' && "opacity-20 cursor-not-allowed grayscale"
+                            ['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status) && "opacity-20 cursor-not-allowed grayscale"
                           )}
                           title={app.status === 'Submitted' ? "Assign Reviewer First" : "Approve Loan"}
                         >
@@ -455,10 +459,10 @@ const Applications = () => {
                         </button>
                         <button 
                           onClick={() => openDecisionModal('hold', app)}
-                          disabled={app.status === 'Submitted'}
+                          disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
                           className={cn(
                             "p-2 rounded-xl text-amber-500 hover:bg-amber-50 transition-all",
-                            app.status === 'Submitted' && "opacity-20 cursor-not-allowed grayscale"
+                            ['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status) && "opacity-20 cursor-not-allowed grayscale"
                           )}
                           title={app.status === 'Submitted' ? "Assign Reviewer First" : "Put On Hold"}
                         >
@@ -466,10 +470,10 @@ const Applications = () => {
                         </button>
                         <button 
                           onClick={() => openDecisionModal('reject', app)}
-                          disabled={app.status === 'Submitted'}
+                          disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
                           className={cn(
                             "p-2 rounded-xl text-rose-500 hover:bg-rose-50 transition-all",
-                            app.status === 'Submitted' && "opacity-20 cursor-not-allowed grayscale"
+                            ['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status) && "opacity-20 cursor-not-allowed grayscale"
                           )}
                           title={app.status === 'Submitted' ? "Assign Reviewer First" : "Reject Loan"}
                         >
@@ -736,7 +740,44 @@ const Applications = () => {
                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
                        <CheckCircle2 size={16} className="text-primary" /> Admin Final Decision
                      </h3>
-                     <div className="p-6 bg-slate-900 rounded-[2rem] space-y-6 shadow-xl shadow-slate-900/20">
+                      {selectedApp.status === 'Approved' || selectedApp.status === 'Rejected' || selectedApp.status === 'Hold' ? (
+                        <div className={cn(
+                          "p-6 rounded-[2rem] space-y-4 border shadow-sm",
+                          selectedApp.status === 'Approved' ? "bg-emerald-50 border-emerald-100" :
+                          selectedApp.status === 'Rejected' ? "bg-rose-50 border-rose-100" : "bg-amber-50 border-amber-100"
+                        )}>
+                           <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Outcome</p>
+                              <StatusBadge status={selectedApp.status} />
+                           </div>
+                           
+                           {selectedApp.status === 'Approved' && (
+                             <div className="grid grid-cols-2 gap-4 py-3 border-y border-emerald-100/50">
+                                <div>
+                                   <p className="text-[9px] font-black text-emerald-600/60 uppercase">Approved Amount</p>
+                                   <p className="text-lg font-black text-emerald-700">R {selectedApp.adminDecision?.approvedAmount?.toLocaleString() || selectedApp.requestedAmount?.toLocaleString()}</p>
+                                </div>
+                                <div>
+                                   <p className="text-[9px] font-black text-emerald-600/60 uppercase">Final Duration</p>
+                                   <p className="text-lg font-black text-emerald-700">{selectedApp.adminDecision?.finalDuration || selectedApp.requestedDuration} Months</p>
+                                </div>
+                             </div>
+                           )}
+
+                           <div className="space-y-1">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Admin Decision Notes</p>
+                              <div className="p-4 bg-white/60 rounded-2xl border border-white/40 text-xs font-medium text-slate-700 italic leading-relaxed shadow-inner">
+                                 "{selectedApp.adminDecision?.adminNotes || selectedApp.adminDecision?.rejectionReason || selectedApp.adminDecision?.holdReason || 'No detailed notes provided.'}"
+                              </div>
+                           </div>
+
+                           <div className="pt-2 flex items-center justify-between text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                              <span>Decided By Admin</span>
+                              <span>{new Date(selectedApp.adminDecision?.approvedDate || selectedApp.adminDecision?.rejectedDate || selectedApp.adminDecision?.holdDate || selectedApp.updatedAt).toLocaleDateString()}</span>
+                           </div>
+                        </div>
+                      ) : (
+                        <div className="p-6 bg-slate-900 rounded-[2rem] space-y-6 shadow-xl shadow-slate-900/20">
                         <div className="grid grid-cols-1 gap-3">
                            <Button 
                              onClick={() => openDecisionModal('approve')}
@@ -763,6 +804,7 @@ const Applications = () => {
                            </Button>
                         </div>
                      </div>
+                   )}
                   </section>
                </div>
             </div>

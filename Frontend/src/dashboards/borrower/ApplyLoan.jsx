@@ -100,6 +100,18 @@ const ApplyLoan = () => {
     }
   }, [watchAmount, watchDuration]);
 
+  const calculateAge = (dob) => {
+    if (!dob) return 0;
+    const today = new Date();
+    const birthDate = new Date(dob);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
   const steps = [
     { id: 1, title: 'Personal', icon: User },
     { id: 2, title: 'Employment', icon: Briefcase },
@@ -273,7 +285,19 @@ const ApplyLoan = () => {
                                  <ValidationMessage message={errors.phoneNumber?.message} />
                               </div>
                               <div>
-                                 <Input label="Date of Birth" type="date" icon={Calendar} {...register('dateOfBirth', { required: 'DOB is required' })} />
+                                 <Input 
+                                   label="Date of Birth" 
+                                   type="date" 
+                                   icon={Calendar} 
+                                   {...register('dateOfBirth', { 
+                                     required: 'DOB is required',
+                                     validate: (val) => {
+                                       const age = calculateAge(val);
+                                       const minAge = eligibilitySettings?.minimumAge || 18;
+                                       return age >= minAge || `Minimum age required is ${minAge} years (You are ${age})`;
+                                     }
+                                   })} 
+                                 />
                                  <ValidationMessage message={errors.dateOfBirth?.message} />
                               </div>
                               <div className="md:col-span-2">
@@ -295,7 +319,19 @@ const ApplyLoan = () => {
                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                                     <Briefcase size={12} className="text-primary" /> Employment Status
                                  </label>
-                                 <select {...register('employmentStatus', { required: true })} className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner">
+                                 <select 
+                                   {...register('employmentStatus', { 
+                                     required: 'Employment status is required',
+                                     validate: (val) => {
+                                       const type = eligibilitySettings?.employmentType || 'Both';
+                                       if (type === 'Both') return true;
+                                       if (type === 'Employed' && val !== 'Employed') return 'Only formally employed individuals are eligible.';
+                                       if (type === 'Self Employed' && (val !== 'Self-Employed' && val !== 'Business Owner')) return 'Only self-employed or business owners are eligible.';
+                                       return true;
+                                     }
+                                   })} 
+                                   className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner"
+                                 >
                                     <option value="Employed">Employed</option>
                                     <option value="Self-Employed">Self-Employed</option>
                                     <option value="Business Owner">Business Owner</option>
@@ -306,7 +342,19 @@ const ApplyLoan = () => {
                                  <ValidationMessage message={errors.employerName?.message} />
                               </div>
                               <div>
-                                 <Input label="Monthly Income (R)" type="number" placeholder="Gross monthly salary" icon={Wallet} {...register('monthlyIncome', { required: 'Income is required' })} />
+                                 <Input 
+                                   label="Monthly Income (R)" 
+                                   type="number" 
+                                   placeholder="Gross monthly salary" 
+                                   icon={Wallet} 
+                                   {...register('monthlyIncome', { 
+                                     required: 'Income is required',
+                                     validate: (val) => {
+                                       const minIncome = eligibilitySettings?.minimumMonthlyIncome || 5000;
+                                       return Number(val) >= minIncome || `Minimum monthly income required is R${minIncome.toLocaleString()}`;
+                                     }
+                                   })} 
+                                 />
                                  <ValidationMessage message={errors.monthlyIncome?.message} />
                               </div>
                               <div>
@@ -346,11 +394,37 @@ const ApplyLoan = () => {
                                     <ValidationMessage message={errors.branchCode?.message} />
                                  </div>
                                  <div>
-                                    <Input label="Loan Amount (R)" type="number" icon={Wallet} {...register('requestedLoanAmount', { required: 'Amount is required' })} />
+                                    <Input 
+                                       label="Loan Amount (R)" 
+                                       type="number" 
+                                       icon={Wallet} 
+                                       {...register('requestedLoanAmount', { 
+                                          required: 'Amount is required',
+                                          validate: (val) => {
+                                             const min = eligibilitySettings?.eligibleMinimumPrincipal || 1000;
+                                             const max = eligibilitySettings?.eligibleMaximumPrincipal || 50000;
+                                             if (Number(val) < min) return `Minimum loan amount is R${min.toLocaleString()}`;
+                                             if (Number(val) > max) return `Maximum loan amount is R${max.toLocaleString()}`;
+                                             return true;
+                                          }
+                                       })} 
+                                    />
                                     <ValidationMessage message={errors.requestedLoanAmount?.message} />
                                  </div>
                                  <div>
-                                    <Input label="Loan Duration (Months)" type="number" icon={Clock} {...register('requestedDuration', { required: 'Duration is required' })} />
+                                    <Input 
+                                       label="Loan Duration (Months)" 
+                                       type="number" 
+                                       icon={Clock} 
+                                       {...register('requestedDuration', { 
+                                          required: 'Duration is required',
+                                          validate: (val) => {
+                                             const allowedStr = eligibilitySettings?.allowedRepaymentDurations || '3, 6, 12, 18, 24';
+                                             const allowed = allowedStr.split(',').map(s => s.trim());
+                                             return allowed.includes(val.toString()) || `Allowed durations are: ${allowedStr} months`;
+                                          }
+                                       })} 
+                                    />
                                     <ValidationMessage message={errors.requestedDuration?.message} />
                                  </div>
                               </div>

@@ -346,31 +346,70 @@ const ApplicationDetail = () => {
 
           {/* Admin Final Decision */}
           <Section title="Admin Final Decision" icon={CheckCircle2}>
-            <div className="p-5 bg-slate-900 rounded-[2rem] space-y-3">
-              <Button
-                onClick={() => setActiveModal('approve')}
-                className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 border-none text-white"
-              >
-                <FileCheck size={18} />
-                <span className="font-black uppercase tracking-widest text-xs">Approve Loan</span>
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setActiveModal('hold')}
-                className="w-full py-4 bg-amber-500 hover:bg-amber-600 shadow-lg shadow-amber-500/20 text-white flex items-center justify-center gap-2 border-none"
-              >
-                <Pause size={18} />
-                <span className="font-black uppercase tracking-widest text-xs">Put On Hold</span>
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => setActiveModal('reject')}
-                className="w-full py-4 bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-500/20 flex items-center justify-center gap-2 border-none text-white"
-              >
-                <FileX size={18} />
-                <span className="font-black uppercase tracking-widest text-xs">Reject Loan</span>
-              </Button>
-            </div>
+            {['Approved', 'Rejected', 'Hold'].includes(app.status) ? (
+              <div className={cn(
+                "p-6 rounded-[2rem] space-y-4 border shadow-sm",
+                app.status === 'Approved' ? "bg-emerald-50 border-emerald-200 text-emerald-900" :
+                app.status === 'Rejected' ? "bg-rose-50 border-rose-200 text-rose-900" :
+                "bg-amber-50 border-amber-200 text-amber-900"
+              )}>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest opacity-50">Outcome</p>
+                  <StatusBadge status={app.status} />
+                </div>
+                
+                {app.status === 'Approved' && (
+                  <div className="grid grid-cols-2 gap-4 py-3 border-y border-emerald-200/50">
+                    <div>
+                      <p className="text-[9px] font-black uppercase opacity-60">Approved Amount</p>
+                      <p className="text-lg font-black">R {app.adminDecision?.approvedAmount?.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black uppercase opacity-60">Final Duration</p>
+                      <p className="text-lg font-black">{app.adminDecision?.finalDuration} Months</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1">
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Admin Notes</p>
+                  <p className="text-xs font-medium italic leading-relaxed">
+                    "{app.adminDecision?.adminNotes || app.adminDecision?.rejectionReason || app.adminDecision?.holdReason || 'No notes provided.'}"
+                  </p>
+                </div>
+
+                <div className="pt-2 flex items-center justify-between text-[9px] font-bold opacity-40 uppercase tracking-widest">
+                  <span>Decided By Admin</span>
+                  <span>{app.adminDecision?.approvedDate && new Date(app.adminDecision.approvedDate).toLocaleDateString()}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-5 bg-slate-900 rounded-[2rem] space-y-3 shadow-xl shadow-slate-900/20">
+                <Button
+                  onClick={() => setActiveModal('approve')}
+                  className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 border-none text-white"
+                >
+                  <FileCheck size={18} />
+                  <span className="font-black uppercase tracking-widest text-xs">Approve Loan</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setActiveModal('hold')}
+                  className="w-full py-4 bg-amber-500 hover:bg-amber-600 shadow-lg shadow-amber-500/20 text-white flex items-center justify-center gap-2 border-none"
+                >
+                  <Pause size={18} />
+                  <span className="font-black uppercase tracking-widest text-xs">Put On Hold</span>
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => setActiveModal('reject')}
+                  className="w-full py-4 bg-rose-500 hover:bg-rose-600 shadow-lg shadow-rose-500/20 flex items-center justify-center gap-2 border-none text-white"
+                >
+                  <FileX size={18} />
+                  <span className="font-black uppercase tracking-widest text-xs">Reject Loan</span>
+                </Button>
+              </div>
+            )}
           </Section>
         </div>
       </div>

@@ -93,8 +93,10 @@ const getLoanReviews = asyncHandler(async (req, res) => {
     borrowerPhoto: app.borrowerId?.profilePhoto || app.borrowerPhoto || 'no-photo.jpg',
     loanType: app.loanType || 'General',
     requestedAmount: app.requestedAmount,
-    affordabilityStatus: app.affordabilityStatus || 'Pending',
-    reviewStatus: app.reviewStatus,
+    affordabilityStatus: (app.staffReview?.riskLevel && app.staffReview.riskLevel !== 'N/A') ? app.staffReview.riskLevel : 'Pending',
+    reviewStatus: app.reviewStatus === 'Pending' && app.staffReview?.recommendation && app.staffReview.recommendation !== 'Pending'
+      ? (app.staffReview.recommendation.includes('Reject') ? 'Rejected Recommendation' : 'Recommendation Submitted')
+      : app.reviewStatus,
     applicationStatus: app.status,
     staffReview: app.staffReview?.verificationDate ? {
       recommendation: app.staffReview.recommendation,

@@ -93,7 +93,9 @@ const getLoanRequests = asyncHandler(async (req, res) => {
     loanType: app.loanType || 'General',
     requestedAmount: app.requestedAmount,
     uploadedDocsStatus: app.uploadedDocsStatus || 'Pending',
-    reviewStatus: app.reviewStatus,       // ← was app.status — now uses same field as LoanReview
+    reviewStatus: app.reviewStatus === 'Pending' && app.staffReview?.recommendation && app.staffReview.recommendation !== 'Pending'
+      ? (app.staffReview.recommendation.includes('Reject') ? 'Rejected Recommendation' : 'Recommendation Submitted')
+      : app.reviewStatus,
     applicationStatus: app.status,        // kept for reference
     staffReview: app.staffReview?.verificationDate ? {
       recommendation: app.staffReview.recommendation,
@@ -291,6 +293,16 @@ const submitReview = asyncHandler(async (req, res) => {
 
   // Update application status to Reviewed
   app.status = 'Reviewed';
+  
+  // Set explicit review status for tracking
+  if (recommendation.includes('Recommend') || recommendation === 'Recommended') {
+    app.reviewStatus = 'Recommendation Submitted';
+  } else if (recommendation === 'Rejected' || recommendation.includes('Rejection')) {
+    app.reviewStatus = 'Rejected Recommendation';
+  } else {
+    app.reviewStatus = 'Reviewed';
+  }
+  
   await app.save();
 
   // Create Global Admin Notifications

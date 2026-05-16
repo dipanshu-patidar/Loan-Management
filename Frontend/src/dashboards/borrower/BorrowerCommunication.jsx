@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  MessageSquare, Send, Paperclip, Search, 
+import {
+  MessageSquare, Send, Paperclip, Search,
   Filter, MoreVertical, Phone, Info,
   Check, CheckCheck, Clock, User,
   ShieldCheck, Headset, Crown, RefreshCw,
@@ -62,35 +62,70 @@ const BorrowerCommunication = () => {
 
   useEffect(() => {
     if (socket) {
-      socket.on('message-received', (newMessage) => {
-        if (selectedChat && newMessage.conversationId?.toString() === selectedChat._id?.toString()) {
-          setMessages(prev => [...prev, newMessage]);
-          scrollToBottom();
-          // Mark as read
+      const handleNewMessage = (newMessage) => {
+        const convId = newMessage.conversationId?.toString();
+        const selectedId = selectedChat?._id?.toString();
+
+        if (selectedChat && convId === selectedId) {
+          setMessages(prev => {
+            // Avoid duplicates
+            const exists = prev.find(m => m._id === newMessage._id);
+            if (exists) return prev;
+            return [...prev, newMessage];
+          });
+          setTimeout(scrollToBottom, 100);
           markAsRead(selectedChat._id);
         }
-        // Update conversation list
+        // Update conversation list for sidebar
         fetchConversations();
-      });
+      };
+
+      // Listen for all variants of message events for maximum compatibility
+      socket.on('message-received', handleNewMessage);
+      socket.on('message:received', handleNewMessage);
+      socket.on('receiveMessage', handleNewMessage);
+      socket.on('receive_message', handleNewMessage);
 
       socket.on('message-notification', (data) => {
-        if (!selectedChat || data.conversationId !== selectedChat._id) {
+        const convId = data.conversationId?.toString();
+        const selectedId = selectedChat?._id?.toString();
+
+        if (!selectedChat || convId !== selectedId) {
           toast.success(`New message from ${data.senderName}`, {
             icon: '💬',
             duration: 4000
           });
+          fetchConversations();
         }
       });
 
+      socket.on('conversation-updated', (data) => {
+        fetchConversations();
+      });
+
+      socket.on('new-notification', (data) => {
+        fetchConversations();
+      });
+
       socket.on('typing-status', (data) => {
-        if (selectedChat && data.conversationId?.toString() === selectedChat._id?.toString() && data.userId?.toString() !== currentUser?._id?.toString()) {
+        const convId = data.conversationId?.toString();
+        const selectedId = selectedChat?._id?.toString();
+        const uid = currentUser?._id?.toString() || currentUser?.id?.toString();
+
+        if (selectedChat && convId === selectedId && data.userId?.toString() !== uid) {
           setTypingStatus(data.isTyping ? data : null);
         }
       });
 
       socket.on('messages-read', (data) => {
-        if (selectedChat && data.conversationId?.toString() === selectedChat._id?.toString()) {
-          setMessages(prev => prev.map(m => m.senderId?.toString() !== data.userId?.toString() ? { ...m, isRead: true } : m));
+        const convId = data.conversationId?.toString();
+        const selectedId = selectedChat?._id?.toString();
+
+        if (selectedChat && convId === selectedId) {
+          setMessages(prev => prev.map(m => {
+            const senderId = (m.senderId?._id || m.senderId)?.toString();
+            return senderId !== data.userId?.toString() ? { ...m, isRead: true } : m;
+          }));
         }
       });
     }
@@ -98,7 +133,12 @@ const BorrowerCommunication = () => {
     return () => {
       if (socket) {
         socket.off('message-received');
+        socket.off('message:received');
+        socket.off('receiveMessage');
+        socket.off('receive_message');
         socket.off('message-notification');
+        socket.off('conversation-updated');
+        socket.off('new-notification');
         socket.off('typing-status');
         socket.off('messages-read');
       }
@@ -135,8 +175,10 @@ const BorrowerCommunication = () => {
     try {
       await api.patch('/borrower/communications/messages/read', { conversationId: convId });
       if (socket) {
-        socket.emit('mark-messages-read', { conversationId: convId, userId: currentUser?._id });
+        socket.emit('mark-messages-read', { conversationId: convId, userId: currentUser?._id || currentUser?.id });
       }
+      // Refresh sidebar to clear badges
+      fetchConversations();
     } catch (error) {
       console.error('Error marking as read:', error);
     }
@@ -186,10 +228,10 @@ const BorrowerCommunication = () => {
     e.preventDefault();
     if (!message.trim()) return;
 
+    const msgText = message;
+    setMessage('');
+
     try {
-      const msgText = message;
-      setMessage('');
-      
       const response = await api.post('/borrower/communications/messages/send', {
         conversationId: selectedChat._id,
         message: msgText,
@@ -197,14 +239,23 @@ const BorrowerCommunication = () => {
       });
 
       if (response.data.success) {
-        // Message will be received via socket
+        const newMessage = response.data.data;
+        // Optimistic update (with deduplication in socket listener)
+        setMessages(prev => {
+          const exists = prev.find(m => m._id === newMessage._id);
+          if (exists) return prev;
+          return [...prev, newMessage];
+        });
+        setTimeout(scrollToBottom, 100);
+        fetchConversations(); // Update sidebar
+
         if (socket) {
-          socket.emit('typing-stop', { conversationId: selectedChat._id, userId: currentUser?._id });
+          socket.emit('typing-stop', { conversationId: selectedChat._id, userId: currentUser?._id || currentUser?.id });
         }
       }
     } catch (error) {
       toast.error('Failed to send message');
-      setMessage(message);
+      setMessage(msgText);
     }
   };
 
@@ -232,8 +283,8 @@ const BorrowerCommunication = () => {
   const handleTyping = (e) => {
     setMessage(e.target.value);
     if (socket && selectedChat) {
-      socket.emit('typing-start', { 
-        conversationId: selectedChat._id, 
+      socket.emit('typing-start', {
+        conversationId: selectedChat._id,
         userId: currentUser?._id,
         userName: currentUser?.fullName
       });
@@ -263,7 +314,7 @@ const BorrowerCommunication = () => {
   }).filter(Boolean);
 
   // 2. Then, add authorized participants who don't have a conversation yet
-  const potentialPartners = participants.filter(p => 
+  const potentialPartners = participants.filter(p =>
     !conversations.some(c => {
       const partner = c.chatPartner || getOtherParticipant(c);
       return partner?._id?.toString() === p._id?.toString();
@@ -290,9 +341,9 @@ const BorrowerCommunication = () => {
           </div>
           <div className="relative group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors" size={16} />
-            <input 
-              type="text" 
-              placeholder="Search conversations..." 
+            <input
+              type="text"
+              placeholder="Search conversations..."
               className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold focus:ring-2 focus:ring-primary/10 outline-none transition-all"
             />
           </div>
@@ -344,11 +395,18 @@ const BorrowerCommunication = () => {
                       {conv?.lastMessage || 'Tap to start conversation'}
                     </p>
                   </div>
-                  {(conv?.unreadCounts?.[currentUser?._id] > 0) && (
-                    <div className="w-5 h-5 bg-primary text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg shadow-primary/20 animate-pulse shrink-0">
-                      {conv.unreadCounts[currentUser?._id]}
-                    </div>
-                  )}
+                  {(() => {
+                    const uid = currentUser?._id || currentUser?.id;
+                    const unread = conv?.unreadCounts?.[uid] || 0;
+                    if (unread > 0) {
+                      return (
+                        <div className="w-5 h-5 bg-primary text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-lg shadow-primary/20 animate-pulse shrink-0">
+                          {unread}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </button>
               );
             })
@@ -362,9 +420,9 @@ const BorrowerCommunication = () => {
           )}
         </div>
         <div className="p-6 border-t border-slate-50">
-           <Button onClick={() => setIsNewChatModalOpen(true)} className="w-full flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest py-4 shadow-lg shadow-primary/20">
-              <Plus size={16} /> New Message
-           </Button>
+          <Button onClick={() => setIsNewChatModalOpen(true)} className="w-full flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest py-4 shadow-lg shadow-primary/20">
+            <Plus size={16} /> New Message
+          </Button>
         </div>
       </section>
 
@@ -384,7 +442,7 @@ const BorrowerCommunication = () => {
                   </div>
                 </div>
               </div>
-            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <button onClick={() => setIsLoanDrawerOpen(true)} className="p-2.5 text-slate-400 hover:text-primary hover:bg-slate-50 rounded-xl transition-all" title="View Loan Snapshot"><Eye size={18} /></button>
                 <button className="p-2.5 text-slate-400 hover:text-primary hover:bg-slate-50 rounded-xl transition-all"><MoreVertical size={18} /></button>
               </div>
@@ -395,44 +453,60 @@ const BorrowerCommunication = () => {
               <div className="flex justify-center">
                 <span className="px-4 py-1.5 bg-white border border-slate-100 rounded-full text-[9px] font-black text-slate-400 uppercase tracking-widest shadow-sm">Today, {format(new Date(), 'dd MMM yyyy')}</span>
               </div>
-              
+
               {messages.map((msg, i) => (
-                <motion.div 
-                  key={msg._id || i} 
+                <motion.div
+                  key={msg._id || i}
                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   className={cn(
                     "flex flex-col gap-2 max-w-[80%]",
-                    (msg.senderId?.toString() === currentUser?._id?.toString() || msg.senderId?._id?.toString() === currentUser?._id?.toString()) ? "ml-auto items-end" : "mr-auto items-start"
+                    (() => {
+                      const senderId = (msg.senderId?._id || msg.senderId)?.toString();
+                      const currentUserId = (currentUser?._id || currentUser?.id)?.toString();
+                      return senderId === currentUserId;
+                    })() ? "ml-auto items-end" : "mr-auto items-start"
                   )}
                 >
                   <div className={cn(
                     "p-5 rounded-[2rem] text-sm font-medium shadow-sm leading-relaxed relative",
-                    (msg.senderId?.toString() === currentUser?._id?.toString() || msg.senderId?._id?.toString() === currentUser?._id?.toString()) ? "bg-primary text-white rounded-tr-none shadow-primary/10" : "bg-white text-slate-700 border border-slate-100 rounded-tl-none"
+                    (() => {
+                      const senderId = (msg.senderId?._id || msg.senderId)?.toString();
+                      const currentUserId = (currentUser?._id || currentUser?.id)?.toString();
+                      return senderId === currentUserId;
+                    })() ? "bg-primary text-white rounded-tr-none shadow-primary/10" : "bg-white text-slate-700 border border-slate-100 rounded-tl-none"
                   )}>
                     {msg.message}
                     {(msg.attachment || msg.attachmentUrl) && (
                       <div className={cn(
                         "mt-4 p-4 rounded-2xl flex items-center gap-4 border",
-                        (msg.senderId === currentUser?._id || msg.senderId?._id === currentUser?._id) ? "bg-white/10 border-white/20" : "bg-slate-50 border-slate-100"
+                        (() => {
+                          const senderId = (msg.senderId?._id || msg.senderId)?.toString();
+                          const currentUserId = (currentUser?._id || currentUser?.id)?.toString();
+                          return senderId === currentUserId;
+                        })() ? "bg-white/10 border-white/20" : "bg-slate-50 border-slate-100"
                       )}>
                         <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary"><FileText size={18} /></div>
                         <div className="flex-1 min-w-0">
                           <p className="text-[11px] font-black truncate">{msg.attachmentName || 'Attachment'}</p>
                           <p className="text-[9px] font-bold uppercase opacity-60 tracking-widest">FILE</p>
                         </div>
-                        <button 
-                           onClick={() => window.open(msg.attachment || msg.attachmentUrl, '_blank')}
-                           className="p-2 hover:bg-black/5 rounded-lg transition-all"
+                        <button
+                          onClick={() => window.open(msg.attachment || msg.attachmentUrl, '_blank')}
+                          className="p-2 hover:bg-black/5 rounded-lg transition-all"
                         >
-                           <Eye size={16} />
+                          <Eye size={16} />
                         </button>
                       </div>
                     )}
                   </div>
                   <div className="flex items-center gap-2 mt-2 px-1">
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{msg.createdAt ? format(new Date(msg.createdAt), 'HH:mm') : ''}</span>
-                    {(msg.senderId === currentUser?._id || msg.senderId?._id === currentUser?._id) && (
+                    {(() => {
+                      const senderId = (msg.senderId?._id || msg.senderId)?.toString();
+                      const currentUserId = (currentUser?._id || currentUser?.id)?.toString();
+                      return senderId === currentUserId;
+                    })() && (
                       <CheckCheck size={12} className={msg.isRead ? "text-primary" : "text-slate-300"} />
                     )}
                   </div>
@@ -440,14 +514,14 @@ const BorrowerCommunication = () => {
               ))}
 
               {typingStatus && (
-                 <div className="flex items-center gap-2 text-slate-400">
-                    <div className="flex gap-1">
-                       <span className="w-1 h-1 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                       <span className="w-1 h-1 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '200ms' }} />
-                       <span className="w-1 h-1 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '400ms' }} />
-                    </div>
-                    <span className="text-[9px] font-black uppercase tracking-widest">{typingStatus.userName} is typing...</span>
-                 </div>
+                <div className="flex items-center gap-2 text-slate-400">
+                  <div className="flex gap-1">
+                    <span className="w-1 h-1 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1 h-1 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '200ms' }} />
+                    <span className="w-1 h-1 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '400ms' }} />
+                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-widest">{typingStatus.userName} is typing...</span>
+                </div>
               )}
             </div>
 
@@ -462,7 +536,7 @@ const BorrowerCommunication = () => {
               <form onSubmit={handleSendMessage} className="flex items-end gap-4">
                 <div className="flex-1 relative flex items-center bg-slate-50 rounded-[2rem] px-2 shadow-inner border border-slate-100">
                   <button type="button" className="p-3 text-slate-400 hover:text-primary transition-colors"><Smile size={20} /></button>
-                  <textarea 
+                  <textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     placeholder="Type your message here..."
@@ -473,7 +547,7 @@ const BorrowerCommunication = () => {
                     <Paperclip size={20} />
                   </button>
                 </div>
-                <button 
+                <button
                   type="submit"
                   disabled={!message.trim()}
                   className="w-14 h-14 rounded-2xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:pointer-events-none transition-all shrink-0"
@@ -493,7 +567,7 @@ const BorrowerCommunication = () => {
               <p className="text-sm font-medium text-slate-500 leading-relaxed">Select a conversation from the sidebar to start discussing your loan or payments with your assigned agent or support staff.</p>
             </div>
             <Button onClick={() => setIsNewChatModalOpen(true)} className="font-black uppercase text-[10px] tracking-widest px-10 py-4 shadow-lg shadow-primary/20">
-               Start New Chat
+              Start New Chat
             </Button>
           </div>
         )}
@@ -501,127 +575,127 @@ const BorrowerCommunication = () => {
 
       {/* MODALS & DRAWERS */}
       <AnimatePresence>
-         {/* NEW CHAT MODAL */}
-         {isNewChatModalOpen && (
-            <Modal isOpen onClose={() => setIsNewChatModalOpen(false)} title="Start New Support Conversation" maxWidth="max-w-xl">
-               <div className="space-y-8">
-                  <div className="space-y-6">
-                     <div className="relative group">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors" size={16} />
-                        <input 
-                           type="text" 
-                           placeholder="Search contacts..." 
-                           value={participantSearch}
-                           onChange={(e) => setParticipantSearch(e.target.value)}
-                           className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold focus:ring-2 focus:ring-primary/10 outline-none transition-all"
-                        />
-                     </div>
-                     <div className="space-y-3">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Contacts</p>
-                        <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
-                           {participantsLoading ? (
-                              <div className="py-10 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
-                           ) : participants.filter(p => p.fullName?.toLowerCase().includes(participantSearch.toLowerCase())).length > 0 ? 
-                             participants.filter(p => p.fullName?.toLowerCase().includes(participantSearch.toLowerCase())).map((user) => (
-                              <button 
-                                 key={user._id}
-                                 onClick={() => handleStartConversation(user._id)}
-                                 className="w-full p-4 rounded-2xl flex items-center gap-4 hover:bg-slate-50 transition-all text-left border border-slate-100 group"
-                              >
-                                 <UserAvatar user={user} />
-                                 <div className="flex-1 min-w-0">
-                                    <h4 className="text-sm font-black text-slate-900 truncate tracking-tight">{user.fullName}</h4>
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{user.role}</p>
-                                 </div>
-                                 <ChevronRight size={16} className="text-slate-300 group-hover:text-primary transition-all" />
-                              </button>
-                           )) : (
-                              <p className="text-center py-10 text-slate-400 text-xs font-medium">No contacts found.</p>
-                           )}
-                        </div>
-                     </div>
+        {/* NEW CHAT MODAL */}
+        {isNewChatModalOpen && (
+          <Modal isOpen onClose={() => setIsNewChatModalOpen(false)} title="Start New Support Conversation" maxWidth="max-w-xl">
+            <div className="space-y-8">
+              <div className="space-y-6">
+                <div className="relative group">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors" size={16} />
+                  <input
+                    type="text"
+                    placeholder="Search contacts..."
+                    value={participantSearch}
+                    onChange={(e) => setParticipantSearch(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold focus:ring-2 focus:ring-primary/10 outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Contacts</p>
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                    {participantsLoading ? (
+                      <div className="py-10 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
+                    ) : participants.filter(p => p.fullName?.toLowerCase().includes(participantSearch.toLowerCase())).length > 0 ?
+                      participants.filter(p => p.fullName?.toLowerCase().includes(participantSearch.toLowerCase())).map((user) => (
+                        <button
+                          key={user._id}
+                          onClick={() => handleStartConversation(user._id)}
+                          className="w-full p-4 rounded-2xl flex items-center gap-4 hover:bg-slate-50 transition-all text-left border border-slate-100 group"
+                        >
+                          <UserAvatar user={user} />
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-sm font-black text-slate-900 truncate tracking-tight">{user.fullName}</h4>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{user.role}</p>
+                          </div>
+                          <ChevronRight size={16} className="text-slate-300 group-hover:text-primary transition-all" />
+                        </button>
+                      )) : (
+                        <p className="text-center py-10 text-slate-400 text-xs font-medium">No contacts found.</p>
+                      )}
                   </div>
-                  <div className="flex gap-4 pt-4 border-t border-slate-50">
-                     <Button variant="secondary" onClick={() => setIsNewChatModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Close</Button>
-                  </div>
-               </div>
-            </Modal>
-         )}
+                </div>
+              </div>
+              <div className="flex gap-4 pt-4 border-t border-slate-50">
+                <Button variant="secondary" onClick={() => setIsNewChatModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Close</Button>
+              </div>
+            </div>
+          </Modal>
+        )}
 
-         {/* UPLOAD MODAL */}
-         {isUploadModalOpen && (
-            <Modal isOpen onClose={() => setIsUploadModalOpen(false)} title="Upload File Attachment">
-               <div className="space-y-8">
-                  <div className="p-10 border-2 border-dashed border-slate-100 bg-slate-50/50 rounded-[2.5rem] text-center space-y-4 group hover:border-primary/20 transition-all cursor-pointer relative">
-                     <input 
-                        type="file" 
-                        onChange={(e) => e.target.files[0] && handleFileUpload(e.target.files[0])}
-                        className="absolute inset-0 opacity-0 cursor-pointer" 
-                     />
-                     <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-primary mx-auto shadow-sm group-hover:scale-110 transition-transform">
-                        <Upload size={32} />
-                     </div>
-                     <div>
-                        <p className="text-sm font-black text-slate-900">Drag & drop files to attach</p>
-                        <p className="text-xs font-medium text-slate-500 mt-1 uppercase tracking-widest">PDF, JPG, PNG accepted</p>
-                     </div>
-                  </div>
-                  <div className="flex gap-3 pt-4">
-                     <Button variant="secondary" onClick={() => setIsUploadModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                  </div>
-               </div>
-            </Modal>
-         )}
+        {/* UPLOAD MODAL */}
+        {isUploadModalOpen && (
+          <Modal isOpen onClose={() => setIsUploadModalOpen(false)} title="Upload File Attachment">
+            <div className="space-y-8">
+              <div className="p-10 border-2 border-dashed border-slate-100 bg-slate-50/50 rounded-[2.5rem] text-center space-y-4 group hover:border-primary/20 transition-all cursor-pointer relative">
+                <input
+                  type="file"
+                  onChange={(e) => e.target.files[0] && handleFileUpload(e.target.files[0])}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+                <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-primary mx-auto shadow-sm group-hover:scale-110 transition-transform">
+                  <Upload size={32} />
+                </div>
+                <div>
+                  <p className="text-sm font-black text-slate-900">Drag & drop files to attach</p>
+                  <p className="text-xs font-medium text-slate-500 mt-1 uppercase tracking-widest">PDF, JPG, PNG accepted</p>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-4">
+                <Button variant="secondary" onClick={() => setIsUploadModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
+              </div>
+            </div>
+          </Modal>
+        )}
 
-         {/* LOAN DRAWER */}
-         {isLoanDrawerOpen && (
-            <>
-               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsLoanDrawerOpen(false)} className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100]" />
-               <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed top-0 right-0 h-screen w-full max-w-sm bg-white shadow-2xl z-[101] flex flex-col">
-                  <div className="p-8 border-b border-slate-100 flex items-center justify-between">
-                     <h3 className="text-xl font-black text-slate-900 tracking-tight">Loan Snapshot</h3>
-                     <button onClick={() => setIsLoanDrawerOpen(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors"><X size={20} className="text-slate-400" /></button>
+        {/* LOAN DRAWER */}
+        {isLoanDrawerOpen && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsLoanDrawerOpen(false)} className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100]" />
+            <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed top-0 right-0 h-screen w-full max-w-sm bg-white shadow-2xl z-[101] flex flex-col">
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">Loan Snapshot</h3>
+                <button onClick={() => setIsLoanDrawerOpen(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors"><X size={20} className="text-slate-400" /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
+                <div className="p-8 bg-slate-900 rounded-[2.5rem] text-white space-y-8 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
+                  <div>
+                    <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Personal Loan (L-74291)</p>
+                    <h2 className="text-3xl font-black tracking-tight mt-1">R8,450.00</h2>
+                    <p className="text-[10px] font-bold text-accent uppercase tracking-[0.2em] mt-1">Remaining Balance</p>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
-                     <div className="p-8 bg-slate-900 rounded-[2.5rem] text-white space-y-8 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
-                        <div>
-                           <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Personal Loan (L-74291)</p>
-                           <h2 className="text-3xl font-black tracking-tight mt-1">R8,450.00</h2>
-                           <p className="text-[10px] font-bold text-accent uppercase tracking-[0.2em] mt-1">Remaining Balance</p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-8">
-                           <div>
-                              <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Due Date</p>
-                              <p className="text-sm font-black">15 May 2026</p>
-                           </div>
-                           <div>
-                              <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Last EMI</p>
-                              <p className="text-sm font-black">R825.50</p>
-                           </div>
-                        </div>
-                     </div>
-                     
-                     <div className="space-y-6">
-                        <SummaryRow label="Loan Amount" value="R19,812.00" />
-                        <SummaryRow label="Interest Rate" value="12.5% P.A" />
-                        <SummaryRow label="Total Penalties" value="R150.00" color="text-rose-500" />
-                        <SummaryRow label="Repayment Progress" value="58%" color="text-emerald-500" />
-                     </div>
+                  <div className="grid grid-cols-2 gap-8">
+                    <div>
+                      <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Due Date</p>
+                      <p className="text-sm font-black">15 May 2026</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">Last EMI</p>
+                      <p className="text-sm font-black">R825.50</p>
+                    </div>
+                  </div>
+                </div>
 
-                     <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 shadow-inner">
-                        <div className="flex justify-between items-center mb-3">
-                           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Repayment Track</span>
-                           <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">14 / 24 Paid</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-white rounded-full overflow-hidden border border-slate-100">
-                           <div className="h-full bg-emerald-500 w-[58%]" />
-                        </div>
-                     </div>
+                <div className="space-y-6">
+                  <SummaryRow label="Loan Amount" value="R19,812.00" />
+                  <SummaryRow label="Interest Rate" value="12.5% P.A" />
+                  <SummaryRow label="Total Penalties" value="R150.00" color="text-rose-500" />
+                  <SummaryRow label="Repayment Progress" value="58%" color="text-emerald-500" />
+                </div>
+
+                <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 shadow-inner">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Repayment Track</span>
+                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">14 / 24 Paid</span>
                   </div>
-               </motion.div>
-            </>
-         )}
+                  <div className="h-1.5 w-full bg-white rounded-full overflow-hidden border border-slate-100">
+                    <div className="h-full bg-emerald-500 w-[58%]" />
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
       </AnimatePresence>
     </div>
   );
@@ -658,32 +732,32 @@ const UserAvatar = ({ user, sizeClass = 'w-12 h-12', radiusClass = 'rounded-2xl'
 };
 
 const QuickTemplate = ({ label, onClick }) => (
-   <button 
-      onClick={onClick}
-      className="px-4 py-2 bg-slate-50 hover:bg-primary/5 hover:text-primary rounded-xl text-[9px] font-black uppercase tracking-widest border border-slate-100 transition-all whitespace-nowrap shadow-sm"
-   >
-      {label}
-   </button>
+  <button
+    onClick={onClick}
+    className="px-4 py-2 bg-slate-50 hover:bg-primary/5 hover:text-primary rounded-xl text-[9px] font-black uppercase tracking-widest border border-slate-100 transition-all whitespace-nowrap shadow-sm"
+  >
+    {label}
+  </button>
 );
 
 const RecipientOption = ({ icon: Icon, title, desc }) => (
-   <button className="w-full p-4 rounded-2xl bg-white border border-slate-100 flex items-center gap-4 text-left group hover:border-primary transition-all shadow-sm">
-      <div className="w-11 h-11 rounded-xl bg-slate-50 text-slate-400 group-hover:bg-primary/5 group-hover:text-primary flex items-center justify-center transition-all">
-         <Icon size={20} />
-      </div>
-      <div className="flex-1 min-w-0">
-         <h5 className="text-xs font-black text-slate-900 tracking-tight">{title}</h5>
-         <p className="text-[10px] font-medium text-slate-500 truncate">{desc}</p>
-      </div>
-      <ChevronRight size={16} className="text-slate-300 group-hover:text-primary group-hover:translate-x-1 transition-all" />
-   </button>
+  <button className="w-full p-4 rounded-2xl bg-white border border-slate-100 flex items-center gap-4 text-left group hover:border-primary transition-all shadow-sm">
+    <div className="w-11 h-11 rounded-xl bg-slate-50 text-slate-400 group-hover:bg-primary/5 group-hover:text-primary flex items-center justify-center transition-all">
+      <Icon size={20} />
+    </div>
+    <div className="flex-1 min-w-0">
+      <h5 className="text-xs font-black text-slate-900 tracking-tight">{title}</h5>
+      <p className="text-[10px] font-medium text-slate-500 truncate">{desc}</p>
+    </div>
+    <ChevronRight size={16} className="text-slate-300 group-hover:text-primary group-hover:translate-x-1 transition-all" />
+  </button>
 );
 
 const SummaryRow = ({ label, value, color }) => (
-   <div className="flex items-center justify-between py-1 group">
-      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-slate-600 transition-colors">{label}</span>
-      <span className={cn("text-xs font-black", color || "text-slate-900")}>{value}</span>
-   </div>
+  <div className="flex items-center justify-between py-1 group">
+    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-slate-600 transition-colors">{label}</span>
+    <span className={cn("text-xs font-black", color || "text-slate-900")}>{value}</span>
+  </div>
 );
 
 export default BorrowerCommunication;

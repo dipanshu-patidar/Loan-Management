@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  MessageSquare, Send, Paperclip, Search, 
+import {
+  MessageSquare, Send, Paperclip, Search,
   Filter, MoreVertical, Phone, Info,
   Check, CheckCheck, Clock, User,
   ShieldCheck, Headset, Crown, RefreshCw,
@@ -43,7 +43,7 @@ const AdminCommunication = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [onlineUsers, setOnlineUsers] = useState(new Map());
   const [typingUsers, setTypingUsers] = useState(new Map());
-  
+
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -108,12 +108,18 @@ const AdminCommunication = () => {
 
         setSelectedChat((currentSelected) => {
           if (currentSelected) {
+            // Robust ID comparison for both real and virtual chats
             const selectedId = (currentSelected._id || currentSelected.conversationId)?.toString();
             const incomingId = normalizedMessage.conversationId?.toString();
 
-            if (selectedId && incomingId && selectedId === incomingId) {
+            // If the current selected chat is virtual, its _id is the peer's ID.
+            // We should also check if the incoming message is from that peer.
+            const peer = currentSelected.participants?.find(p => p._id?.toString() !== currentUser?._id?.toString());
+            const peerId = peer?._id?.toString();
+            const senderId = (normalizedMessage.senderId?._id || normalizedMessage.senderId)?.toString();
+
+            if ((selectedId && incomingId && selectedId === incomingId) || (currentSelected.isVirtual && senderId === peerId)) {
               setMessages((prev) => {
-                // De-duplicate by _id or messageId with string coercion
                 const incomingKey = normalizedMessage._id?.toString() || normalizedMessage.messageId?.toString();
                 if (prev.some(msg => {
                   const existingKey = msg._id?.toString() || msg.messageId?.toString();
@@ -130,12 +136,15 @@ const AdminCommunication = () => {
         fetchConversations();
       };
 
-      // Listen to both naming conventions from Admin and Staff controllers
+       // Listen to all possible naming conventions
+      socket.on('message-received', handleIncomingMessage);
+      socket.on('message:received', handleIncomingMessage);
       socket.on('receive_message', handleIncomingMessage);
       socket.on('receiveMessage', handleIncomingMessage);
 
       // Also listen for targeted personal events (emitted by staff controller)
       if (currentUser?._id) {
+        socket.on(`message-received_${currentUser._id}`, handleIncomingMessage);
         socket.on(`receive_message_${currentUser._id}`, handleIncomingMessage);
         socket.on(`receiveMessage_${currentUser._id}`, handleIncomingMessage);
       }
@@ -182,7 +191,10 @@ const AdminCommunication = () => {
     return () => {
       const activeSocket = getSocket();
       if (activeSocket) {
+        activeSocket.off('message-received');
+        activeSocket.off('message:received');
         activeSocket.off('receive_message');
+        activeSocket.off('receiveMessage');
         activeSocket.off('online_status');
         activeSocket.off('typing');
         activeSocket.off('stop_typing');
@@ -220,7 +232,7 @@ const AdminCommunication = () => {
       const conversation = res.data.data.conversation;
       setSelectedChat(conversation); // Upgrade virtual chat state to fully-fledged MongoDB schema
       setMessages(res.data.data.messages);
-      
+
       // Join secure room via Socket stream
       const socket = getSocket();
       if (socket) {
@@ -267,7 +279,7 @@ const AdminCommunication = () => {
         if (prev.some(msg => msg._id === res.data.data.message._id)) return prev;
         return [...prev, res.data.data.message];
       });
-      
+
       // Refresh conversations to update last message on left panel
       fetchConversations();
 
@@ -312,10 +324,10 @@ const AdminCommunication = () => {
     const socket = getSocket();
     if (!socket) return;
 
-    socket.emit('typing', { 
-      roomId: selectedChat._id, 
-      userId: currentUser._id, 
-      userName: currentUser.fullName || 'Admin' 
+    socket.emit('typing', {
+      roomId: selectedChat._id,
+      userId: currentUser._id,
+      userName: currentUser.fullName || 'Admin'
     });
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -398,10 +410,10 @@ const AdminCommunication = () => {
     const peer = chat.participants.find(p => p._id !== currentUser._id);
     if (!peer) return { name: 'System Broadcast', role: 'Public', avatar: '📢', status: 'offline' };
 
-    const initials = peer.fullName 
-      ? peer.fullName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() 
+    const initials = peer.fullName
+      ? peer.fullName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
       : '??';
-    
+
     const isUserOnline = onlineUsers.get(peer._id) === 'online' || peer.accountStatus === 'Active';
 
     return {
@@ -418,7 +430,7 @@ const AdminCommunication = () => {
   const filteredConversations = conversations.filter(c => {
     const details = getChatDetails(c);
     const matchesQuery = details.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (c.lastMessage && c.lastMessage.toLowerCase().includes(searchQuery.toLowerCase()));
+      (c.lastMessage && c.lastMessage.toLowerCase().includes(searchQuery.toLowerCase()));
     return matchesQuery;
   });
 
@@ -433,9 +445,9 @@ const AdminCommunication = () => {
           </div>
           <div className="relative group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors" size={16} />
-            <input 
-              type="text" 
-              placeholder="Search conversations..." 
+            <input
+              type="text"
+              placeholder="Search conversations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-11 pr-4 py-3.5 bg-slate-50 border-none rounded-2xl text-[11px] font-bold focus:ring-2 focus:ring-primary/10 outline-none transition-all"
@@ -456,7 +468,7 @@ const AdminCommunication = () => {
             ))}
           </div>
         </div>
-        
+
         <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-2">
           {loadingConversations ? (
             <div className="flex flex-col items-center justify-center py-10">
@@ -470,7 +482,7 @@ const AdminCommunication = () => {
           ) : filteredConversations.map(chat => {
             const details = getChatDetails(chat);
             const unreadCount = chat.unreadCounts[currentUser?._id] || 0;
-            
+
             return (
               <button
                 key={chat._id}
@@ -481,7 +493,7 @@ const AdminCommunication = () => {
                 )}
               >
                 <div className="relative">
-                    <UserAvatar name={details.name} photo={details.profilePhoto} role={details.role} size="md" />
+                  <UserAvatar name={details.name} photo={details.profilePhoto} role={details.role} size="md" />
 
                   <div className={cn(
                     "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white",
@@ -509,9 +521,9 @@ const AdminCommunication = () => {
         </div>
 
         <div className="p-6 border-t border-slate-50">
-           <Button onClick={() => setIsNewChatModalOpen(true)} className="w-full flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest py-4 shadow-lg shadow-primary/20">
-              <Plus size={16} /> New Broadcast/Message
-           </Button>
+          <Button onClick={() => setIsNewChatModalOpen(true)} className="w-full flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest py-4 shadow-lg shadow-primary/20">
+            <Plus size={16} /> New Broadcast/Message
+          </Button>
         </div>
       </section>
 
@@ -556,7 +568,7 @@ const AdminCommunication = () => {
                         {messages.map((msg, i) => {
                           const isMe = msg.senderId?._id === currentUser?._id;
                           const showDateDivider = i === 0 || formatDetailedDate(messages[i - 1].createdAt) !== formatDetailedDate(msg.createdAt);
-                          
+
                           return (
                             <React.Fragment key={msg._id || i}>
                               {showDateDivider && (
@@ -566,7 +578,7 @@ const AdminCommunication = () => {
                                   </span>
                                 </div>
                               )}
-                              <motion.div 
+                              <motion.div
                                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                 className={cn(
@@ -582,24 +594,24 @@ const AdminCommunication = () => {
                                     </span>
                                   </div>
                                 )}
-                                
-                                <div 
+
+                                <div
                                   onContextMenu={(e) => {
                                     if (isMe) handleRightClick(e, msg);
                                   }}
                                   className={cn(
                                     "p-5 rounded-[2rem] text-sm font-medium shadow-sm leading-relaxed relative select-none cursor-pointer",
-                                    isMe 
-                                      ? "bg-primary text-white rounded-tr-none shadow-primary/10" 
+                                    isMe
+                                      ? "bg-primary text-white rounded-tr-none shadow-primary/10"
                                       : "bg-white text-slate-700 border border-slate-100 rounded-tl-none",
                                     msg.messageType === 'compliance_notice' && "border-2 border-rose-300 bg-rose-50 text-rose-900",
                                     msg.messageType === 'reminder' && "border-2 border-amber-300 bg-amber-50 text-amber-900"
                                   )}
                                   title={isMe ? "Right-click to retract message" : ""}
                                 >
-                                  {msg.messageText}
+                                  {msg.messageText || msg.message}
                                 </div>
-                                
+
                                 <div className="flex items-center gap-2 mt-2 px-1">
                                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
                                     {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -623,30 +635,30 @@ const AdminCommunication = () => {
                   {/* MESSAGE INPUT */}
                   <div className="p-8 border-t border-slate-50 bg-white shrink-0 space-y-6">
                     <div className="flex gap-2 p-1 overflow-x-auto no-scrollbar">
-                      <QuickTemplate 
-                        label="Operational Update" 
-                        onClick={() => { setMessageType('operational_update'); setMessageText("SYSTEM UPDATE: Verification protocol check sequence complete."); }} 
+                      <QuickTemplate
+                        label="Operational Update"
+                        onClick={() => { setMessageType('operational_update'); setMessageText("SYSTEM UPDATE: Verification protocol check sequence complete."); }}
                       />
-                      <QuickTemplate 
-                        label="Collection Reminder" 
-                        onClick={() => { setMessageType('reminder'); setMessageText("REMINDER: Standard collection processing required immediately."); }} 
+                      <QuickTemplate
+                        label="Collection Reminder"
+                        onClick={() => { setMessageType('reminder'); setMessageText("REMINDER: Standard collection processing required immediately."); }}
                       />
-                      <QuickTemplate 
-                        label="Approval Escalation" 
-                        onClick={() => { setMessageType('escalation'); setMessageText("ESCALATION NOTIFICATION: Admin clearance requested."); }} 
+                      <QuickTemplate
+                        label="Approval Escalation"
+                        onClick={() => { setMessageType('escalation'); setMessageText("ESCALATION NOTIFICATION: Admin clearance requested."); }}
                       />
-                      <QuickTemplate 
-                        label="Compliance Notice" 
-                        onClick={() => { setMessageType('compliance_notice'); setMessageText("COMPLIANCE ALERT: Portfolio review pending documentation."); }} 
+                      <QuickTemplate
+                        label="Compliance Notice"
+                        onClick={() => { setMessageType('compliance_notice'); setMessageText("COMPLIANCE ALERT: Portfolio review pending documentation."); }}
                       />
                     </div>
                     <form onSubmit={handleSendMessage} className="flex items-end gap-4">
                       <div className="flex-1 relative flex items-center bg-slate-50 rounded-[2rem] px-2 shadow-inner border border-slate-100">
-                        
+
                         {/* Custom Floating Emoji Tray */}
                         {showEmojiPicker && (
-                          <div 
-                            onClick={(e) => e.stopPropagation()} 
+                          <div
+                            onClick={(e) => e.stopPropagation()}
                             className="absolute bottom-full left-4 mb-4 bg-white border border-slate-100 rounded-2xl shadow-premium p-3.5 grid grid-cols-5 gap-2 z-[200] animate-in fade-in slide-in-from-bottom-2 duration-200 w-64 border-solid"
                           >
                             <div className="col-span-5 pb-2 border-b border-slate-50 mb-1">
@@ -667,8 +679,8 @@ const AdminCommunication = () => {
                           </div>
                         )}
 
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             setShowEmojiPicker(!showEmojiPicker);
@@ -677,7 +689,7 @@ const AdminCommunication = () => {
                         >
                           <Smile size={20} />
                         </button>
-                        <textarea 
+                        <textarea
                           value={messageText}
                           onChange={handleTyping}
                           placeholder="Type administrative instruction or message..."
@@ -685,7 +697,7 @@ const AdminCommunication = () => {
                           rows={1}
                         />
                       </div>
-                      <button 
+                      <button
                         type="submit"
                         disabled={!messageText.trim()}
                         className="w-14 h-14 rounded-2xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:pointer-events-none transition-all shrink-0"
@@ -708,7 +720,7 @@ const AdminCommunication = () => {
               <p className="text-sm font-medium text-slate-500 leading-relaxed">Oversee and manage communication across the entire platform. Select a thread to intervene or provide guidance.</p>
             </div>
             <Button onClick={() => setIsNewChatModalOpen(true)} className="font-black uppercase text-[10px] tracking-widest px-10 py-4 shadow-lg shadow-primary/20">
-               New Broadcast
+              New Broadcast
             </Button>
           </div>
         )}
@@ -716,156 +728,156 @@ const AdminCommunication = () => {
 
       {/* MODALS & DRAWERS */}
       <AnimatePresence>
-         {/* NEW CHAT MODAL */}
-         {isNewChatModalOpen && (
-            <Modal isOpen onClose={() => setIsNewChatModalOpen(false)} title="New Administrative Broadcast" maxWidth="max-w-xl">
-               <div className="space-y-8">
-                  <div className="space-y-6">
-                     <div className="space-y-3">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Target Recipient Group</p>
-                        <div className="grid grid-cols-3 gap-3">
-                           {['Borrower', 'Agent', 'Staff'].map(role => (
-                              <button 
-                                key={role} 
-                                onClick={() => { setTargetGroup(role); setSelectedUserId(''); }}
-                                className={cn(
-                                  "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 group",
-                                  targetGroup === role ? "border-primary bg-primary/5" : "border-slate-50 hover:border-primary hover:bg-primary/5"
-                                )}
-                              >
-                                 <div className={cn(
-                                   "w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-sm",
-                                   targetGroup === role ? "bg-primary text-white" : "bg-slate-50 text-slate-400 group-hover:text-primary group-hover:bg-white"
-                                 )}>
-                                    {role === 'Borrower' ? <Users size={20} /> : role === 'Staff' ? <UserCog size={20} /> : <User size={20} />}
-                                 </div>
-                                 <span className={cn("text-[10px] font-black uppercase tracking-widest", targetGroup === role ? "text-primary" : "text-slate-600 group-hover:text-primary")}>{role}</span>
-                              </button>
-                           ))}
-                        </div>
-                     </div>
-                     <div className="space-y-3">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Individual (Optional)</p>
-                        <select 
-                          value={selectedUserId}
-                          onChange={(e) => setSelectedUserId(e.target.value)}
-                          className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/10 shadow-inner"
-                        >
-                           <option value="">Broadcast to All Selected Group</option>
-                           {individualUsers.map(u => (
-                             <option key={u._id} value={u._id}>{targetGroup}: {u.fullName}</option>
-                           ))}
-                        </select>
-                     </div>
-                     <div className="space-y-3">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Instruction / Message</p>
-                        <textarea 
-                          value={broadcastText}
-                          onChange={(e) => setBroadcastText(e.target.value)}
-                          placeholder="Type administrative broadcast or private message..." 
-                          className="w-full bg-slate-50 border-none rounded-2xl p-5 text-sm font-medium text-slate-700 min-h-[120px] focus:ring-2 focus:ring-primary/10 outline-none shadow-inner" 
-                        />
-                     </div>
-                  </div>
-                  <div className="flex gap-4 pt-4 border-t border-slate-50">
-                     <Button variant="secondary" onClick={() => setIsNewChatModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                     <Button 
-                        onClick={handleExecuteBroadcast} 
-                        disabled={isSubmitting}
-                        className="flex-1 font-black uppercase text-[10px] shadow-lg shadow-primary/20"
+        {/* NEW CHAT MODAL */}
+        {isNewChatModalOpen && (
+          <Modal isOpen onClose={() => setIsNewChatModalOpen(false)} title="New Administrative Broadcast" maxWidth="max-w-xl">
+            <div className="space-y-8">
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Target Recipient Group</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {['Borrower', 'Agent', 'Staff'].map(role => (
+                      <button
+                        key={role}
+                        onClick={() => { setTargetGroup(role); setSelectedUserId(''); }}
+                        className={cn(
+                          "p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 group",
+                          targetGroup === role ? "border-primary bg-primary/5" : "border-slate-50 hover:border-primary hover:bg-primary/5"
+                        )}
                       >
-                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Execute Broadcast'}
-                     </Button>
+                        <div className={cn(
+                          "w-10 h-10 rounded-xl flex items-center justify-center transition-all shadow-sm",
+                          targetGroup === role ? "bg-primary text-white" : "bg-slate-50 text-slate-400 group-hover:text-primary group-hover:bg-white"
+                        )}>
+                          {role === 'Borrower' ? <Users size={20} /> : role === 'Staff' ? <UserCog size={20} /> : <User size={20} />}
+                        </div>
+                        <span className={cn("text-[10px] font-black uppercase tracking-widest", targetGroup === role ? "text-primary" : "text-slate-600 group-hover:text-primary")}>{role}</span>
+                      </button>
+                    ))}
                   </div>
-               </div>
-            </Modal>
-         )}
+                </div>
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Individual (Optional)</p>
+                  <select
+                    value={selectedUserId}
+                    onChange={(e) => setSelectedUserId(e.target.value)}
+                    className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-600 outline-none focus:ring-2 focus:ring-primary/10 shadow-inner"
+                  >
+                    <option value="">Broadcast to All Selected Group</option>
+                    {individualUsers.map(u => (
+                      <option key={u._id} value={u._id}>{targetGroup}: {u.fullName}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Instruction / Message</p>
+                  <textarea
+                    value={broadcastText}
+                    onChange={(e) => setBroadcastText(e.target.value)}
+                    placeholder="Type administrative broadcast or private message..."
+                    className="w-full bg-slate-50 border-none rounded-2xl p-5 text-sm font-medium text-slate-700 min-h-[120px] focus:ring-2 focus:ring-primary/10 outline-none shadow-inner"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-4 pt-4 border-t border-slate-50">
+                <Button variant="secondary" onClick={() => setIsNewChatModalOpen(false)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
+                <Button
+                  onClick={handleExecuteBroadcast}
+                  disabled={isSubmitting}
+                  className="flex-1 font-black uppercase text-[10px] shadow-lg shadow-primary/20"
+                >
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Execute Broadcast'}
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )}
 
-         {/* SNAPSHOT DRAWER */}
-         {isSnapshotDrawerOpen && selectedChat && (
-            <>
-               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsSnapshotDrawerOpen(false)} className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100]" />
-               <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed top-0 right-0 h-screen w-full max-w-sm bg-white shadow-2xl z-[101] flex flex-col">
-                  <div className="p-8 border-b border-slate-100 flex items-center justify-between">
-                     <h3 className="text-xl font-black text-slate-900 tracking-tight">Entity Snapshot</h3>
-                     <button onClick={() => setIsSnapshotDrawerOpen(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors"><X size={20} className="text-slate-400" /></button>
-                  </div>
-                  {(() => {
-                    const details = getChatDetails(selectedChat);
-                    return (
-                      <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
-                         <div className="text-center space-y-4">
-                            <UserAvatar name={details.name} photo={details.profilePhoto} role={details.role} size="xl" />
-                            <div>
-                               <h4 className="text-xl font-black text-slate-900">{details.name}</h4>
-                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{details.role}</p>
-                            </div>
-                         </div>
-
-                         <div className="space-y-6">
-                            <h5 className="text-[10px] font-black text-slate-900 uppercase tracking-widest border-b border-slate-50 pb-2">Operational Context</h5>
-                            <SummaryRow label="Email Record" value={details.raw?.email} />
-                            <SummaryRow label="Account Health" value={details.raw?.accountStatus || details.raw?.status || 'N/A'} color="text-emerald-500" />
-                            <SummaryRow label="Real-Time Sync" value={details.status} color={details.status === 'online' ? 'text-primary' : 'text-slate-400'} />
-                         </div>
+        {/* SNAPSHOT DRAWER */}
+        {isSnapshotDrawerOpen && selectedChat && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsSnapshotDrawerOpen(false)} className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100]" />
+            <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="fixed top-0 right-0 h-screen w-full max-w-sm bg-white shadow-2xl z-[101] flex flex-col">
+              <div className="p-8 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">Entity Snapshot</h3>
+                <button onClick={() => setIsSnapshotDrawerOpen(false)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors"><X size={20} className="text-slate-400" /></button>
+              </div>
+              {(() => {
+                const details = getChatDetails(selectedChat);
+                return (
+                  <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
+                    <div className="text-center space-y-4">
+                      <UserAvatar name={details.name} photo={details.profilePhoto} role={details.role} size="xl" />
+                      <div>
+                        <h4 className="text-xl font-black text-slate-900">{details.name}</h4>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">{details.role}</p>
                       </div>
-                    );
-                  })()}
-               </motion.div>
-            </>
-         )}
+                    </div>
 
-         {/* Message Context Dropdown */}
-         {contextMenu && (
-           <div 
-             style={{ 
-               top: contextMenu.y, 
-               left: contextMenu.x,
-               transform: contextMenu.x > window.innerWidth - 220 ? 'translateX(-100%)' : 'none',
-               transformOrigin: contextMenu.x > window.innerWidth - 220 ? 'top right' : 'top left'
-             }}
-             className="fixed z-[9999] bg-white border border-slate-200/60 rounded-2xl shadow-premium py-2 px-1.5 min-w-[180px] animate-in fade-in slide-in-from-top-1 duration-100 border-solid border"
-           >
-             <button
-               onClick={() => {
-                 setMessageToDelete(contextMenu.message);
-                 setContextMenu(null);
-               }}
-               className="w-full text-left flex items-center gap-3 px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 hover:text-rose-700 rounded-xl transition-all cursor-pointer"
-             >
-               <Trash2 size={14} /> Retract Message
-             </button>
-           </div>
-         )}
+                    <div className="space-y-6">
+                      <h5 className="text-[10px] font-black text-slate-900 uppercase tracking-widest border-b border-slate-50 pb-2">Operational Context</h5>
+                      <SummaryRow label="Email Record" value={details.raw?.email} />
+                      <SummaryRow label="Account Health" value={details.raw?.accountStatus || details.raw?.status || 'N/A'} color="text-emerald-500" />
+                      <SummaryRow label="Real-Time Sync" value={details.status} color={details.status === 'online' ? 'text-primary' : 'text-slate-400'} />
+                    </div>
+                  </div>
+                );
+              })()}
+            </motion.div>
+          </>
+        )}
 
-         {/* Message Delete Confirmation Modal */}
-         {messageToDelete && (
-           <Modal 
-             isOpen 
-             onClose={() => setMessageToDelete(null)} 
-             title="Retract Transaction Message" 
-             maxWidth="max-w-md"
-           >
-             <div className="space-y-6 text-center py-2">
-               <div className="w-16 h-16 rounded-[1.5rem] bg-rose-50 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
-                 <AlertTriangle size={28} />
-               </div>
-               <div className="space-y-2">
-                 <h4 className="text-lg font-black text-slate-900 tracking-tight">Delete for Everyone?</h4>
-                 <p className="text-xs text-slate-500 leading-relaxed px-4">
-                   This will permanently purge the selected message transmission from MongoDB servers for all active recipients.
-                 </p>
-                 <div className="bg-slate-50 p-4 rounded-2xl text-xs text-slate-600 font-medium text-left border border-slate-100 line-clamp-3 mt-4 max-h-24 overflow-hidden italic">
-                   "{messageToDelete.messageText}"
-                 </div>
-               </div>
-               <div className="flex gap-3 pt-4 border-t border-slate-50">
-                 <Button variant="secondary" onClick={() => setMessageToDelete(null)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
-                 <Button onClick={handleDeleteMessage} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[10px] shadow-lg shadow-rose-600/20 py-4">Retract Data</Button>
-               </div>
-             </div>
-           </Modal>
-         )}
+        {/* Message Context Dropdown */}
+        {contextMenu && (
+          <div
+            style={{
+              top: contextMenu.y,
+              left: contextMenu.x,
+              transform: contextMenu.x > window.innerWidth - 220 ? 'translateX(-100%)' : 'none',
+              transformOrigin: contextMenu.x > window.innerWidth - 220 ? 'top right' : 'top left'
+            }}
+            className="fixed z-[9999] bg-white border border-slate-200/60 rounded-2xl shadow-premium py-2 px-1.5 min-w-[180px] animate-in fade-in slide-in-from-top-1 duration-100 border-solid border"
+          >
+            <button
+              onClick={() => {
+                setMessageToDelete(contextMenu.message);
+                setContextMenu(null);
+              }}
+              className="w-full text-left flex items-center gap-3 px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-rose-600 hover:bg-rose-50 hover:text-rose-700 rounded-xl transition-all cursor-pointer"
+            >
+              <Trash2 size={14} /> Retract Message
+            </button>
+          </div>
+        )}
+
+        {/* Message Delete Confirmation Modal */}
+        {messageToDelete && (
+          <Modal
+            isOpen
+            onClose={() => setMessageToDelete(null)}
+            title="Retract Transaction Message"
+            maxWidth="max-w-md"
+          >
+            <div className="space-y-6 text-center py-2">
+              <div className="w-16 h-16 rounded-[1.5rem] bg-rose-50 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+                <AlertTriangle size={28} />
+              </div>
+              <div className="space-y-2">
+                <h4 className="text-lg font-black text-slate-900 tracking-tight">Delete for Everyone?</h4>
+                <p className="text-xs text-slate-500 leading-relaxed px-4">
+                  This will permanently purge the selected message transmission from MongoDB servers for all active recipients.
+                </p>
+                <div className="bg-slate-50 p-4 rounded-2xl text-xs text-slate-600 font-medium text-left border border-slate-100 line-clamp-3 mt-4 max-h-24 overflow-hidden italic">
+                  "{messageToDelete.messageText}"
+                </div>
+              </div>
+              <div className="flex gap-3 pt-4 border-t border-slate-50">
+                <Button variant="secondary" onClick={() => setMessageToDelete(null)} className="flex-1 font-black uppercase text-[10px]">Cancel</Button>
+                <Button onClick={handleDeleteMessage} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-[10px] shadow-lg shadow-rose-600/20 py-4">Retract Data</Button>
+              </div>
+            </div>
+          </Modal>
+        )}
       </AnimatePresence>
     </div>
   );
@@ -875,9 +887,9 @@ const AdminCommunication = () => {
 
 const roleColors = {
   Borrower: { bg: 'bg-blue-50', text: 'text-blue-600' },
-  Agent:    { bg: 'bg-amber-50', text: 'text-amber-600' },
-  Staff:    { bg: 'bg-emerald-50', text: 'text-emerald-600' },
-  default:  { bg: 'bg-primary/5', text: 'text-primary' },
+  Agent: { bg: 'bg-amber-50', text: 'text-amber-600' },
+  Staff: { bg: 'bg-emerald-50', text: 'text-emerald-600' },
+  default: { bg: 'bg-primary/5', text: 'text-primary' },
 };
 
 const sizeCls = {
@@ -913,20 +925,20 @@ const UserAvatar = ({ name, photo, role, size = 'md' }) => {
 };
 
 const QuickTemplate = ({ label, onClick }) => (
-   <button 
-      type="button"
-      onClick={onClick}
-      className="px-4 py-2 bg-slate-50 hover:bg-primary/5 hover:text-primary rounded-xl text-[9px] font-black uppercase tracking-widest border border-slate-100 transition-all whitespace-nowrap shadow-sm"
-   >
-      {label}
-   </button>
+  <button
+    type="button"
+    onClick={onClick}
+    className="px-4 py-2 bg-slate-50 hover:bg-primary/5 hover:text-primary rounded-xl text-[9px] font-black uppercase tracking-widest border border-slate-100 transition-all whitespace-nowrap shadow-sm"
+  >
+    {label}
+  </button>
 );
 
 const SummaryRow = ({ label, value, color }) => (
-   <div className="flex items-center justify-between py-1 group">
-      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-slate-600 transition-colors">{label}</span>
-      <span className={cn("text-xs font-black truncate max-w-[160px]", color || "text-slate-900")}>{value}</span>
-   </div>
+  <div className="flex items-center justify-between py-1 group">
+    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest group-hover:text-slate-600 transition-colors">{label}</span>
+    <span className={cn("text-xs font-black truncate max-w-[160px]", color || "text-slate-900")}>{value}</span>
+  </div>
 );
 
 export default AdminCommunication;

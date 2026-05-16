@@ -74,11 +74,36 @@ const BorrowerNotifications = () => {
   };
 
   const handleDelete = async () => {
-    // API endpoint for delete not requested in prompt, but I can implement if needed.
-    // For now, local delete
-    setNotifications(prev => prev.filter(n => n._id !== selectedNotification._id));
-    setIsDeleteModalOpen(false);
-    setIsDrawerOpen(false);
+    if (!selectedNotification) return;
+    try {
+      await api.delete(`/borrower/communications/notifications/${selectedNotification._id}`);
+      setNotifications(prev => prev.filter(n => n._id !== selectedNotification._id));
+      toast.success('Notification removed');
+      setIsDeleteModalOpen(false);
+      setIsDrawerOpen(false);
+    } catch (error) {
+      toast.error('Failed to delete notification');
+    }
+  };
+
+  const handleClearAll = async () => {
+    try {
+      await api.delete('/borrower/communications/notifications/clear-all');
+      setNotifications([]);
+      toast.success('All notifications cleared');
+    } catch (error) {
+      toast.error('Failed to clear notifications');
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await api.patch('/borrower/communications/notifications/read-all');
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true, status: 'READ' })));
+      toast.success('All marked as read');
+    } catch (error) {
+      toast.error('Failed to mark all as read');
+    }
   };
 
   const handleView = (notif) => {
@@ -122,14 +147,14 @@ const BorrowerNotifications = () => {
         <div className="flex flex-wrap items-center gap-3 relative z-10">
           <Button 
             variant="secondary" 
-            onClick={() => setNotifications(notifications.map(n => ({...n, status: 'Read'})))}
+            onClick={handleMarkAllRead}
             className="flex items-center gap-2 font-black text-[10px] uppercase tracking-widest px-6 border-slate-200 bg-white"
           >
             <CheckCheck size={16} /> Mark All As Read
           </Button>
           <Button 
             variant="secondary"
-            onClick={() => setNotifications([])}
+            onClick={handleClearAll}
             className="flex items-center gap-2 font-black text-[10px] uppercase tracking-widest px-6 border-slate-200 bg-white text-rose-500 hover:bg-rose-50 hover:border-rose-100"
           >
             <Trash2 size={16} /> Clear Notifications

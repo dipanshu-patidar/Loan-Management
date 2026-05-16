@@ -27,11 +27,17 @@ const getApplicationStatus = async (applicationId) => {
   return response.data;
 };
 
+const getEligibilitySettings = async () => {
+  const response = await api.get('/borrower/eligibility-settings');
+  return response.data;
+};
+
 const BorrowerLoanService = {
   getLoanEstimate,
   uploadDocumentOnly,
   submitFullApplication,
-  getApplicationStatus
+  getApplicationStatus,
+  getEligibilitySettings
 };
 
 export default BorrowerLoanService;

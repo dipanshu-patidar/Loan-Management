@@ -38,6 +38,21 @@ const ApplyLoan = () => {
   const [uploadedDocs, setUploadedDocs] = useState([]);
   const [creditConsentAccepted, setCreditConsentAccepted] = useState(false);
   const [creditConsentError, setCreditConsentError] = useState(false);
+  const [eligibilitySettings, setEligibilitySettings] = useState(null);
+
+  useEffect(() => {
+    const fetchEligibility = async () => {
+      try {
+        const res = await BorrowerLoanService.getEligibilitySettings();
+        if (res.success) {
+          setEligibilitySettings(res.data);
+        }
+      } catch (error) {
+        console.error('Error fetching eligibility:', error);
+      }
+    };
+    fetchEligibility();
+  }, []);
 
   const { register, handleSubmit, formState: { errors }, setValue, watch, trigger } = useForm({
     mode: 'onTouched',
@@ -619,13 +634,37 @@ const ApplyLoan = () => {
 
       {/* 📊 ELIGIBILITY SUMMARY */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-6">
-         <EligibilityCard icon={Wallet} label="Min Amount" value="R1,000" color="blue" />
-         <EligibilityCard icon={TrendingUp} label="Max Amount" value="R100,000" color="emerald" />
-         <EligibilityCard icon={Clock} label="Duration" value="3 - 24 Months" color="amber" />
-         <EligibilityCard icon={Activity} label="Est. Interest" value="12.5% p.a." color="primary" />
+         <EligibilityCard 
+            icon={Wallet} 
+            label="Min Amount" 
+            value={eligibilitySettings ? `R${eligibilitySettings.eligibleMinimumPrincipal?.toLocaleString()}` : "R1,000"} 
+            color="blue" 
+         />
+         <EligibilityCard 
+            icon={TrendingUp} 
+            label="Max Amount" 
+            value={eligibilitySettings ? `R${eligibilitySettings.eligibleMaximumPrincipal?.toLocaleString()}` : "R100,000"} 
+            color="emerald" 
+         />
+         <EligibilityCard 
+            icon={Clock} 
+            label="Duration" 
+            value={eligibilitySettings ? `${eligibilitySettings.allowedRepaymentDurations} Months` : "3 - 24 Months"} 
+            color="amber" 
+         />
+         <EligibilityCard 
+            icon={Activity} 
+            label="Est. Interest" 
+            value={eligibilitySettings ? `${eligibilitySettings.defaultInterestRate}% p.a.` : "12.5% p.a."} 
+            color="primary" 
+         />
       </section>
 
-      <EligibilityModal isOpen={isEligibilityModalOpen} onClose={() => setIsEligibilityModalOpen(false)} />
+      <EligibilityModal 
+        isOpen={isEligibilityModalOpen} 
+        onClose={() => setIsEligibilityModalOpen(false)} 
+        settings={eligibilitySettings}
+      />
     </div>
   );
 };
@@ -648,7 +687,7 @@ const EligibilityCard = ({ icon: Icon, label, value, color }) => (
    </div>
 );
 
-const EligibilityModal = ({ isOpen, onClose }) => (
+const EligibilityModal = ({ isOpen, onClose, settings }) => (
    <Modal isOpen={isOpen} onClose={onClose} title="Loan Eligibility Information" maxWidth="max-w-4xl">
       <div className="space-y-10 custom-scrollbar max-h-[70vh] overflow-y-auto pr-2 pb-6">
          <div className="space-y-4">
@@ -659,11 +698,11 @@ const EligibilityModal = ({ isOpen, onClose }) => (
                <ShieldCheck size={14} /> Basic Requirements
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-               <ReqItem icon={User} label="Minimum Age" value="18 Years+" />
-               <ReqItem icon={Briefcase} label="Employment" value="Employed / Self" />
-               <ReqItem icon={Wallet} label="Min Income" value="R5,000 Monthly" />
-               <ReqItem icon={FileText} label="Valid ID" value="Government ID" />
-               <ReqItem icon={Landmark} label="Bank Account" value="Active Account" />
+               <ReqItem icon={User} label="Minimum Age" value={settings ? `${settings.minimumAge} Years+` : "18 Years+"} />
+               <ReqItem icon={Briefcase} label="Employment" value={settings ? settings.employmentType : "Employed / Self"} />
+               <ReqItem icon={Wallet} label="Min Income" value={settings ? `R${settings.minimumMonthlyIncome?.toLocaleString()} Monthly` : "R5,000 Monthly"} />
+               <ReqItem icon={FileText} label="Valid ID" value={settings?.idVerificationRequired ? "Government ID Required" : "ID Document"} />
+               <ReqItem icon={Landmark} label="Bank Account" value="Active Account Required" />
             </div>
          </section>
       </div>

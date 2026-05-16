@@ -391,3 +391,47 @@ exports.startConversation = asyncHandler(async (req, res) => {
 
   sendSuccess(res, 'Conversation started', convObj);
 });
+
+/**
+ * @desc    Delete a single notification
+ * @route   DELETE /api/borrower/communications/notifications/:id
+ */
+exports.deleteNotification = asyncHandler(async (req, res) => {
+  const notification = await Notification.findOneAndUpdate(
+    { _id: req.params.id, receiverId: req.user._id },
+    { isDeleted: true },
+    { new: true }
+  );
+
+  if (!notification) {
+    return sendError(res, 'Notification not found or access denied', 404);
+  }
+
+  sendSuccess(res, 'Notification deleted successfully');
+});
+
+/**
+ * @desc    Clear all notifications for the borrower
+ * @route   DELETE /api/borrower/communications/notifications/clear-all
+ */
+exports.clearNotifications = asyncHandler(async (req, res) => {
+  await Notification.updateMany(
+    { receiverId: req.user._id, isDeleted: false },
+    { isDeleted: true }
+  );
+
+  sendSuccess(res, 'All notifications cleared successfully');
+});
+
+/**
+ * @desc    Mark all notifications as read for the borrower
+ * @route   PATCH /api/borrower/communications/notifications/read-all
+ */
+exports.markAllNotificationsRead = asyncHandler(async (req, res) => {
+  await Notification.updateMany(
+    { receiverId: req.user._id, isRead: false, isDeleted: false },
+    { isRead: true, status: 'READ' }
+  );
+
+  sendSuccess(res, 'All notifications marked as read');
+});

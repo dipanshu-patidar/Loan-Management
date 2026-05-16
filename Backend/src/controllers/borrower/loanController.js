@@ -3,8 +3,48 @@ const RepaymentSchedule = require('../../models/RepaymentSchedule');
 const LoanActivity = require('../../models/LoanActivity');
 const LoanApplication = require('../../models/LoanApplication');
 const Borrower = require('../../models/Borrower');
+const SystemSettings = require('../../models/SystemSettings');
 const asyncHandler = require('../../utils/asyncHandler');
 const { sendSuccess, sendError } = require('../../utils/responseHandler');
+
+/**
+ * @desc    Get system eligibility settings for borrower
+ * @route   GET /api/borrower/eligibility-settings
+ * @access  Private/Borrower
+ */
+exports.getEligibilitySettings = asyncHandler(async (req, res) => {
+  const settings = await SystemSettings.findOne();
+  
+  if (!settings) {
+    // Return empty but success to avoid frontend crash, using defaults
+    return sendSuccess(res, 'Default eligibility settings', {
+      minimumAge: 18,
+      minimumMonthlyIncome: 5000,
+      employmentType: 'Both',
+      eligibleMinimumPrincipal: 1000,
+      eligibleMaximumPrincipal: 50000,
+      allowedRepaymentDurations: '3, 6, 12, 18, 24',
+      defaultInterestRate: 12.5
+    });
+  }
+
+  // Return only necessary fields for UI
+  const eligibility = {
+    minimumAge: settings.minimumAge,
+    minimumMonthlyIncome: settings.minimumMonthlyIncome,
+    employmentType: settings.employmentType,
+    eligibleMinimumPrincipal: settings.eligibleMinimumPrincipal,
+    eligibleMaximumPrincipal: settings.eligibleMaximumPrincipal,
+    allowedRepaymentDurations: settings.allowedRepaymentDurations,
+    defaultInterestRate: settings.defaultInterestRate,
+    idVerificationRequired: settings.idVerificationRequired,
+    bankStatementReview: settings.bankStatementReview,
+    payslipVerification: settings.payslipVerification,
+    proofOfAddressAudit: settings.proofOfAddressAudit
+  };
+
+  sendSuccess(res, 'Eligibility settings fetched', eligibility);
+});
 
 /**
  * @desc    Get all active loans for the logged-in borrower

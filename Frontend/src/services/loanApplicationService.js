@@ -82,6 +82,15 @@ const loanApplicationService = {
   assignReviewer: async (data) => {
     const response = await api.post('/admin/loan-applications/assign-reviewer', data);
     return response.data;
+  },
+  
+  /**
+   * @desc Delete loan application
+   * @param {string} id - Application ID
+   */
+  deleteApplication: async (id) => {
+    const response = await api.delete(`/admin/loan-applications/${id}`);
+    return response.data;
   }
 };
 

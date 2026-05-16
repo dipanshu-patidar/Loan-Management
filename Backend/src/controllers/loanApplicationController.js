@@ -806,6 +806,28 @@ const assignReviewer = asyncHandler(async (req, res) => {
   }
 });
 
+/**
+ * @desc    Delete loan application
+ * @route   DELETE /api/admin/loan-applications/:id
+ * @access  Private/Admin
+ */
+const deleteApplication = asyncHandler(async (req, res) => {
+  const application = await LoanApplication.findById(req.params.id);
+
+  if (!application) {
+    return sendError(res, 'Loan application not found', 404);
+  }
+
+  // Business Rule: Don't allow deleting approved/active loans from here
+  if (application.status === 'Approved' || application.status === 'Disbursed') {
+    return sendError(res, 'Approved or Disbursed applications cannot be deleted. Please close the loan instead.', 400);
+  }
+
+  await application.deleteOne();
+
+  sendSuccess(res, 'Loan application deleted successfully');
+});
+
 module.exports = {
   getApplicationStats,
   getAllApplications,
@@ -814,5 +836,6 @@ module.exports = {
   rejectApplication,
   holdApplication,
   updateStaffReview,
-  assignReviewer
+  assignReviewer,
+  deleteApplication
 };

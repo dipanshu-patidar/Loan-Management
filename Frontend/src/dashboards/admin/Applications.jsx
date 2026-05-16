@@ -5,8 +5,7 @@ import {
   Calendar, Wallet, User, Building2, Briefcase,
   MapPin, Phone, Mail, ArrowRight, Loader2, Info,
   History, ShieldCheck, CheckCircle2, ChevronRight,
-  ExternalLink, FileCheck, FileX, Pause, Image as ImageIcon,
-  CreditCard, UserPlus
+  ExternalLink, FileCheck, FileX, Pause,  Image as ImageIcon, CreditCard, UserPlus, Trash2
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -29,6 +28,7 @@ const Applications = () => {
   const [selectedApp, setSelectedApp] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeModal, setActiveModal] = useState(null); // 'approve', 'reject', 'hold', 'export'
+  const [activeMenu, setActiveMenu] = useState(null); // ID of the app with open menu
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [exportFormat, setExportFormat] = useState('pdf');
   const [statsData, setStatsData] = useState({
@@ -65,6 +65,26 @@ const Applications = () => {
     fetchApplications();
     fetchStats();
   }, [searchTerm, statusFilter, reviewerFilter]);
+
+  const handleDeleteClick = (app) => {
+    setSelectedApp(app);
+    setActiveModal('delete');
+  };
+
+  const handleConfirmDelete = async () => {
+    try {
+      setIsSubmitting(true);
+      await loanApplicationService.deleteApplication(selectedApp._id);
+      toast.success('Application deleted successfully');
+      fetchApplications();
+      fetchStats();
+      closeModal();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to delete application');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -353,8 +373,8 @@ const Applications = () => {
       </section>
 
       {/* TABLE */}
-      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft overflow-hidden">
-        <div className="overflow-x-auto">
+      <section className="bg-white rounded-[2.5rem] border border-slate-100 shadow-soft overflow-visible">
+        <div className="overflow-visible">
           {loading && !isDrawerOpen ? (
             <div className="flex flex-col items-center justify-center py-20 gap-4">
               <Loader2 className="w-10 h-10 text-primary animate-spin" />
@@ -378,7 +398,13 @@ const Applications = () => {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {applications.map((app) => (
-                  <tr key={app._id} className="group hover:bg-slate-50/50 transition-all">
+                  <tr 
+                    key={app._id} 
+                    className={cn(
+                      "group hover:bg-slate-50/50 transition-all",
+                      activeMenu === app._id ? "relative z-50 bg-slate-50/80" : "relative z-0"
+                    )}
+                  >
                     <td className="px-8 py-5">
                       <span className="text-[11px] font-black text-slate-600 bg-slate-100 px-3 py-1 rounded-lg uppercase tracking-tight">
                         {app.applicationId}
@@ -431,54 +457,71 @@ const Applications = () => {
                       <ReviewOutcomeBadge staffReview={app.staffReview} />
                     </td>
                     <td className="px-8 py-5">
-                      <div className="flex items-center justify-end gap-1">
-                        <button 
-                          onClick={() => openDecisionModal('assign', app)}
-                          className="p-2 rounded-xl text-indigo-500 hover:bg-indigo-50 transition-all"
-                          title="Assign Staff Reviewer"
-                        >
-                          <UserPlus size={18} />
-                        </button>
-                        <button
-                          onClick={() => navigate(`/admin/applications/${app._id}`)}
-                          className="p-2 rounded-xl text-primary hover:bg-primary/5 transition-all"
-                          title="View Application"
-                        >
-                          <Eye size={18} />
-                        </button>
-                        <button 
-                          onClick={() => openDecisionModal('approve', app)}
-                          disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
-                          className={cn(
-                            "p-2 rounded-xl text-emerald-500 hover:bg-emerald-50 transition-all",
-                            ['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status) && "opacity-20 cursor-not-allowed grayscale"
-                          )}
-                          title={app.status === 'Submitted' ? "Assign Reviewer First" : "Approve Loan"}
-                        >
-                          <CheckCircle size={18} />
-                        </button>
-                        <button 
-                          onClick={() => openDecisionModal('hold', app)}
-                          disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
-                          className={cn(
-                            "p-2 rounded-xl text-amber-500 hover:bg-amber-50 transition-all",
-                            ['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status) && "opacity-20 cursor-not-allowed grayscale"
-                          )}
-                          title={app.status === 'Submitted' ? "Assign Reviewer First" : "Put On Hold"}
-                        >
-                          <Pause size={18} />
-                        </button>
-                        <button 
-                          onClick={() => openDecisionModal('reject', app)}
-                          disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
-                          className={cn(
-                            "p-2 rounded-xl text-rose-500 hover:bg-rose-50 transition-all",
-                            ['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status) && "opacity-20 cursor-not-allowed grayscale"
-                          )}
-                          title={app.status === 'Submitted' ? "Assign Reviewer First" : "Reject Loan"}
-                        >
-                          <XCircle size={18} />
-                        </button>
+                      <div className="flex items-center justify-end gap-1 relative">
+                        <TableAction 
+                          icon={UserPlus} 
+                          color="text-indigo-500 hover:bg-indigo-50" 
+                          onClick={() => openDecisionModal('assign', app)} 
+                          tooltip="Assign Reviewer" 
+                        />
+                        <TableAction 
+                          icon={Eye} 
+                          color="text-primary hover:bg-primary/5" 
+                          onClick={() => navigate(`/admin/applications/${app._id}`)} 
+                          tooltip="View Application" 
+                        />
+                        <TableAction 
+                          icon={Trash2} 
+                          color={['Approved', 'Disbursed'].includes(app.status) ? "text-slate-200 cursor-not-allowed" : "text-rose-500 hover:bg-rose-50"} 
+                          onClick={() => !['Approved', 'Disbursed'].includes(app.status) && handleDeleteClick(app)} 
+                          tooltip={['Approved', 'Disbursed'].includes(app.status) ? "Cannot delete approved loans" : "Delete Application"} 
+                        />
+
+                        {/* Dropdown Menu */}
+                        <div className="relative" onClick={(e) => e.stopPropagation()}>
+                          <button 
+                            onClick={() => setActiveMenu(activeMenu === app._id ? null : app._id)}
+                            className={cn(
+                              "p-2 rounded-xl transition-all",
+                              activeMenu === app._id ? "bg-slate-100 text-slate-900" : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                            )}
+                          >
+                            <MoreVertical size={18} />
+                          </button>
+
+                          <AnimatePresence>
+                            {activeMenu === app._id && (
+                              <motion.div 
+                                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                                className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 z-50"
+                              >
+                                <DropdownItem 
+                                  icon={CheckCircle} 
+                                  label="Approve Loan" 
+                                  color="text-emerald-600 hover:bg-emerald-50"
+                                  onClick={() => openDecisionModal('approve', app)}
+                                  disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
+                                />
+                                <DropdownItem 
+                                  icon={Pause} 
+                                  label="Put On Hold" 
+                                  color="text-amber-600 hover:bg-amber-50"
+                                  onClick={() => openDecisionModal('hold', app)}
+                                  disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
+                                />
+                                <DropdownItem 
+                                  icon={XCircle} 
+                                  label="Reject Loan" 
+                                  color="text-rose-600 hover:bg-rose-50"
+                                  onClick={() => openDecisionModal('reject', app)}
+                                  disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
+                                />
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -910,6 +953,33 @@ const Applications = () => {
       </Modal>
 
       {/* DECISION MODALS */}
+      {/* DELETE CONFIRMATION MODAL */}
+      <Modal isOpen={activeModal === 'delete'} onClose={() => setActiveModal(null)} title="Confirm Deletion" maxWidth="max-w-md">
+         <div className="space-y-6 text-center">
+            <div className="w-16 h-16 rounded-3xl bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center mx-auto mb-4 shadow-sm">
+               <Trash2 size={28} />
+            </div>
+             <div>
+                <h4 className="text-xl font-black text-slate-900 tracking-tight uppercase">Delete Application?</h4>
+                <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+                   Are you sure you want to delete application <span className="font-bold text-slate-900">{selectedApp?.applicationId}</span>? 
+                   This action will remove all associated documents and records. <span className="text-rose-500 font-bold">This cannot be undone.</span>
+                </p>
+             </div>
+            <div className="flex gap-3 pt-2">
+               <Button variant="ghost" onClick={() => setActiveModal(null)} disabled={isSubmitting} className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest">Cancel</Button>
+               <Button 
+                 variant="danger" 
+                 onClick={handleConfirmDelete} 
+                 disabled={isSubmitting} 
+                 className="flex-1 py-4 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-rose-500/20"
+               >
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Confirm Delete"}
+               </Button>
+            </div>
+         </div>
+      </Modal>
+
       <Modal 
         isOpen={['approve', 'reject', 'hold'].includes(activeModal)} 
         onClose={() => setActiveModal(null)} 
@@ -1060,6 +1130,38 @@ const REVIEW_OUTCOME_CONFIG = {
   // Hold variants
   'Put On Hold':               HOLD_CFG,
 };
+
+// --- HELPER COMPONENTS ---
+
+const TableAction = ({ icon: Icon, color, onClick, tooltip }) => (
+  <button 
+     onClick={(e) => {
+       e.stopPropagation();
+       onClick();
+     }}
+     className={cn("p-2 rounded-xl transition-all", color)}
+     title={tooltip}
+  >
+     <Icon size={18} />
+  </button>
+);
+
+const DropdownItem = ({ icon: Icon, label, onClick, color, disabled }) => (
+   <button 
+      disabled={disabled}
+      onClick={(e) => {
+         e.stopPropagation();
+         onClick();
+      }}
+      className={cn(
+         "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-tight transition-all",
+         disabled ? "opacity-30 cursor-not-allowed grayscale" : (color || "text-slate-600 hover:bg-slate-50 hover:text-primary")
+      )}
+   >
+      <Icon size={16} />
+      {label}
+   </button>
+);
 
 const ReviewOutcomeBadge = ({ staffReview }) => {
   if (!staffReview?.recommendation || staffReview.recommendation === 'Pending') {

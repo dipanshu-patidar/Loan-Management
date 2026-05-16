@@ -185,14 +185,50 @@ const StaffDashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
           <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-premium overflow-hidden min-h-[500px]">
-            <div className="p-8 border-b border-slate-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-black text-slate-900 tracking-tight">Workflow Queue</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Live Operational Priority</p>
+            <div className="p-8 border-b border-slate-50 flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-primary/5 text-primary flex items-center justify-center border border-primary/10 shadow-sm">
+                  <Activity size={24} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-black text-slate-900 tracking-tight">Workflow Queue</h3>
+                    <span className="px-2 py-0.5 bg-primary/5 text-primary text-[8px] font-black uppercase tracking-widest rounded-full border border-primary/10">Recent 3 Days</span>
+                  </div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Prioritized Operational Pipeline</p>
+                </div>
               </div>
-              <div className="flex items-center gap-2 p-1 bg-slate-50 rounded-xl w-full sm:w-auto">
-                <button onClick={() => setActiveTab('applications')} className={cn("flex-1 sm:flex-none px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", activeTab === 'applications' ? "bg-white text-primary shadow-sm" : "text-slate-400 hover:text-slate-600")}>Applications</button>
-                <button onClick={() => setActiveTab('verifications')} className={cn("flex-1 sm:flex-none px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", activeTab === 'verifications' ? "bg-white text-primary shadow-sm" : "text-slate-400 hover:text-slate-600")}>Verifications</button>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1 p-1 bg-slate-50 rounded-2xl border border-slate-100 shadow-inner">
+                  <button 
+                    onClick={() => setActiveTab('applications')} 
+                    className={cn(
+                      "px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", 
+                      activeTab === 'applications' ? "bg-white text-primary shadow-premium border border-slate-100" : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    Applications
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('verifications')} 
+                    className={cn(
+                      "px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", 
+                      activeTab === 'verifications' ? "bg-white text-primary shadow-premium border border-slate-100" : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    Verifications
+                  </button>
+                </div>
+
+                <Button 
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => navigate(activeTab === 'applications' ? '/staff/loan-requests' : '/staff/payment-verification')}
+                  className="flex items-center gap-2 font-bold text-[10px] uppercase tracking-widest py-3 px-5 border-slate-200 bg-white hover:bg-slate-50 shadow-sm"
+                >
+                  View All <ChevronRight size={14} />
+                </Button>
               </div>
             </div>
 
@@ -239,7 +275,7 @@ const StaffDashboard = () => {
                           </motion.tr>
                         ))
                       ) : (
-                        <tr className="h-64"><td colSpan="4" className="text-center p-8 text-[10px] font-black text-slate-400 uppercase tracking-widest">No pending applications found</td></tr>
+                        <tr className="h-64"><td colSpan="4" className="text-center p-8 text-[10px] font-black text-slate-400 uppercase tracking-widest">No new applications assigned in the last 3 days</td></tr>
                       )
                     ) : (
                       verificationsQueue?.length > 0 ? (
@@ -269,7 +305,7 @@ const StaffDashboard = () => {
                           </motion.tr>
                         ))
                       ) : (
-                        <tr className="h-64"><td colSpan="4" className="text-center p-8 text-[10px] font-black text-slate-400 uppercase tracking-widest">No pending verifications found</td></tr>
+                        <tr className="h-64"><td colSpan="4" className="text-center p-8 text-[10px] font-black text-slate-400 uppercase tracking-widest">No new verifications received in the last 3 days</td></tr>
                       )
                     )}
                   </AnimatePresence>

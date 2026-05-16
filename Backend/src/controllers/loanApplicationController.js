@@ -758,7 +758,9 @@ const assignReviewer = asyncHandler(async (req, res) => {
     if (io) {
       io.emit('admin:loanAssigned', { applicationId: application._id, staffName: staffUser.fullName });
       io.to(staffId.toString()).emit('staff:newReviewTask', { applicationId: application._id });
+      io.to(staffId.toString()).emit('review:assigned', { applicationId: application._id });
       io.to(application.borrowerId.toString()).emit('borrower:statusUpdated', { status: 'Under Review' });
+      io.to(application.borrowerId.toString()).emit('dashboard:updated');
     }
 
     sendSuccess(res, 'Reviewer assigned successfully', { application });

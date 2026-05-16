@@ -101,6 +101,7 @@ function App() {
         
         {/* Admin Routes */}
         <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<AdminDashboard />} />
           <Route path="borrowers" element={<Borrowers />} />
           <Route path="agents" element={<Agents />} />
@@ -120,6 +121,7 @@ function App() {
 
         {/* Staff Routes */}
         <Route path="/staff" element={<StaffLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<StaffDashboard />} />
           <Route path="loan-requests" element={<LoanRequests />} />
           <Route path="loan-requests/:id/review" element={<EligibilityReview />} />
@@ -134,6 +136,7 @@ function App() {
 
         {/* Agent Routes */}
         <Route path="/agent" element={<AgentLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<AgentDashboard />} />
           <Route path="clients" element={<MyClients />} />
           <Route path="earnings" element={<Earnings />} />
@@ -145,6 +148,7 @@ function App() {
 
         {/* Borrower Routes */}
         <Route path="/borrower" element={<BorrowerLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<BorrowerDashboard />} />
           <Route path="apply-loan" element={<ApplyLoan />} />
           <Route path="my-loans" element={<MyLoans />} />

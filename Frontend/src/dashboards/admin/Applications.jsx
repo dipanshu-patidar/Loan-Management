@@ -20,9 +20,11 @@ import Modal from '../../ui/Modal';
 import Drawer from '../../ui/Drawer';
 import Button from '../../ui/Button';
 import Input from '../../ui/Input';
+import LoanApplicationWizard from '../../components/loan-origination/LoanApplicationWizard';
 
 const Applications = () => {
   const navigate = useNavigate();
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedApp, setSelectedApp] = useState(null);
@@ -309,6 +311,12 @@ const Applications = () => {
           <p className="text-slate-500 font-medium mt-1">Review and manage incoming borrower loan requests for final approval.</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button 
+            onClick={() => setIsWizardOpen(true)}
+            className="flex items-center gap-2 font-black uppercase tracking-widest text-[10px] bg-primary text-white hover:bg-slate-900 shadow-md shadow-primary/10 py-3 px-5 rounded-xl transition-all"
+          >
+            + New Application
+          </Button>
           <Button variant="secondary" onClick={() => openDecisionModal('export')} className="flex items-center gap-2 font-bold px-6">
             <Download size={18} /> Export List
           </Button>
@@ -1084,6 +1092,12 @@ const Applications = () => {
             <Button onClick={handleExport} className="w-full py-4 font-black text-[11px] uppercase tracking-widest shadow-lg shadow-primary/20">Download Export</Button>
          </div>
       </Modal>
+
+      <LoanApplicationWizard 
+        isOpen={isWizardOpen} 
+        onClose={() => setIsWizardOpen(false)} 
+        onRefreshList={() => { fetchApplications(); fetchStats(); }}
+      />
     </div>
   );
 };

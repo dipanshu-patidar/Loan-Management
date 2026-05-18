@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { 
   Users, UserPlus, Download, Filter, Search, MoreVertical, 
   Eye, ShieldX, Lock, Pencil, Mail, Phone, MapPin, 
@@ -20,7 +20,8 @@ import Button from '../../ui/Button';
 import Input from '../../ui/Input';
 import borrowerService from '../../services/borrowerService';
 
-const Borrowers = () => {
+const Borrowers = ({ role: propRole }) => {
+  const isStaff = propRole === 'staff' || window.location.pathname.includes('/staff');
   const [borrowers, setBorrowers] = useState([]);
   const [stats, setStats] = useState({
     totalBorrowers: 0,
@@ -42,6 +43,7 @@ const Borrowers = () => {
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [activeLoansFilter, setActiveLoansFilter] = useState('all');
   const [statusReason, setStatusReason] = useState('');
   const [exportFormat, setExportFormat] = useState('pdf');
 
@@ -343,6 +345,16 @@ const Borrowers = () => {
     setActiveModal(null);
   };
 
+  const filteredBorrowers = borrowers.filter(borrower => {
+    if (activeLoansFilter === '0') {
+      return (borrower.activeLoansCount || 0) === 0;
+    }
+    if (activeLoansFilter === '1+') {
+      return (borrower.activeLoansCount || 0) > 0;
+    }
+    return true;
+  });
+
   return (
     <div className="space-y-8 pb-10" onClick={() => setOpenMenuId(null)}>
       {/* 1. PAGE HEADER */}
@@ -392,11 +404,11 @@ const Borrowers = () => {
               <option value="Frozen">Frozen</option>
               <option value="Blacklisted">Blacklisted</option>
            </select>
-           <select className="flex-1 md:flex-none bg-slate-50 border-none rounded-2xl px-5 py-3 text-sm font-bold text-slate-600 focus:ring-0 cursor-pointer">
-              <option>Active Loans</option>
-              <option>0 Loans</option>
-              <option>1+ Loans</option>
-           </select>
+           <select value={activeLoansFilter} onChange={(e) => setActiveLoansFilter(e.target.value)} className="flex-1 md:flex-none bg-slate-50 border-none rounded-2xl px-5 py-3 text-sm font-bold text-slate-600 focus:ring-0 cursor-pointer">
+               <option value="all">Active Loans</option>
+               <option value="0">0 Loans</option>
+               <option value="1+">1+ Loans</option>
+            </select>
         </div>
       </section>
 
@@ -425,13 +437,13 @@ const Borrowers = () => {
                           </div>
                        </td>
                     </tr>
-                 ) : borrowers.length === 0 ? (
+                 ) : filteredBorrowers.length === 0 ? (
                     <tr>
                        <td colSpan="7" className="px-8 py-12 text-center">
                           <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">No Borrowers Found</p>
                        </td>
                     </tr>
-                 ) : borrowers.map((borrower, index) => (
+                 ) : filteredBorrowers.map((borrower, index) => (
                     <tr key={borrower._id} className={cn("group hover:bg-slate-50/50 transition-all cursor-pointer", openMenuId === borrower._id && "relative z-[100]")} onClick={() => openDrawer(borrower)}>
                        <td className="px-8 py-5">
                           <div className="flex items-center gap-4">
@@ -453,8 +465,8 @@ const Borrowers = () => {
                        </td>
                        <td className="px-6 py-5">
                           <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 text-xs font-black text-slate-600">
-                             0
-                          </span>
+                              {borrower.activeLoansCount || 0}
+                           </span>
                        </td>
                        <td className="px-6 py-5">
                           <p className="text-xs font-black text-slate-900 bg-slate-100 px-3 py-1.5 rounded-lg inline-block uppercase tracking-tighter">
@@ -473,7 +485,9 @@ const Borrowers = () => {
                           <div className="flex items-center justify-end gap-2">
                              <TableAction icon={Eye} color="text-blue-500 hover:bg-blue-50" onClick={() => openDrawer(borrower)} tooltip="View Details" />
                              <TableAction icon={Pencil} color="text-primary hover:bg-primary/5" onClick={() => openModal('edit', borrower)} tooltip="Edit Profile" />
-                             <TableAction icon={Trash2} color="text-rose-500 hover:bg-rose-50" onClick={() => openModal('delete', borrower)} tooltip="Delete Borrower" />
+                             {!isStaff && (
+                                <TableAction icon={Trash2} color="text-rose-500 hover:bg-rose-50" onClick={() => openModal('delete', borrower)} tooltip="Delete Borrower" />
+                             )}
                              
                              <div className="relative">
                                 <button 
@@ -497,18 +511,22 @@ const Borrowers = () => {
                                             index >= borrowers.length - 2 && borrowers.length > 2 ? "bottom-full mb-2" : "top-full mt-2"
                                          )}
                                       >
-                                         <DropdownItem 
-                                            icon={Lock} 
-                                            label="Freeze Account" 
-                                            onClick={() => openModal('freeze', borrower)} 
-                                         />
-                                         <DropdownItem 
-                                            icon={ShieldX} 
-                                            label="Blacklist" 
-                                            color="text-rose-600 hover:bg-rose-50"
-                                            onClick={() => openModal('blacklist', borrower)} 
-                                         />
-                                         <div className="my-1 border-t border-slate-50" />
+                                         {!isStaff && (
+                                            <>
+                                               <DropdownItem 
+                                                  icon={Lock} 
+                                                  label="Freeze Account" 
+                                                  onClick={() => openModal('freeze', borrower)} 
+                                               />
+                                               <DropdownItem 
+                                                  icon={ShieldX} 
+                                                  label="Blacklist" 
+                                                  color="text-rose-600 hover:bg-rose-50"
+                                                  onClick={() => openModal('blacklist', borrower)} 
+                                               />
+                                               <div className="my-1 border-t border-slate-50" />
+                                            </>
+                                         )}
                                          <DropdownItem 
                                             icon={Download} 
                                             label="Export Data" 
@@ -780,8 +798,9 @@ const Borrowers = () => {
                            <div className="space-y-1.5">
                               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Account Status</label>
                               <select 
-                                 className="w-full bg-white border border-slate-100 rounded-xl px-4 py-2 text-xs font-bold focus:ring-2 focus:ring-primary/10"
+                                 className="w-full bg-white border border-slate-100 rounded-xl px-4 py-2 text-xs font-bold focus:ring-2 focus:ring-primary/10 disabled:bg-slate-100 disabled:text-slate-400"
                                  value={formData.accountStatus}
+                                 disabled={isStaff}
                                  onChange={(e) => handleInputChange('accountStatus', e.target.value)}
                               >
                                  <option value="Active">Active</option>
@@ -1132,3 +1151,5 @@ const UploadCard = ({ label, icon: Icon }) => (
 );
 
 export default Borrowers;
+
+

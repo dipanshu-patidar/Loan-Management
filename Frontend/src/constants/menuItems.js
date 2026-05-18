@@ -47,6 +47,7 @@ export const ADMIN_MENU = [
 
 export const STAFF_MENU = [
   { label: 'Dashboard', path: '/staff/dashboard', icon: LayoutDashboard },
+  { label: 'Borrowers', path: '/staff/borrowers', icon: Users },
   { label: 'Loan Requests', path: '/staff/loan-requests', icon: Clock },
   { label: 'Loan Review', path: '/staff/loan-review', icon: FileCheck },
   { label: 'Payment Verification', path: '/staff/payment-verification', icon: ShieldCheck },

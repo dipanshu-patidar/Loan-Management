@@ -16,6 +16,7 @@ import StatCard from '../../components/StatCard';
 import Modal from '../../ui/Modal';
 import staffLoanRequestService from '../../services/staffLoanRequestService';
 import { getSocket } from '../../socket/socketClient';
+import LoanApplicationWizard from '../../components/loan-origination/LoanApplicationWizard';
 
 const formatZAR = (amount) => {
   return new Intl.NumberFormat('en-ZA', {
@@ -32,6 +33,9 @@ const LoanRequests = () => {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
+  
+  // Wizard state
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   
   // Filter & Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -183,6 +187,12 @@ const LoanRequests = () => {
           <p className="text-slate-500 font-medium mt-1">Review incoming borrower applications, verify documents, and process loan requests.</p>
         </div>
         <div className="flex items-center gap-3">
+          <Button 
+            onClick={() => setIsWizardOpen(true)}
+            className="flex items-center gap-2 font-black uppercase tracking-widest text-[10px] bg-primary text-white hover:bg-slate-900 shadow-md shadow-primary/10 py-3 px-5 rounded-xl transition-all"
+          >
+            + New Application
+          </Button>
           <Button 
             variant="secondary" 
             onClick={() => { fetchOverview(); fetchQueue(pagination.page); }}
@@ -537,6 +547,12 @@ const LoanRequests = () => {
           </div>
         )}
       </Modal>
+
+      <LoanApplicationWizard 
+        isOpen={isWizardOpen} 
+        onClose={() => setIsWizardOpen(false)} 
+        onRefreshList={() => { fetchOverview(); fetchQueue(pagination.page); }}
+      />
     </div>
   );
 };

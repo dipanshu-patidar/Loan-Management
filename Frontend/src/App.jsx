@@ -123,6 +123,7 @@ function App() {
         <Route path="/staff" element={<StaffLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<StaffDashboard />} />
+          <Route path="borrowers" element={<Borrowers />} />
           <Route path="loan-requests" element={<LoanRequests />} />
           <Route path="loan-requests/:id/review" element={<EligibilityReview />} />
           <Route path="loan-review" element={<LoanReview />} />

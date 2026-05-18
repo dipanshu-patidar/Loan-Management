@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, ShieldCheck, Check, DollarSign, Calendar, RefreshCw, AlertCircle, Landmark, ShieldAlert, BadgeInfo } from 'lucide-react';
+import { ArrowRight, ShieldCheck, Check, Calendar, RefreshCw, AlertCircle, Landmark, ShieldAlert, BadgeInfo, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
+import api from '../../services/api';
 
-const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNextStep, onPrevStep }) => {
+const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNextStep, onPrevStep, eligibilitySettings }) => {
   // Pull default banking details from selected borrower
   const defaultBank = activeBorrower || {};
+
+  const settings = eligibilitySettings;
 
   const [inputs, setInputs] = useState({
     loanType: loanConfig.loanType || 'Personal Loan',
@@ -25,39 +28,88 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
   const [bankVerificationState, setBankVerificationState] = useState(loanConfig.banking?.verified ? 'Verified ✅' : '');
   const [isBankVerified, setIsBankVerified] = useState(loanConfig.banking?.verified || false);
 
+  // 2. Map Dynamic Active Products
+  const activeProducts = settings?.loanProducts?.filter(p => p.status === 'Active') || [];
+  const productOptions = activeProducts.length > 0 ? activeProducts : [
+    { name: 'Personal Loan', code: 'PL-001', minAmount: 1000, maxAmount: 50000, minTenure: 3, maxTenure: 24, defaultInterestRate: 12.5, interestType: 'Reducing Balance', processingFeeEnabled: true, insuranceEnabled: true, vatEnabled: true },
+    { name: 'Payday Loan', code: 'PD-002', minAmount: 500, maxAmount: 5000, minTenure: 1, maxTenure: 3, defaultInterestRate: 15.0, interestType: 'Flat Rate', processingFeeEnabled: true, insuranceEnabled: false, vatEnabled: true },
+    { name: 'Business Loan', code: 'BL-003', minAmount: 10000, maxAmount: 250000, minTenure: 6, maxTenure: 60, defaultInterestRate: 10.5, interestType: 'Reducing Balance', processingFeeEnabled: true, insuranceEnabled: true, vatEnabled: true },
+    { name: 'Debt Consolidation', code: 'DC-004', minAmount: 5000, maxAmount: 150000, minTenure: 12, maxTenure: 48, defaultInterestRate: 11.5, interestType: 'Reducing Balance', processingFeeEnabled: true, insuranceEnabled: true, vatEnabled: true },
+    { name: 'Salary Advance', code: 'SA-005', minAmount: 200, maxAmount: 3000, minTenure: 1, maxTenure: 1, defaultInterestRate: 5.0, interestType: 'Flat Rate', processingFeeEnabled: false, insuranceEnabled: false, vatEnabled: true }
+  ];
+
+  const selectedProduct = productOptions.find(p => p.name === inputs.loanType) || productOptions[0];
+
+  // 3. Keep selected duration within bounds of selected product
+  useEffect(() => {
+    const minT = selectedProduct.minTenure || 1;
+    const maxT = selectedProduct.maxTenure || 24;
+    const curD = Number(inputs.requestedDuration);
+    if (curD < minT || curD > maxT) {
+      setInputs(prev => ({ ...prev, requestedDuration: minT.toString() }));
+    }
+  }, [inputs.loanType, selectedProduct]);
+
   const amount = Number(inputs.requestedAmount) || 0;
   const duration = Number(inputs.requestedDuration) || 12;
 
-  // NCR-Compliant Loan Fee Calculations
-  // 1. Initiation Fee: R165 on first R1000 + 10% on portion exceeding R1000, capped at R1050
-  let initiationFee = 0;
-  if (amount > 0) {
-    if (amount <= 1000) {
-      initiationFee = amount * 0.165;
-    } else {
-      initiationFee = 165 + (amount - 1000) * 0.1;
-    }
-    initiationFee = Math.min(initiationFee, 1050);
+  // 4. Generate tenure options list dynamically
+  const tenureOptions = [];
+  const minTenure = selectedProduct.minTenure || 1;
+  const maxTenure = selectedProduct.maxTenure || 24;
+  for (let t = minTenure; t <= maxTenure; t++) {
+    tenureOptions.push(t);
   }
 
-  // 2. Monthly Service Fee: standard NCR monthly fee is R60
-  const monthlyServiceFee = amount > 0 ? 60 : 0;
+  // 5. Dynamic calculations from selected product and global settings
+  let initiationFee = 0;
+  if (selectedProduct.processingFeeEnabled !== false && amount > 0) {
+    const feeType = settings?.initiationFeeType || 'Percentage';
+    const feeValue = Number(settings?.initiationFeeValue ?? 10);
+    if (feeType === 'Percentage') {
+      initiationFee = (amount * feeValue) / 100;
+    } else {
+      initiationFee = feeValue;
+    }
+  }
 
-  // 3. Interest: Let's assume 12.5% per annum (default interest rate)
-  const interestRate = 12.5;
-  const totalInterest = amount * (interestRate / 100) * (duration / 12);
+  const monthlyServiceFeeVal = Number(settings?.monthlyServiceFee ?? 60);
+  const monthlyServiceFee = amount > 0 ? monthlyServiceFeeVal : 0;
 
-  // 4. Credit Life Insurance: R4.50 per R1000 of loan value per month
-  const creditLifeInsurance = amount > 0 ? (amount / 1000) * 4.5 * duration : 0;
+  const interestRate = Number(selectedProduct.defaultInterestRate ?? 12.5);
+  
+  let baseEmi = 0;
+  if (selectedProduct.interestType === 'Flat Rate') {
+    const totalInterest = amount * (interestRate / 100);
+    baseEmi = (amount + totalInterest) / duration;
+  } else {
+    // Reducing Balance
+    const monthlyRate = (interestRate / 100) / 12;
+    if (monthlyRate === 0) {
+      baseEmi = amount / duration;
+    } else {
+      baseEmi = (amount * monthlyRate * Math.pow(1 + monthlyRate, duration)) / (Math.pow(1 + monthlyRate, duration) - 1);
+    }
+  }
 
-  // 5. VAT: 15% on initiation fee and monthly service fees
-  const vatOnFees = (initiationFee + (monthlyServiceFee * duration)) * 0.15;
+  let creditLifeInsurance = 0;
+  if (selectedProduct.insuranceEnabled !== false && amount > 0) {
+    const insuranceRate = Number(settings?.creditLifeInsuranceRate ?? 1.2);
+    creditLifeInsurance = (amount * insuranceRate) / 100;
+  }
 
-  // 6. Total Repayment & monthly EMI
-  const totalRepayment = amount + totalInterest + initiationFee + (monthlyServiceFee * duration) + creditLifeInsurance + vatOnFees;
+  let vatOnFees = 0;
+  if (selectedProduct.vatEnabled !== false && amount > 0) {
+    const vatRate = Number(settings?.vatPercentage ?? 15);
+    vatOnFees = (initiationFee + (monthlyServiceFee * duration)) * (vatRate / 100);
+  }
+
+  const totalRepayment = (baseEmi * duration) + initiationFee + (monthlyServiceFee * duration) + creditLifeInsurance + vatOnFees;
   const estimatedMonthlyEMI = duration > 0 ? (totalRepayment / duration) : 0;
 
-  // Sync state back to parent
+  const isAmountValid = amount >= (selectedProduct.minAmount || 1000) && amount <= (selectedProduct.maxAmount || 100000);
+
+  // Sync state back to parent wizard
   useEffect(() => {
     setLoanConfig({
       loanType: inputs.loanType,
@@ -77,7 +129,7 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
         verified: isBankVerified
       }
     });
-  }, [inputs, isBankVerified]);
+  }, [inputs, isBankVerified, initiationFee, interestRate, estimatedMonthlyEMI, totalRepayment]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -92,7 +144,6 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
 
     // Simulate standard South African Bank Verification (Realtime CDV/ACVS check)
     setTimeout(() => {
-      // Validate caps/lengths
       if (inputs.accountNumber.length >= 8 && inputs.accountNumber.length <= 11) {
         setBankVerificationState('Verified ✅');
         setIsBankVerified(true);
@@ -123,12 +174,11 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                   name="loanType"
                   value={inputs.loanType}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50 cursor-pointer"
                 >
-                  <option value="Personal Loan">Personal Loan</option>
-                  <option value="Short Term Cash Loan">Short Term Cash Loan</option>
-                  <option value="SME Micro Loan">SME Micro Loan</option>
-                  <option value="Emergency Relief Loan">Emergency Relief Loan</option>
+                  {productOptions.map(p => (
+                    <option key={p.code} value={p.name}>{p.name} ({p.code})</option>
+                  ))}
                 </select>
               </div>
 
@@ -138,7 +188,7 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                   name="loanPurpose"
                   value={inputs.loanPurpose}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50 cursor-pointer"
                 >
                   <option value="Debt Consolidation">Debt Consolidation</option>
                   <option value="Home Improvement">Home Improvement</option>
@@ -148,7 +198,7 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                 </select>
               </div>
 
-              <div>
+              <div className="col-span-2 sm:col-span-1">
                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Requested Loan Amount (R)</label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">R</span>
@@ -158,9 +208,17 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                     value={inputs.requestedAmount}
                     onChange={handleInputChange}
                     placeholder="15000"
-                    className="w-full pl-8 pr-4 py-3 rounded-xl border border-slate-200 font-semibold focus:outline-none focus:border-primary bg-slate-50/50"
+                    className={cn(
+                      "w-full pl-8 pr-4 py-3 rounded-xl border font-semibold focus:outline-none bg-slate-50/50",
+                      amount > 0 && !isAmountValid ? "border-rose-450 focus:border-rose-500" : "border-slate-200 focus:border-primary"
+                    )}
                   />
                 </div>
+                {amount > 0 && !isAmountValid && (
+                  <p className="text-[9px] font-bold text-rose-500 mt-1 flex items-center gap-1">
+                    <AlertCircle size={10} /> Amount must be between R{(selectedProduct.minAmount || 1000).toLocaleString()} and R{(selectedProduct.maxAmount || 100000).toLocaleString()}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -169,13 +227,11 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                   name="requestedDuration"
                   value={inputs.requestedDuration}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50 cursor-pointer"
                 >
-                  <option value="3">3 Months</option>
-                  <option value="6">6 Months</option>
-                  <option value="12">12 Months</option>
-                  <option value="24">24 Months</option>
-                  <option value="36">36 Months</option>
+                  {tenureOptions.map(t => (
+                    <option key={t} value={t}>{t} {t === 1 ? 'Month' : 'Months'}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -207,7 +263,7 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                   name="bankName"
                   value={inputs.bankName}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50 cursor-pointer"
                 >
                   <option value="Standard Bank">Standard Bank</option>
                   <option value="Absa">Absa</option>
@@ -248,7 +304,7 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                   name="accountType"
                   value={inputs.accountType}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 font-bold focus:outline-none focus:border-primary bg-slate-50/50 cursor-pointer"
                 >
                   <option value="Savings">Savings</option>
                   <option value="Current">Current / Cheque</option>
@@ -262,7 +318,7 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                   disabled={verifyingBank || !inputs.accountNumber || !inputs.accountHolderName}
                   onClick={handleVerifyBank}
                   className={cn(
-                    "w-full py-3 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow flex items-center justify-center gap-2",
+                    "w-full py-3.5 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow flex items-center justify-center gap-2 cursor-pointer",
                     verifyingBank 
                       ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                       : inputs.accountNumber 
@@ -301,7 +357,7 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                     )}
                     <div>
                       <p className="font-black uppercase tracking-wider">{bankVerificationState}</p>
-                      <p className="opacity-80 mt-0.5">
+                      <p className="opacity-80 mt-0.5 font-semibold">
                         {bankVerificationState.includes('Verified') 
                           ? "Bank Account holder name and CDV checksum matched successfully."
                           : "Verify account number length conforms to standard SA banks."}
@@ -332,23 +388,23 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
                 <span className="font-bold text-white">R {amount.toLocaleString()}</span>
               </div>
               <div className="flex justify-between items-center text-slate-400">
-                <span>NCR Initiation Fee (VAT excl.)</span>
+                <span>NCR Initiation Fee {selectedProduct.processingFeeEnabled === false && "(Waived)"}</span>
                 <span className="font-bold text-white">R {initiationFee.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-slate-400">
-                <span>Monthly Service Fee (R60/m)</span>
+                <span>Monthly Service Fee (R{monthlyServiceFeeVal}/m)</span>
                 <span className="font-bold text-white">R {(monthlyServiceFee * duration).toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-slate-400">
-                <span>Calculated Bureau Interest (12.5%)</span>
-                <span className="font-bold text-white">R {totalInterest.toFixed(2)}</span>
+                <span>Dynamic Interest ({interestRate}%)</span>
+                <span className="font-bold text-white">R {(baseEmi * duration - amount).toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-slate-400">
-                <span>Credit Life Insurance</span>
+                <span>Credit Life Insurance {selectedProduct.insuranceEnabled === false && "(Waived)"}</span>
                 <span className="font-bold text-white">R {creditLifeInsurance.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-slate-400">
-                <span>Calculated VAT (15%)</span>
+                <span>Calculated VAT ({settings?.vatPercentage || 15}%)</span>
                 <span className="font-bold text-white">R {vatOnFees.toFixed(2)}</span>
               </div>
             </div>
@@ -366,8 +422,11 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
               </div>
             </div>
 
-            <div className="p-3 bg-white/5 border border-white/5 rounded-2xl text-[10px] text-slate-400 font-medium">
-              🚨 **Regulatory Notice**: Initiation and monthly service fees are capitalised into the loan balance as allowed under the National Credit Act (NCA) of South Africa.
+            <div className="p-4 bg-white/5 border border-white/5 rounded-2xl text-[10px] text-slate-400 font-bold flex items-start gap-2 leading-relaxed">
+              <Info size={14} className="text-primary mt-0.5 shrink-0" />
+              <span>
+                NCR Regulatory Notice: All lending calculations are derived in real-time from the dynamic Central rules engine configuration.
+              </span>
             </div>
           </div>
         </div>
@@ -378,16 +437,16 @@ const LoanConfigurationCard = ({ loanConfig, setLoanConfig, activeBorrower, onNe
       <div className="flex justify-between items-center pt-4 border-t border-slate-100">
         <button
           onClick={onPrevStep}
-          className="px-6 py-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-black text-xs uppercase tracking-widest text-slate-600 transition-colors"
+          className="px-6 py-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-black text-xs uppercase tracking-widest text-slate-600 transition-colors cursor-pointer"
         >
           Previous Step
         </button>
         <button
           onClick={onNextStep}
-          disabled={amount <= 0 || !isBankVerified}
+          disabled={amount <= 0 || !isAmountValid || !isBankVerified}
           className={cn(
-            "px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-md flex items-center gap-2",
-            amount > 0 && isBankVerified
+            "px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-md flex items-center gap-2 cursor-pointer",
+            amount > 0 && isAmountValid && isBankVerified
               ? "bg-slate-900 text-white hover:bg-primary shadow-slate-900/15 hover:scale-[1.01]"
               : "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none"
           )}

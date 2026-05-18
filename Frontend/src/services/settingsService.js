@@ -17,6 +17,10 @@ const settingsService = {
     return await api.put('/admin/settings/document-rules', documentData);
   },
 
+  updateBulkSettings: async (bulkData) => {
+    return await api.put('/admin/settings/bulk', bulkData);
+  },
+
   resetSettings: async () => {
     return await api.post('/admin/settings/reset');
   },

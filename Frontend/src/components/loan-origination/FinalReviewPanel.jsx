@@ -10,7 +10,8 @@ const FinalReviewPanel = ({
   documents, 
   onSubmit, 
   submitting, 
-  onPrevStep 
+  onPrevStep,
+  eligibilitySettings
 }) => {
   const [popiaAccepted, setPopiaAccepted] = useState(false);
   const [creditConsentAccepted, setCreditConsentAccepted] = useState(false);
@@ -166,34 +167,128 @@ const FinalReviewPanel = ({
         <div className="lg:col-span-5 bg-slate-900 border border-slate-800 text-white p-6 rounded-3xl shadow-xl space-y-6 flex flex-col justify-between">
           <div className="space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Application Verification Audit</span>
-              <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border border-emerald-500/20">
-                Audit Clear
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Application Rules Engine</span>
+              <span className={cn(
+                "px-2.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border",
+                debtToIncomeRatio <= 45 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+              )}>
+                {debtToIncomeRatio <= 45 ? "Compliant" : "High Risk Warning"}
               </span>
             </div>
 
             <div className="space-y-3.5 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex items-center justify-center text-[7px] font-black">✓</div>
-                <span className="text-slate-400">DHA Identity check parsed successfully</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex items-center justify-center text-[7px] font-black">✓</div>
-                <span className="text-slate-400">Affordability metrics meet living guidelines</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex items-center justify-center text-[7px] font-black">✓</div>
-                <span className="text-slate-400">Primary Bank details CDV verified match</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 flex items-center justify-center text-[7px] font-black">✓</div>
-                <span className="text-slate-400">OCR validations completed clear</span>
-              </div>
+              {/* 1. Age Check */}
+              {(() => {
+                const calculateAge = (dob) => {
+                  if (!dob) return 0;
+                  const today = new Date();
+                  const birthDate = new Date(dob);
+                  let age = today.getFullYear() - birthDate.getFullYear();
+                  const m = today.getMonth() - birthDate.getMonth();
+                  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+                    age--;
+                  }
+                  return age;
+                };
+                const age = activeBorrower?.dateOfBirth ? calculateAge(activeBorrower.dateOfBirth) : 30;
+                const minAge = eligibilitySettings?.minimumAge || 18;
+                const maxAge = eligibilitySettings?.maximumAge || 65;
+                const isAgeOk = age >= minAge && age <= maxAge;
+                return (
+                  <div className="flex items-center justify-between text-slate-400 border-b border-white/5 pb-2">
+                    <span className="flex items-center gap-2">
+                      <div className={cn("w-2.5 h-2.5 rounded-full flex items-center justify-center text-[7px] font-black text-white", isAgeOk ? "bg-emerald-500" : "bg-rose-500")}>
+                        {isAgeOk ? "✓" : "✗"}
+                      </div>
+                      <span>Age Rule ({minAge}-{maxAge} yrs)</span>
+                    </span>
+                    <span className={cn("font-bold", isAgeOk ? "text-emerald-400" : "text-rose-400")}>{age} years</span>
+                  </div>
+                );
+              })()}
+
+              {/* 2. Income Check */}
+              {(() => {
+                const minIncome = eligibilitySettings?.minSalaryRequirement || eligibilitySettings?.minimumMonthlyIncome || 5000;
+                const isIncomeOk = totalIncome >= minIncome;
+                return (
+                  <div className="flex items-center justify-between text-slate-400 border-b border-white/5 pb-2">
+                    <span className="flex items-center gap-2">
+                      <div className={cn("w-2.5 h-2.5 rounded-full flex items-center justify-center text-[7px] font-black text-white", isIncomeOk ? "bg-emerald-500" : "bg-rose-500")}>
+                        {isIncomeOk ? "✓" : "✗"}
+                      </div>
+                      <span>Gross Income (Min R{minIncome.toLocaleString()})</span>
+                    </span>
+                    <span className={cn("font-bold", isIncomeOk ? "text-emerald-400" : "text-rose-400")}>R {totalIncome.toLocaleString()}</span>
+                  </div>
+                );
+              })()}
+
+              {/* 3. Debt-To-Income Check */}
+              {(() => {
+                const maxDti = eligibilitySettings?.maxDebtToIncomeRatio || 45;
+                const isDtiOk = debtToIncomeRatio <= maxDti;
+                return (
+                  <div className="flex items-center justify-between text-slate-400 border-b border-white/5 pb-2">
+                    <span className="flex items-center gap-2">
+                      <div className={cn("w-2.5 h-2.5 rounded-full flex items-center justify-center text-[7px] font-black text-white", isDtiOk ? "bg-emerald-500" : "bg-rose-500")}>
+                        {isDtiOk ? "✓" : "✗"}
+                      </div>
+                      <span>Max DTI Allowed ({maxDti}%)</span>
+                    </span>
+                    <span className={cn("font-bold", isDtiOk ? "text-emerald-400" : "text-rose-400")}>{debtToIncomeRatio.toFixed(1)}%</span>
+                  </div>
+                );
+              })()}
+
+              {/* 4. Employment Sector Check */}
+              {(() => {
+                const allowedCategories = eligibilitySettings?.employmentCategories || ['Permanently Employed', 'Contract Worker', 'Self Employed', 'Government Employee'];
+                const status = activeBorrower?.employmentStatus || 'Employed';
+                const isCategoryOk = allowedCategories.some(cat => 
+                  cat.toLowerCase().replace(/[^a-z]/g, '').includes(status.toLowerCase().replace(/[^a-z]/g, '')) ||
+                  status.toLowerCase().replace(/[^a-z]/g, '').includes(cat.toLowerCase().replace(/[^a-z]/g, ''))
+                );
+                return (
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span className="flex items-center gap-2">
+                      <div className={cn("w-2.5 h-2.5 rounded-full flex items-center justify-center text-[7px] font-black text-white", isCategoryOk ? "bg-emerald-500" : "bg-rose-500")}>
+                        {isCategoryOk ? "✓" : "✗"}
+                      </div>
+                      <span>Employment Sector</span>
+                    </span>
+                    <span className={cn("font-bold truncate max-w-[120px]", isCategoryOk ? "text-emerald-400" : "text-rose-400")}>{status}</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
-          <div className="pt-4 border-t border-white/10 p-3.5 bg-white/5 border border-white/5 rounded-2xl text-[10px] text-slate-400 font-medium">
-            🚨 **Staff Checklist Reminder**: Please review the summary profile metrics. If you have confirmed accuracy, click Submit Application below.
+          {/* DYNAMIC RISK & RECOMMENDATION FOOTER */}
+          <div className="pt-4 border-t border-white/10 space-y-3.5">
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Risk Profile Rating</p>
+                <p className={cn(
+                  "text-[9px] font-black uppercase tracking-wider mt-1 px-2.5 py-0.5 rounded-full border inline-block",
+                  debtToIncomeRatio <= 30 
+                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+                    : debtToIncomeRatio <= 45 
+                      ? "bg-amber-500/10 border-amber-500/20 text-amber-400" 
+                      : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+                )}>
+                  {debtToIncomeRatio <= 30 ? "Low Risk Profile ✅" : debtToIncomeRatio <= 45 ? "Moderate Risk ⚠️" : "High Risk Profile 🚨"}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Dynamic Approval Recommendation</p>
+                <p className="text-[11px] font-black text-white mt-1">
+                  {totalIncome >= (eligibilitySettings?.minSalaryRequirement || eligibilitySettings?.minimumMonthlyIncome || 5000) && debtToIncomeRatio <= (eligibilitySettings?.maxDebtToIncomeRatio || 45)
+                    ? "Auto-Review: Recommended ✅" 
+                    : "Manual Underwrite Required"}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 

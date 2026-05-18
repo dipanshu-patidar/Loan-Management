@@ -45,7 +45,7 @@ const parseSouthAfricanID = (idNumber) => {
   };
 };
 
-const BorrowerSearchPanel = ({ activeBorrower, setActiveBorrower, onNextStep, onClose }) => {
+const BorrowerSearchPanel = ({ activeBorrower, setActiveBorrower, onNextStep, onClose, eligibilitySettings }) => {
   const navigate = useNavigate();
 
   // Search state
@@ -60,6 +60,65 @@ const BorrowerSearchPanel = ({ activeBorrower, setActiveBorrower, onNextStep, on
   const [verificationDetails, setVerificationDetails] = useState(activeBorrower?.verificationDetails || null);
   const [isIdVerified, setIsIdVerified] = useState(activeBorrower ? true : false);
   const [idValidationError, setIdValidationError] = useState('');
+
+  // ── REAL-TIME PROFILE ELIGIBILITY VALIDATION ENGINE ──
+  const getProfileValidationErrors = () => {
+    if (!selectedBorrower) return [];
+    const errors = [];
+    
+    // 1. Age Validation
+    if (selectedBorrower.dateOfBirth) {
+      const dob = new Date(selectedBorrower.dateOfBirth);
+      const today = new Date();
+      let age = today.getFullYear() - dob.getFullYear();
+      const m = today.getMonth() - dob.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+        age--;
+      }
+      
+      const minAge = eligibilitySettings?.minimumAge || 18;
+      const maxAge = eligibilitySettings?.maximumAge || 65;
+      
+      if (age < minAge) {
+        errors.push(`Minimum age requirement is ${minAge} years. (Borrower is ${age} years old)`);
+      } else if (age > maxAge) {
+        errors.push(`Maximum eligible age is ${maxAge} years. (Borrower is ${age} years old)`);
+      }
+    }
+    
+    // 2. Employment Category Validation
+    const allowedCategories = eligibilitySettings?.employmentCategories || [
+      'Permanently Employed', 'Contract Worker', 'Self Employed', 'Government Employee'
+    ];
+    const currentStatus = selectedBorrower.employmentStatus || 'Unemployed';
+    const normalizedStatus = currentStatus === 'Permanent' ? 'Permanently Employed' 
+      : currentStatus === 'Contract' ? 'Contract Worker'
+      : currentStatus === 'Self-Employed' ? 'Self Employed'
+      : currentStatus;
+      
+    const isCategoryEligible = allowedCategories.some(cat => 
+      cat.toLowerCase().replace(/[^a-z]/g, '') === normalizedStatus.toLowerCase().replace(/[^a-z]/g, '')
+    );
+    
+    if (!isCategoryEligible) {
+      errors.push(`This employment category (${currentStatus}) is currently not eligible. Allowed: ${allowedCategories.join(', ')}`);
+    }
+
+    // 3. Salary Frequency Validation
+    const allowedFrequencies = eligibilitySettings?.salaryFrequencies || ['Monthly', 'Weekly', 'Fortnightly'];
+    const currentFreq = selectedBorrower.salaryFrequency || 'Monthly';
+    const isFreqEligible = allowedFrequencies.some(freq => 
+      freq.toLowerCase() === currentFreq.toLowerCase()
+    );
+    
+    if (!isFreqEligible) {
+      errors.push(`This salary frequency (${currentFreq}) is currently not eligible. Allowed: ${allowedFrequencies.join(', ')}`);
+    }
+
+    return errors;
+  };
+
+  const profileErrors = getProfileValidationErrors();
 
   // Load initial list of borrowers when component mounts
   useEffect(() => {
@@ -423,7 +482,6 @@ const BorrowerSearchPanel = ({ activeBorrower, setActiveBorrower, onNextStep, on
               className="min-h-[80px]"
             />
           </div>
-
         </div>
 
         {/* VERIFICATION ID STATUS ALERTS */}
@@ -433,7 +491,7 @@ const BorrowerSearchPanel = ({ activeBorrower, setActiveBorrower, onNextStep, on
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
-              className="mt-4"
+              className="mt-4 space-y-4"
             >
               {verificationState === 'verifying' ? (
                 <div className="py-4 flex items-center justify-center gap-3 bg-slate-50 border border-slate-100 rounded-xl">
@@ -467,6 +525,23 @@ const BorrowerSearchPanel = ({ activeBorrower, setActiveBorrower, onNextStep, on
                   </div>
                 )
               )}
+
+              {/* Central Eligibility System Warnings */}
+              {profileErrors.length > 0 && (
+                <div className="p-5 bg-rose-50 border border-rose-100 rounded-2xl space-y-2">
+                  <div className="flex items-center gap-2 text-rose-800">
+                    <AlertTriangle className="text-rose-500 shrink-0" size={16} />
+                    <p className="text-[10px] font-black uppercase tracking-widest">Central Lending Rules — Profile Verification Warning</p>
+                  </div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    {profileErrors.map((err, idx) => (
+                      <li key={idx} className="text-[11px] font-bold text-rose-700 uppercase tracking-wide">
+                        {err}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -480,7 +555,7 @@ const BorrowerSearchPanel = ({ activeBorrower, setActiveBorrower, onNextStep, on
         >
           Cancel
         </button>
-
+ 
         <div className="flex items-center gap-3">
           <button
             disabled
@@ -488,13 +563,13 @@ const BorrowerSearchPanel = ({ activeBorrower, setActiveBorrower, onNextStep, on
           >
             Previous Step
           </button>
-
+ 
           <button
             onClick={onNextStep}
-            disabled={!selectedBorrower || !isIdVerified}
+            disabled={!selectedBorrower || !isIdVerified || profileErrors.length > 0}
             className={cn(
               "px-8 py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-md flex items-center gap-2",
-              selectedBorrower && isIdVerified
+              selectedBorrower && isIdVerified && profileErrors.length === 0
                 ? "bg-primary text-white hover:bg-slate-900 shadow-primary/15 hover:scale-[1.01]"
                 : "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none"
             )}

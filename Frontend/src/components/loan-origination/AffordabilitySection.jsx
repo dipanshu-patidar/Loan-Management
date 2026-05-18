@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Upload, X, Check, FileText, AlertCircle, ArrowRight, ShieldCheck, DollarSign, Percent, Scale, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import BorrowerLoanService from '../../services/BorrowerLoanService';
+import api from '../../services/api';
 import { cn } from '../../utils/cn';
 
-const AffordabilitySection = ({ affordability, setAffordability, documents, setDocuments, onNextStep, onPrevStep }) => {
+const AffordabilitySection = ({ affordability, setAffordability, documents, setDocuments, onNextStep, onPrevStep, eligibilitySettings }) => {
+  const settings = eligibilitySettings;
+
   // Local state for numeric income/expense strings to make input typing comfortable
   const [inputs, setInputs] = useState({
     basicSalary: affordability.income?.basicSalary?.toString() || '',
@@ -38,12 +41,16 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
   const disposableIncome = totalIncome - totalExpenses;
   const debtToIncomeRatio = totalIncome > 0 ? ((debt + rent) / totalIncome) * 100 : 0;
 
-  // NCR compliance check
-  // The NCR requires credit providers to ensure the consumer has a minimum "necessary expenses" buffer.
-  // Standard NCR table (simplified model):
-  // Up to R800 net income -> R800 minimum living expenses
-  // R800 to R6250 -> R800 + 6.7% of amount above R800
-  // Above R6250 -> R1165 + 9% of amount above R6250
+  // Build dynamic compliance checks from Settings
+  const maxDti = Number(settings?.maxDtiPercentage ?? 40);
+  const minDisposable = Number(settings?.minDisposableIncome ?? 2000);
+  const minIncomeLimit = Number(settings?.minSalaryRequirement ?? settings?.minimumMonthlyIncome ?? 5000);
+
+  const isDtiCompliant = debtToIncomeRatio <= maxDti;
+  const isDisposableCompliant = disposableIncome >= minDisposable;
+  const isIncomeCompliant = totalIncome >= minIncomeLimit;
+
+  // Standard NCR living expenses minimum benchmark threshold
   let ncrBenchmark = 0;
   if (totalIncome > 0) {
     if (totalIncome <= 800) {
@@ -54,7 +61,22 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
       ncrBenchmark = 1165 + (totalIncome - 6250) * 0.09;
     }
   }
-  const isNcrCompliant = totalIncome > 0 && living >= ncrBenchmark && disposableIncome > 0;
+
+  const isNcrCompliant = totalIncome > 0 && living >= ncrBenchmark && isDtiCompliant && isDisposableCompliant && isIncomeCompliant;
+
+  // Build dynamic REQUIRED_DOCS based on settings checklist
+  const REQUIRED_DOCS = [];
+  if (settings) {
+    if (settings.idDocumentRequired ?? settings.idVerificationRequired ?? true) REQUIRED_DOCS.push('ID Document');
+    if (settings.payslipRequired ?? settings.payslipVerification ?? true) REQUIRED_DOCS.push('Payslip');
+    if (settings.bankStatementRequired ?? settings.bankStatementReview ?? true) REQUIRED_DOCS.push('Bank Statement');
+    if (settings.proofOfAddressRequired ?? settings.proofOfAddressAudit ?? true) REQUIRED_DOCS.push('Proof Of Address');
+  } else {
+    // Default safe fallbacks
+    REQUIRED_DOCS.push('ID Document', 'Payslip', 'Bank Statement', 'Proof Of Address');
+  }
+
+  const hasUploadedAllDocs = REQUIRED_DOCS.every(type => documents.some(d => d.type === type));
 
   // Sync calculations back to parent state when inputs change
   useEffect(() => {
@@ -77,7 +99,7 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
       debtToIncomeRatio,
       isNcrCompliant
     });
-  }, [inputs]);
+  }, [inputs, isNcrCompliant]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -137,9 +159,6 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
     if (uploadingDoc[type]) return { status: 'uploading', progress: uploadProgress[type] };
     return { status: 'empty' };
   };
-
-  const REQUIRED_DOCS = ['ID Document', 'Payslip', 'Bank Statement', 'Proof Of Address'];
-  const hasUploadedAllDocs = REQUIRED_DOCS.every(type => documents.some(d => d.type === type));
 
   return (
     <div className="space-y-8">
@@ -284,7 +303,7 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                 </span>
                 <span className={cn(
                   "text-xs font-black px-2 py-0.5 rounded",
-                  disposableIncome > 0 ? "text-emerald-400 bg-emerald-500/5" : "text-rose-400 bg-rose-500/5"
+                  disposableIncome >= minDisposable ? "text-emerald-400 bg-emerald-500/5" : "text-rose-400 bg-rose-500/5"
                 )}>
                   R {disposableIncome.toLocaleString()}
                 </span>
@@ -296,9 +315,9 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                 </span>
                 <span className={cn(
                   "text-xs font-black",
-                  debtToIncomeRatio < 40 ? "text-emerald-400" : debtToIncomeRatio < 60 ? "text-amber-400" : "text-rose-400"
+                  isDtiCompliant ? "text-emerald-400" : debtToIncomeRatio < 60 ? "text-amber-400" : "text-rose-400"
                 )}>
-                  {debtToIncomeRatio.toFixed(1)}%
+                  {debtToIncomeRatio.toFixed(1)}% / {maxDti}% limit
                 </span>
               </div>
             </div>
@@ -317,15 +336,20 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                   <ShieldCheck className="text-emerald-400 shrink-0 mt-0.5" size={16} />
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-wider">NCR Compliant</p>
-                    <p className="text-[9px] opacity-80 mt-0.5">Living expenses meet NCR R {Math.round(ncrBenchmark)} buffer.</p>
+                    <p className="text-[9px] opacity-80 mt-0.5 font-semibold">Living expenses meet NCR R {Math.round(ncrBenchmark)} buffer.</p>
                   </div>
                 </>
               ) : (
                 <>
                   <AlertCircle className="text-rose-400 shrink-0 mt-0.5" size={16} />
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-wider">NCR Benchmark Warning</p>
-                    <p className="text-[9px] opacity-80 mt-0.5">Assessed expenses fall below minimum survival benchmark.</p>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-rose-300">Underwriting Warning</p>
+                    <p className="text-[9px] opacity-90 mt-0.5 font-bold text-rose-200">
+                      {!isIncomeCompliant ? `Minimum monthly income requirement is R${minIncomeLimit.toLocaleString()}.` : 
+                       !isDtiCompliant ? `Debt-To-Income (DTI) ratio of ${debtToIncomeRatio.toFixed(1)}% exceeds regulatory max of ${maxDti}%.` :
+                       !isDisposableCompliant ? `Disposable income is below the required minimum of R${minDisposable.toLocaleString()}.` :
+                       `Living expenses of R${living} fall below NCR survival benchmark buffer of R${Math.round(ncrBenchmark)}.`}
+                    </p>
                   </div>
                 </>
               )}
@@ -343,7 +367,7 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
             <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">Affordability Verification Documents</h4>
           </div>
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            3 files required
+            {REQUIRED_DOCS.length} files required
           </span>
         </div>
 
@@ -370,7 +394,7 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{type}</span>
                     {doc.status === 'uploaded' && (
-                      <span className="bg-emerald-100 text-emerald-800 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                      <span className="bg-emerald-100 text-emerald-800 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm font-semibold">
                         <Check size={8} /> Saved
                       </span>
                     )}
@@ -381,7 +405,7 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                       <FileText className="text-primary shrink-0 mt-0.5" size={16} />
                       <div className="overflow-hidden">
                         <p className="text-xs font-bold text-slate-700 truncate max-w-[170px]">{doc.name}</p>
-                        <p className="text-[9px] font-medium text-slate-400 mt-0.5">Successfully linked to application</p>
+                        <p className="text-[9px] font-semibold text-slate-400 mt-0.5">Successfully linked to application</p>
                       </div>
                     </div>
                   ) : doc.status === 'uploading' ? (
@@ -406,7 +430,7 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                   {doc.status === 'uploaded' ? (
                     <button
                       onClick={() => removeDocument(type)}
-                      className="text-[10px] font-black text-rose-500 hover:text-rose-700 uppercase tracking-widest flex items-center gap-1"
+                      className="text-[10px] font-black text-rose-500 hover:text-rose-700 uppercase tracking-widest flex items-center gap-1 cursor-pointer"
                     >
                       <X size={10} /> Delete Document
                     </button>
@@ -438,7 +462,7 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
       <div className="flex justify-between items-center pt-4 border-t border-slate-100">
         <button
           onClick={onPrevStep}
-          className="px-6 py-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-black text-xs uppercase tracking-widest text-slate-600 transition-colors"
+          className="px-6 py-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-black text-xs uppercase tracking-widest text-slate-600 transition-colors cursor-pointer"
         >
           Previous Step
         </button>
@@ -446,7 +470,7 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
           onClick={onNextStep}
           disabled={totalIncome <= 0 || !hasUploadedAllDocs}
           className={cn(
-            "px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-md flex items-center gap-2",
+            "px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-md flex items-center gap-2 cursor-pointer",
             totalIncome > 0 && hasUploadedAllDocs
               ? "bg-slate-900 text-white hover:bg-primary shadow-slate-900/15 hover:scale-[1.01]"
               : "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none"

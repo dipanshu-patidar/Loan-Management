@@ -22,6 +22,24 @@ const LoanApplicationWizard = ({ isOpen, onClose, onRefreshList }) => {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [eligibilitySettings, setEligibilitySettings] = useState(null);
+
+  // Fetch Central Rules on Wizard load
+  React.useEffect(() => {
+    const fetchRules = async () => {
+      try {
+        const res = await api.get('/borrower/loan/eligibility-settings');
+        if (res.data?.success && res.data?.data) {
+          setEligibilitySettings(res.data.data);
+        }
+      } catch (err) {
+        console.error('Error fetching central rules:', err);
+      }
+    };
+    if (isOpen) {
+      fetchRules();
+    }
+  }, [isOpen]);
 
   // WIZARD STATE PACKS
   const [activeBorrower, setActiveBorrower] = useState(null);
@@ -96,6 +114,7 @@ const LoanApplicationWizard = ({ isOpen, onClose, onRefreshList }) => {
         banking: {
           requestedLoanAmount: loanConfig.requestedAmount,
           requestedDuration: loanConfig.requestedDuration,
+          loanType: loanConfig.loanType,
           bankName: loanConfig.banking?.bankName,
           accountHolderName: loanConfig.banking?.accountHolderName,
           accountNumber: loanConfig.banking?.accountNumber,
@@ -243,6 +262,7 @@ const LoanApplicationWizard = ({ isOpen, onClose, onRefreshList }) => {
                   setActiveBorrower={setActiveBorrower}
                   onNextStep={handleNextStep}
                   onClose={onClose}
+                  eligibilitySettings={eligibilitySettings}
                 />
               )}
 
@@ -254,6 +274,7 @@ const LoanApplicationWizard = ({ isOpen, onClose, onRefreshList }) => {
                   setDocuments={setDocuments}
                   onNextStep={handleNextStep}
                   onPrevStep={handlePrevStep}
+                  eligibilitySettings={eligibilitySettings}
                 />
               )}
 
@@ -264,6 +285,7 @@ const LoanApplicationWizard = ({ isOpen, onClose, onRefreshList }) => {
                   activeBorrower={activeBorrower}
                   onNextStep={handleNextStep}
                   onPrevStep={handlePrevStep}
+                  eligibilitySettings={eligibilitySettings}
                 />
               )}
 
@@ -273,6 +295,7 @@ const LoanApplicationWizard = ({ isOpen, onClose, onRefreshList }) => {
                   activeBorrower={activeBorrower}
                   onNextStep={handleNextStep}
                   onPrevStep={handlePrevStep}
+                  eligibilitySettings={eligibilitySettings}
                 />
               )}
 
@@ -285,6 +308,7 @@ const LoanApplicationWizard = ({ isOpen, onClose, onRefreshList }) => {
                   onSubmit={handleFinalSubmit}
                   submitting={submitting}
                   onPrevStep={handlePrevStep}
+                  eligibilitySettings={eligibilitySettings}
                 />
               )}
             </motion.div>

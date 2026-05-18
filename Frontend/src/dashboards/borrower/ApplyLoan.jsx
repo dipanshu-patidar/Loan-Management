@@ -4,7 +4,7 @@ import {
   CheckCircle2, ArrowRight, ArrowLeft,
   Info, ShieldCheck, Calculator, Clock,
   Mail, Phone, Calendar, Building2, MapPin, Wallet,
-  TrendingUp, Activity, Shield, ClipboardList, AlertTriangle
+  TrendingUp, Activity, Shield, ClipboardList, AlertTriangle, Sparkles
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -207,7 +207,8 @@ const ApplyLoan = () => {
           accountNumber: data.accountNumber,
           branchCode: data.branchCode,
           requestedLoanAmount: data.requestedLoanAmount,
-          requestedDuration: data.requestedDuration
+          requestedDuration: data.requestedDuration,
+          loanType: 'Personal Loan'
         },
         documents: uploadedDocs,
         confirmationAccepted: true,
@@ -294,7 +295,10 @@ const ApplyLoan = () => {
                                      validate: (val) => {
                                        const age = calculateAge(val);
                                        const minAge = eligibilitySettings?.minimumAge || 18;
-                                       return age >= minAge || `Minimum age required is ${minAge} years (You are ${age})`;
+                                       const maxAge = eligibilitySettings?.maximumAge || 65;
+                                       if (age < minAge) return `Minimum age requirement is ${minAge} years.`;
+                                       if (age > maxAge) return `Maximum eligible age is ${maxAge} years.`;
+                                       return true;
                                      }
                                    })} 
                                  />
@@ -323,11 +327,19 @@ const ApplyLoan = () => {
                                    {...register('employmentStatus', { 
                                      required: 'Employment status is required',
                                      validate: (val) => {
-                                       const type = eligibilitySettings?.employmentType || 'Both';
-                                       if (type === 'Both') return true;
-                                       if (type === 'Employed' && val !== 'Employed') return 'Only formally employed individuals are eligible.';
-                                       if (type === 'Self Employed' && (val !== 'Self-Employed' && val !== 'Business Owner')) return 'Only self-employed or business owners are eligible.';
-                                       return true;
+                                       const allowedCategories = eligibilitySettings?.employmentCategories || [
+                                         'Permanently Employed', 'Contract Worker', 'Self Employed', 'Government Employee'
+                                       ];
+                                       const normalizedStatus = val === 'Permanent' || val === 'Employed' ? 'Permanently Employed' 
+                                         : val === 'Contract' ? 'Contract Worker'
+                                         : val === 'Self-Employed' || val === 'Business Owner' ? 'Self Employed'
+                                         : val;
+                                         
+                                       const isCategoryEligible = allowedCategories.some(cat => 
+                                         cat.toLowerCase().replace(/[^a-z]/g, '') === normalizedStatus.toLowerCase().replace(/[^a-z]/g, '')
+                                       );
+                                       
+                                       return isCategoryEligible || 'This employment category is currently not eligible.';
                                      }
                                    })} 
                                    className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner"
@@ -350,15 +362,32 @@ const ApplyLoan = () => {
                                    {...register('monthlyIncome', { 
                                      required: 'Income is required',
                                      validate: (val) => {
-                                       const minIncome = eligibilitySettings?.minimumMonthlyIncome || 5000;
-                                       return Number(val) >= minIncome || `Minimum monthly income required is R${minIncome.toLocaleString()}`;
+                                       const minIncome = eligibilitySettings?.minSalaryRequirement || eligibilitySettings?.minimumMonthlyIncome || 5000;
+                                       return Number(val) >= minIncome || `Minimum monthly income requirement is R${minIncome.toLocaleString()}.`;
                                      }
                                    })} 
                                  />
                                  <ValidationMessage message={errors.monthlyIncome?.message} />
                               </div>
                               <div>
-                                 <Input label="Employment Duration" placeholder="e.g. 3 Years" icon={Clock} {...register('employmentDuration', { required: 'Duration is required' })} />
+                                 <Input 
+                                   label="Employment Duration" 
+                                   placeholder="e.g. 12 Months" 
+                                   icon={Clock} 
+                                   {...register('employmentDuration', { 
+                                     required: 'Duration is required',
+                                     validate: (val) => {
+                                       const minMonths = eligibilitySettings?.minEmploymentDuration || 6;
+                                       const num = parseInt(val.replace(/[^0-9]/g, ''), 10);
+                                       if (isNaN(num)) return true;
+                                       let months = num;
+                                       if (val.toLowerCase().includes('year') || val.toLowerCase().includes('yr')) {
+                                         months = num * 12;
+                                       }
+                                       return months >= minMonths || `Borrower must be employed for at least ${minMonths} months.`;
+                                     }
+                                   })} 
+                                 />
                                  <ValidationMessage message={errors.employmentDuration?.message} />
                               </div>
                               <div className="md:col-span-2">
@@ -394,40 +423,38 @@ const ApplyLoan = () => {
                                     <ValidationMessage message={errors.branchCode?.message} />
                                  </div>
                                  <div>
-                                    <Input 
-                                       label="Loan Amount (R)" 
-                                       type="number" 
-                                       icon={Wallet} 
-                                       {...register('requestedLoanAmount', { 
-                                          required: 'Amount is required',
-                                          validate: (val) => {
-                                             const min = eligibilitySettings?.eligibleMinimumPrincipal || 1000;
-                                             const max = eligibilitySettings?.eligibleMaximumPrincipal || 50000;
-                                             if (Number(val) < min) return `Minimum loan amount is R${min.toLocaleString()}`;
-                                             if (Number(val) > max) return `Maximum loan amount is R${max.toLocaleString()}`;
-                                             return true;
-                                          }
-                                       })} 
-                                    />
-                                    <ValidationMessage message={errors.requestedLoanAmount?.message} />
-                                 </div>
-                                 <div>
-                                    <Input 
-                                       label="Loan Duration (Months)" 
-                                       type="number" 
-                                       icon={Clock} 
-                                       {...register('requestedDuration', { 
-                                          required: 'Duration is required',
-                                          validate: (val) => {
-                                             const allowedStr = eligibilitySettings?.allowedRepaymentDurations || '3, 6, 12, 18, 24';
-                                             const allowed = allowedStr.split(',').map(s => s.trim());
-                                             return allowed.includes(val.toString()) || `Allowed durations are: ${allowedStr} months`;
-                                          }
-                                       })} 
-                                    />
-                                    <ValidationMessage message={errors.requestedDuration?.message} />
-                                 </div>
-                              </div>
+                                     <Input 
+                                        label="Loan Amount (R)" 
+                                        type="number" 
+                                        icon={Wallet} 
+                                        {...register('requestedLoanAmount', { 
+                                           required: 'Amount is required',
+                                           validate: (val) => {
+                                              const min = eligibilitySettings?.eligibleMinimumPrincipal || 1000;
+                                              const max = eligibilitySettings?.eligibleMaximumPrincipal || 50000;
+                                              if (Number(val) < min) return `Minimum loan amount is R${min.toLocaleString()}.`;
+                                              if (Number(val) > max) return `Maximum loan amount is R${max.toLocaleString()}.`;
+                                              return true;
+                                           }
+                                        })} 
+                                     />
+                                     <ValidationMessage message={errors.requestedLoanAmount?.message} />
+                                  </div>
+                                  <div className="space-y-2">
+                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                        <Clock size={12} className="text-primary" /> Loan Duration (Months)
+                                     </label>
+                                     <select
+                                        {...register('requestedDuration', { required: 'Duration is required' })}
+                                        className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner cursor-pointer"
+                                     >
+                                        {(eligibilitySettings?.allowedRepaymentDurations || '3, 6, 12, 18, 24').split(',').map(d => d.trim()).map(durationOption => (
+                                           <option key={durationOption} value={durationOption}>{durationOption} {durationOption === '1' ? 'Month' : 'Months'}</option>
+                                        ))}
+                                     </select>
+                                     <ValidationMessage message={errors.requestedDuration?.message} />
+                                  </div>
+                               </div>
                            </div>
 
                            {estimate && (
@@ -761,41 +788,136 @@ const EligibilityCard = ({ icon: Icon, label, value, color }) => (
    </div>
 );
 
-const EligibilityModal = ({ isOpen, onClose, settings }) => (
-   <Modal isOpen={isOpen} onClose={onClose} title="Loan Eligibility Information" maxWidth="max-w-4xl">
-      <div className="space-y-10 custom-scrollbar max-h-[70vh] overflow-y-auto pr-2 pb-6">
-         <div className="space-y-4">
-            <p className="text-sm font-medium text-slate-500 leading-relaxed">Check the minimum requirements before submitting your loan application to ensure a smooth approval process.</p>
-         </div>
-         <section className="space-y-6">
-            <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.15em] flex items-center gap-2">
-               <ShieldCheck size={14} /> Basic Requirements
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-               <ReqItem icon={User} label="Minimum Age" value={settings ? `${settings.minimumAge} Years+` : "18 Years+"} />
-               <ReqItem icon={Briefcase} label="Employment" value={settings ? settings.employmentType : "Employed / Self"} />
-               <ReqItem icon={Wallet} label="Min Income" value={settings ? `R${settings.minimumMonthlyIncome?.toLocaleString()} Monthly` : "R5,000 Monthly"} />
-               <ReqItem icon={FileText} label="Valid ID" value={settings?.idVerificationRequired ? "Government ID Required" : "ID Document"} />
-               <ReqItem icon={Landmark} label="Bank Account" value="Active Account Required" />
-            </div>
-         </section>
+const EligibilityModal = ({ isOpen, onClose, settings }) => {
+  const getRequirementStatus = (isRequired) => {
+    return isRequired 
+      ? { text: 'Mandatory', class: 'bg-rose-50 text-rose-600 border border-rose-100' }
+      : { text: 'Optional', class: 'bg-slate-50 text-slate-500 border border-slate-100' };
+  };
+
+  const getComplianceStatus = (isEnabled) => {
+    return isEnabled 
+      ? { text: 'Enabled', class: 'bg-emerald-50 text-emerald-600 border border-emerald-100' }
+      : { text: 'Disabled', class: 'bg-slate-50 text-slate-400 border border-slate-100' };
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Loan Eligibility Information" maxWidth="max-w-4xl">
+      <div className="space-y-8 custom-scrollbar max-h-[70vh] overflow-y-auto pr-2 pb-6">
+        <p className="text-xs font-semibold text-slate-500 leading-relaxed">
+          Verify your eligibility against our live NCR-compliant rules system before initiating a new application.
+        </p>
+
+        {/* 1. BASIC ELIGIBILITY */}
+        <div className="space-y-4">
+          <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.15em] flex items-center gap-2">
+            <User size={14} /> Basic Eligibility Criteria
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <ReqItem icon={User} label="Age Range" value={`${settings?.minimumAge || 18} - ${settings?.maximumAge || 65} Years`} />
+            <ReqItem icon={Wallet} label="Min Net Income" value={`R ${(settings?.minSalaryRequirement || settings?.minimumMonthlyIncome || 5000).toLocaleString()}`} />
+            <ReqItem icon={Clock} label="Min Employment" value={`${settings?.minEmploymentDuration || 6} Months`} />
+            <ReqItem icon={Briefcase} label="Base Employment Type" value={settings?.employmentType || "Both Qualify"} />
+            <ReqItem icon={ClipboardList} label="Qualifying Categories" value={settings?.employmentCategories?.join(', ') || 'All Sectors'} />
+            <ReqItem icon={Activity} label="Salary Frequencies" value={settings?.salaryFrequencies?.join(', ') || 'Monthly, Weekly, Fortnightly'} />
+          </div>
+        </div>
+
+        {/* 2. DOCUMENT REQUIREMENTS */}
+        <div className="space-y-4">
+          <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.15em] flex items-center gap-2">
+            <FileText size={14} /> Mandatory Verification Documents
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <ReqItem 
+              icon={Shield} 
+              label="RSA Government ID" 
+              value={getRequirementStatus(settings?.idDocumentRequired || settings?.idVerificationRequired).text} 
+              badgeClass={getRequirementStatus(settings?.idDocumentRequired || settings?.idVerificationRequired).class}
+            />
+            <ReqItem 
+              icon={Landmark} 
+              label="Active Bank Account" 
+              value="Mandatory" 
+              badgeClass="bg-rose-50 text-rose-600 border border-rose-100"
+            />
+            <ReqItem 
+              icon={Wallet} 
+              label="Latest Payslip" 
+              value={getRequirementStatus(settings?.payslipVerification).text} 
+              badgeClass={getRequirementStatus(settings?.payslipVerification).class}
+            />
+            <ReqItem 
+              icon={MapPin} 
+              label="Proof of Address" 
+              value={getRequirementStatus(settings?.proofOfAddressRequired || settings?.proofOfAddressAudit).text} 
+              badgeClass={getRequirementStatus(settings?.proofOfAddressRequired || settings?.proofOfAddressAudit).class}
+            />
+            <ReqItem 
+              icon={FileText} 
+              label="Bank Statements" 
+              value={getRequirementStatus(settings?.bankStatementReview).text} 
+              badgeClass={getRequirementStatus(settings?.bankStatementReview).class}
+            />
+          </div>
+        </div>
+
+        {/* 3. COMPLIANCE GATES */}
+        <div className="space-y-4">
+          <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.15em] flex items-center gap-2">
+            <ShieldCheck size={14} /> Automated Compliance Checks
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <ReqItem 
+              icon={Sparkles} 
+              label="Document OCR" 
+              value={getComplianceStatus(settings?.ocrRequired).text} 
+              badgeClass={getComplianceStatus(settings?.ocrRequired).class}
+            />
+            <ReqItem 
+              icon={Shield} 
+              label="AML screening" 
+              value={getComplianceStatus(settings?.amlRequired).text} 
+              badgeClass={getComplianceStatus(settings?.amlRequired).class}
+            />
+            <ReqItem 
+              icon={User} 
+              label="Facial Biometrics" 
+              value={getComplianceStatus(settings?.facialMatchRequired).text} 
+              badgeClass={getComplianceStatus(settings?.facialMatchRequired).class}
+            />
+            <ReqItem 
+              icon={TrendingUp} 
+              label="Credit Bureau Check" 
+              value={getComplianceStatus(settings?.creditBureauIntegration).text} 
+              badgeClass={getComplianceStatus(settings?.creditBureauIntegration).class}
+            />
+          </div>
+        </div>
       </div>
       <div className="flex gap-4 pt-6 mt-4 border-t border-slate-50">
-         <Button variant="secondary" className="flex-1 font-black uppercase tracking-widest text-[10px] py-4 bg-white border-slate-200" onClick={onClose}>
-            Close
-         </Button>
+        <Button variant="secondary" className="flex-1 font-black uppercase tracking-widest text-[10px] py-4 bg-white border-slate-200" onClick={onClose}>
+          Close
+        </Button>
       </div>
-   </Modal>
-);
+    </Modal>
+  );
+};
 
-const ReqItem = ({ icon: Icon, label, value }) => (
-   <div className="p-5 bg-white rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-primary/20 transition-all">
-      <div className="w-10 h-10 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center transition-colors group-hover:text-primary">
-         <Icon size={18} />
+const ReqItem = ({ icon: Icon, label, value, badgeClass }) => (
+   <div className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4 group hover:border-primary/20 transition-all">
+      <div className="w-9 h-9 bg-slate-50 text-slate-400 rounded-xl flex items-center justify-center transition-colors group-hover:text-primary shrink-0 animate-fade-in">
+         <Icon size={16} />
       </div>
-      <div>
-         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
-         <p className="text-[11px] font-black text-slate-900 mt-0.5">{value}</p>
+      <div className="min-w-0 flex-1">
+         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate">{label}</p>
+         {badgeClass ? (
+            <span className={cn("inline-block text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded mt-1 border", badgeClass)}>
+               {value}
+            </span>
+         ) : (
+            <p className="text-[11px] font-black text-slate-900 mt-0.5 truncate">{value}</p>
+         )}
       </div>
    </div>
 );

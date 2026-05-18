@@ -3,7 +3,10 @@ import { ArrowRight, ShieldCheck, Check, RefreshCw, ShieldAlert, Sparkles, FileC
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
 
-const DocumentComplianceCenter = ({ documents, activeBorrower, onNextStep, onPrevStep }) => {
+const DocumentComplianceCenter = ({ documents, activeBorrower, onNextStep, onPrevStep, eligibilitySettings }) => {
+  const isOcrRequired = eligibilitySettings?.ocrRequired ?? true;
+  const isAmlRequired = eligibilitySettings?.amlRequired ?? true;
+
   const [auditing, setAuditing] = useState(false);
   const [auditComplete, setAuditComplete] = useState(false);
   const [complianceScore, setComplianceScore] = useState(0);
@@ -101,6 +104,18 @@ const DocumentComplianceCenter = ({ documents, activeBorrower, onNextStep, onPre
             <div className="flex items-center gap-2 pb-2 border-b border-slate-50">
               <Sparkles size={16} className="text-primary" />
               <h4 className="text-xs font-black uppercase tracking-wider text-slate-800">Compliance & Anti-Fraud Engine</h4>
+            </div>
+
+            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-bold text-slate-500 flex items-center justify-between">
+              <span className="uppercase tracking-wider">Automated AML & OCR Gating:</span>
+              <span className={cn(
+                "px-2 py-0.5 rounded text-[8px] uppercase tracking-widest font-black border",
+                (isOcrRequired || isAmlRequired)
+                  ? "bg-rose-50 border-rose-100 text-rose-600"
+                  : "bg-slate-100 border-slate-200 text-slate-400"
+              )}>
+                {(isOcrRequired || isAmlRequired) ? "Mandatory Gate" : "Optional / Bypassed"}
+              </span>
             </div>
 
             <button
@@ -210,10 +225,10 @@ const DocumentComplianceCenter = ({ documents, activeBorrower, onNextStep, onPre
         </button>
         <button
           onClick={onNextStep}
-          disabled={!auditComplete}
+          disabled={((isOcrRequired || isAmlRequired) && !auditComplete)}
           className={cn(
             "px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-md flex items-center gap-2",
-            auditComplete
+            (!isOcrRequired && !isAmlRequired) || auditComplete
               ? "bg-slate-900 text-white hover:bg-primary shadow-slate-900/15 hover:scale-[1.01]"
               : "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none"
           )}

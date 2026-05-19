@@ -16,6 +16,8 @@ import { initiateSocketConnection, disconnectSocket } from '../../socket/socketC
 import { toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import api from '../../services/api';
+import agreementService from '../../services/agreementService';
+import AgreementPreviewModal from '../../components/AgreementPreviewModal';
 
 const MyLoans = () => {
   const [activeTab, setActiveTab] = useState('active');
@@ -27,8 +29,74 @@ const MyLoans = () => {
   
   const [dashboardData, setDashboardData] = useState(null);
   const [emiSchedule, setEmiSchedule] = useState([]);
+  const [isAgreementPreviewOpen, setIsAgreementPreviewOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState([]);
+
+  // Digital Signature OTP States
+  const [selectedApp, setSelectedApp] = useState(null);
+  const [isSigningModalOpen, setIsSigningModalOpen] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+
+  React.useEffect(() => {
+    let timer;
+    if (otpCooldown > 0) {
+      timer = setInterval(() => {
+        setOtpCooldown(c => c - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [otpCooldown]);
+
+  const handleOpenSigningModal = (app) => {
+    setSelectedApp(app);
+    setIsSigningModalOpen(true);
+    setOtpSent(false);
+    setOtpCode('');
+  };
+
+  const handleSendOtp = async () => {
+    if (!selectedApp) return;
+    try {
+      setIsSendingOtp(true);
+      await agreementService.sendOtp(selectedApp._id);
+      setOtpSent(true);
+      setOtpCooldown(60);
+      toast.success('Secure OTP email has been sent to ' + selectedApp.emailAddress);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to send OTP code');
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!selectedApp || !otpCode) {
+      toast.error('Please enter the 6-digit OTP code');
+      return;
+    }
+    try {
+      setIsVerifyingOtp(true);
+      await agreementService.verifyOtp(selectedApp._id, otpCode);
+      toast.success('Loan agreement successfully digitally signed!');
+      setIsSigningModalOpen(false);
+      fetchDashboardData();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Verification failed');
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const handleDownloadAgreement = (app) => {
+    setSelectedApp(app);
+    setIsAgreementPreviewOpen(true);
+    toast.success('Opening high-fidelity document preview for PDF download...');
+  };
 
   React.useEffect(() => {
     fetchDashboardData();
@@ -152,6 +220,47 @@ const MyLoans = () => {
          </div>
       </section>
 
+      {/* 2.5 AGREEMENT ACTION ALERT (If any application is pending signature or signed) */}
+      {loanApplications.some(app => ['Agreement Pending', 'Agreement Signed', 'Ready for Disbursement', 'AGREEMENT_PENDING', 'AGREEMENT_SIGNED', 'READY_FOR_DISBURSEMENT', 'AGREEMENT_PENDING_VERIFICATION', 'OTP_VERIFIED'].includes(app.status)) && (
+        <section className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 p-8 rounded-[2.5rem] border border-white/5 shadow-2xl relative overflow-hidden text-left">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-white/10 text-white flex items-center justify-center border border-white/10 shrink-0">
+                <FileText size={24} />
+              </div>
+              <div className="space-y-1">
+                <span className="px-2.5 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-amber-500 text-slate-950">
+                  Action Required
+                </span>
+                <h3 className="text-lg font-black text-white tracking-tight pt-1">Digital Loan Agreement Pending</h3>
+                <p className="text-xs text-white/60 font-medium">Please review, verify via secure email OTP, and digitally sign your loan agreement.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {loanApplications.filter(app => ['Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status)).map(app => (
+                <Button
+                  key={app._id}
+                  onClick={() => handleOpenSigningModal(app)}
+                  className="px-6 py-3.5 bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20 flex items-center gap-2 border-none font-black text-[10px] uppercase tracking-widest"
+                >
+                  <ShieldCheck size={16} /> Sign Agreement Now
+                </Button>
+              ))}
+              {loanApplications.filter(app => ['Agreement Signed', 'AGREEMENT_SIGNED', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'OTP_VERIFIED'].includes(app.status)).map(app => (
+                <Button
+                  key={app._id}
+                  onClick={() => handleDownloadAgreement(app)}
+                  className="px-6 py-3.5 bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 flex items-center gap-2 border-none font-black text-[10px] uppercase tracking-widest"
+                >
+                  <Download size={16} /> Download Signed Agreement
+                </Button>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* 3. ANALYTICS CARDS */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="Active Loans" value={loading ? "..." : (data.activeLoans?.length || 0)} icon={Briefcase} color="navy" />
@@ -196,6 +305,7 @@ const MyLoans = () => {
                     <th className="px-8 py-5">Status</th>
                     <th className="px-8 py-5">Review Progress</th>
                     <th className="px-8 py-5">Submitted</th>
+                    <th className="px-8 py-5 text-right">Agreement Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -225,6 +335,25 @@ const MyLoans = () => {
                         <span className="text-[11px] font-bold text-slate-400">
                           {app.submittedAt ? new Date(app.submittedAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                         </span>
+                      </td>
+                      <td className="px-8 py-5 text-right">
+                        {['Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) ? (
+                          <button
+                            onClick={() => handleOpenSigningModal(app)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/95 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-sm"
+                          >
+                            <ShieldCheck size={12} /> Sign
+                          </button>
+                        ) : ['Agreement Signed', 'AGREEMENT_SIGNED', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'OTP_VERIFIED'].includes(app.status) ? (
+                          <button
+                            onClick={() => handleDownloadAgreement(app)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                          >
+                            <Download size={12} /> Get Copy
+                          </button>
+                        ) : (
+                          <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -620,7 +749,116 @@ const MyLoans = () => {
                </div>
             </Modal>
          )}
+
+         {/* DIGITAL AGREEMENT SIGNING MODAL */}
+         {isSigningModalOpen && selectedApp && (
+           <Modal isOpen onClose={() => setIsSigningModalOpen(false)} title="Digital Loan Agreement signing" maxWidth="max-w-2xl">
+             <div className="space-y-6 text-left">
+               {/* Header Details */}
+               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                 <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-primary shadow-sm">
+                   <ShieldCheck size={22} />
+                 </div>
+                 <div>
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Digital Signature Consent</p>
+                   <p className="text-sm font-bold text-slate-900">{selectedApp.fullName} — Application {selectedApp.applicationId}</p>
+                 </div>
+               </div>
+
+               {/* Legal Terms Scroll Container */}
+               <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 text-[11px] leading-relaxed text-slate-500 font-medium max-h-[160px] overflow-y-auto custom-scrollbar space-y-3">
+                 <h4 className="font-bold text-slate-800 uppercase tracking-wider text-xs">Loan Agreement Terms &amp; Conditions</h4>
+                 <p>By entering the secure One-Time Pin (OTP) sent to your registered email address, you hereby affix your digital signature and express full electronic consent to the following terms:</p>
+                 <ol className="list-decimal pl-4 space-y-2">
+                   <li><strong>Repayment Obligation:</strong> The Borrower agrees to repay the Principal Amount of <strong>R {Number(selectedApp.requestedAmount).toLocaleString()}</strong> in {selectedApp.requestedDuration} consecutive monthly installments of approximately <strong>R {Math.round(selectedApp.estimatedMonthlyEMI).toLocaleString()}</strong>.</li>
+                   <li><strong>Interest and Fees:</strong> Interest is calculated at the rate of {selectedApp.interestRate || '12'}% per annum, subject to the credit profiles reviewed. A standard processing fee is incorporated in the repayments schedule.</li>
+                   <li><strong>Late Fees:</strong> Any installment not paid by its designated due date will accumulate penalty fees as per South African Credit Act compliance.</li>
+                   <li><strong>Electronic Signature Act:</strong> The Borrower acknowledges that this digital OTP signature constitutes a legally binding document equivalent to a handwritten physical signature.</li>
+                 </ol>
+               </div>
+
+               {/* OTP Flow */}
+               <div className="p-6 bg-slate-900 rounded-[2rem] text-white space-y-5 relative overflow-hidden shadow-xl">
+                 <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-2xl" />
+                 <div className="relative flex flex-col items-center text-center space-y-4">
+                   {!otpSent ? (
+                     <>
+                       <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-primary">
+                         <FileText size={22} />
+                       </div>
+                       <div className="space-y-1">
+                         <p className="text-sm font-black tracking-tight">Request Signature Code</p>
+                         <p className="text-[11px] text-white/50">A secure 6-digit OTP will be dispatched to <strong>{selectedApp.emailAddress}</strong>.</p>
+                       </div>
+                       <Button
+                         onClick={handleSendOtp}
+                         disabled={isSendingOtp}
+                         className="px-8 py-3 bg-white text-slate-900 hover:bg-slate-100 flex items-center justify-center gap-2 border-none rounded-xl font-black text-[10px] uppercase tracking-widest mt-2"
+                       >
+                         {isSendingOtp ? <Loader2 className="w-4 h-4 animate-spin text-slate-900" /> : <ShieldCheck size={14} className="text-slate-900" />}
+                         Send OTP Signature Code
+                       </Button>
+                     </>
+                   ) : (
+                     <>
+                       <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-emerald-400">
+                         <ShieldCheck size={22} />
+                       </div>
+                       <div className="space-y-1">
+                         <p className="text-sm font-black tracking-tight">Enter Signature OTP Code</p>
+                         <p className="text-[11px] text-white/50">Code sent successfully. Please check your inbox at {selectedApp.emailAddress}.</p>
+                       </div>
+
+                       {/* Large spaced OTP Input */}
+                       <div className="w-full max-w-[200px] mt-2">
+                         <input
+                           type="text"
+                           maxLength={6}
+                           placeholder="••••••"
+                           value={otpCode}
+                           onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                           className="w-full text-center tracking-[1em] text-xl font-black bg-white/5 border border-white/10 rounded-xl py-3 focus:outline-none focus:border-white/30 text-white placeholder-white/20"
+                         />
+                       </div>
+
+                       <div className="flex gap-3 w-full max-w-[320px] pt-3">
+                         <Button
+                           onClick={handleVerifyOtp}
+                           disabled={isVerifyingOtp || otpCode.length !== 6}
+                           className="flex-1 py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 border-none rounded-xl font-black text-[10px] uppercase tracking-widest"
+                         >
+                           {isVerifyingOtp ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sign Agreement'}
+                         </Button>
+                         
+                         <Button
+                           variant="secondary"
+                           onClick={handleSendOtp}
+                           disabled={otpCooldown > 0 || isSendingOtp}
+                           className="flex-1 py-3.5 bg-white/5 text-white hover:bg-white/10 border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest"
+                         >
+                           {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : 'Resend OTP'}
+                         </Button>
+                       </div>
+                     </>
+                   )}
+                 </div>
+               </div>
+
+               {/* Close Button */}
+               <div className="flex justify-end pt-2 border-t border-slate-50">
+                 <Button variant="ghost" onClick={() => setIsSigningModalOpen(false)} className="px-6 py-3 font-black uppercase tracking-widest text-[10px]">Cancel</Button>
+               </div>
+             </div>
+           </Modal>
+         )}
       </AnimatePresence>
+       {/* High-Fidelity Agreement PDF Preview & Download Modal */}
+       <AgreementPreviewModal
+         isOpen={isAgreementPreviewOpen}
+         onClose={() => setIsAgreementPreviewOpen(false)}
+         app={selectedApp}
+         agreementDetails={{}}
+       />
     </div>
   );
 };
@@ -702,6 +940,15 @@ const APPLICATION_STATUS_STYLES = {
   'Disbursed':           'bg-emerald-50 text-emerald-600',
   'Rejected':            'bg-red-50 text-red-500',
   'Hold':                'bg-orange-50 text-orange-600',
+  'Agreement Pending':   'bg-amber-50 text-amber-600',
+  'Agreement Signed':    'bg-teal-50 text-teal-600',
+  'Ready for Disbursement': 'bg-indigo-50 text-indigo-600',
+  'AGREEMENT_PENDING':   'bg-amber-50 text-amber-600',
+  'AGREEMENT_SIGNED':    'bg-teal-50 text-teal-600',
+  'READY_FOR_DISBURSEMENT': 'bg-indigo-50 text-indigo-600',
+  'AGREEMENT_PENDING_VERIFICATION': 'bg-amber-50 text-amber-600',
+  'WAITING BORROWER OTP VERIFICATION': 'bg-amber-50 text-amber-600',
+  'OTP_VERIFIED':        'bg-teal-50 text-teal-600',
 };
 
 const BORROWER_REVIEW_STATUS_MAP = {
@@ -730,14 +977,17 @@ const BorrowerReviewStatus = ({ reviewStatus, reviewInfo }) => {
   );
 };
 
-const ApplicationStatusBadge = ({ status }) => (
-  <span className={cn(
-    'px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-widest',
-    APPLICATION_STATUS_STYLES[status] || 'bg-slate-50 text-slate-500'
-  )}>
-    {status}
-  </span>
-);
+const ApplicationStatusBadge = ({ status }) => {
+  const displayStatus = status === 'AGREEMENT_PENDING_VERIFICATION' ? 'WAITING BORROWER OTP VERIFICATION' : status;
+  return (
+    <span className={cn(
+      'px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-widest',
+      APPLICATION_STATUS_STYLES[status] || APPLICATION_STATUS_STYLES[displayStatus] || 'bg-slate-50 text-slate-500'
+    )}>
+      {displayStatus}
+    </span>
+  );
+};
 
 const ExportFormatOption = ({ label, active }) => (
    <button className={cn(

@@ -232,7 +232,7 @@ const recommendApproval = asyncHandler(async (req, res) => {
   app.staffReview = {
     reviewedBy: req.user._id,
     staffName: req.user.fullName,
-    recommendation: 'Recommended',
+    recommendation: 'RECOMMENDED_APPROVAL',
     riskLevel: riskLevel || 'Low',
     verificationNotes: verificationNotes || recommendationNotes || '',
     verificationDate: new Date()
@@ -303,7 +303,7 @@ const recommendRejection = asyncHandler(async (req, res) => {
   app.staffReview = {
     reviewedBy: req.user._id,
     staffName: req.user.fullName,
-    recommendation: 'Rejected',
+    recommendation: 'RECOMMENDED_REJECTION',
     riskLevel: riskLevel || 'High',
     verificationNotes: verificationNotes || notes || '',
     verificationDate: new Date()

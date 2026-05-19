@@ -300,8 +300,8 @@ const approveApplication = asyncHandler(async (req, res) => {
       return sendError(res, 'Loan application not found', 404);
     }
 
-    // Update application status
-    application.status = 'Approved';
+    // Update application status to AGREEMENT_PENDING_VERIFICATION
+    application.status = 'AGREEMENT_PENDING_VERIFICATION';
     application.reviewStatus = 'Approved'; // Ensure it leaves the review queue
     application.adminDecision = {
       decision: 'Approved',
@@ -313,108 +313,36 @@ const approveApplication = asyncHandler(async (req, res) => {
       approvedDate: new Date(),
     };
 
+    application.agreementGenerated = true;
+    application.agreementGeneratedAt = new Date();
+    application.agreementStatus = 'PENDING SIGNATURE';
+    application.otpVerificationStatus = 'Pending';
+    application.agreementDocumentUrl = `/api/agreement/document/${application._id}`;
+    application.borrowerConsentVerified = false;
+
     application.statusHistory.push({
-      status: 'Approved',
+      status: 'AGREEMENT_PENDING_VERIFICATION',
       changedBy: req.user.fullName || req.user.name || 'Admin',
-      notes: adminNotes || 'Loan application approved by admin',
+      notes: adminNotes || 'Loan application approved by admin. Digital agreement pending signature.',
     });
 
     await application.save({ session });
 
-    // Create Active Loan
-    const loanAmount = Number(approvedAmount) || application.requestedAmount;
-    const duration = Number(finalDuration) || application.requestedDuration;
-    const rate = Number(interestOverride) || application.interestRate || 10; // Default 10% if not set
+    // --- COMMIT TRANSACTION ---
+    await session.commitTransaction();
+    session.endSession();
 
-    // Simple EMI Schedule Generation
-    const monthlyRate = rate / 12 / 100;
-    const emiAmount = Math.round(
-      (loanAmount * monthlyRate * Math.pow(1 + monthlyRate, duration)) /
-      (Math.pow(1 + monthlyRate, duration) - 1)
-    );
-
-    const borrower = await Borrower.findById(application.borrowerId);
-    
-    const emiSchedule = [];
-    let remainingBal = loanAmount;
-    const startDate = new Date();
-    startDate.setMonth(startDate.getMonth() + 1); // First EMI next month
-
-    for (let i = 1; i <= duration; i++) {
-      const interest = Math.round(remainingBal * monthlyRate);
-      const principalAmount = emiAmount - interest;
-      remainingBal -= principalAmount;
-
-      const dueDate = new Date(startDate);
-      dueDate.setMonth(dueDate.getMonth() + (i - 1));
-
-      emiSchedule.push({
-        installmentNumber: i,
-        dueDate,
-        emiAmount,
-        principalAmount,
-        interestAmount: interest,
-        paymentStatus: 'Pending',
-      });
-    }
-
-    const ActiveLoan = require('../models/ActiveLoan');
-    const activeLoan = await ActiveLoan.create([{
-      borrowerId: application.borrowerId,
-      borrowerName: application.fullName || (borrower && borrower.fullName) || 'Unknown',
-      borrowerPhoto: borrower?.profilePhoto || null,
-      borrowerEmail: application.emailAddress || borrower?.email,
-      borrowerPhone: application.phoneNumber || borrower?.phoneNumber,
-      loanApplicationId: application._id,
-      loanType: application.loanType || 'Personal Loan',
-      approvedAmount: loanAmount,
-      interestRate: rate,
-      loanDurationMonths: duration,
-      emiAmount,
-      totalPayableAmount: emiAmount * duration,
-      remainingBalance: emiAmount * duration,
-      nextDueDate: emiSchedule[0].dueDate,
-      repaymentSchedule: emiSchedule,
-      approvedBy: req.user._id,
-    }], { session });
-
-    // Create records in centralized RepaymentSchedule collection
-    const repaymentEntries = emiSchedule.map(emi => ({
-      loanId: activeLoan[0]._id,
-      borrowerId: application.borrowerId,
-      emiNumber: emi.installmentNumber,
-      dueDate: emi.dueDate,
-      amount: emi.emiAmount,
-      status: 'Pending'
-    }));
-
-    await RepaymentSchedule.insertMany(repaymentEntries, { session });
-
-    // COMMISSION LOGIC: If borrower has an assigned agent, generate commission
-    if (borrower && borrower.assignedAgent) {
-      const Commission = require('../models/Commission');
-      const commissionPercent = 2.5; // Default 2.5%
-      const commissionAmount = (loanAmount * commissionPercent) / 100;
-
-      await Commission.create([{
-        agentId: borrower.assignedAgent,
-        borrowerId: borrower._id,
-        loanId: activeLoan[0]._id,
-        loanAmount,
-        commissionPercent,
-        commissionAmount,
-        status: 'Pending'
-      }], { session });
-    }
-
-    // Trigger Real-time / Notifications (After commit)
+    // Trigger OTP sending and notification
     try {
-      // Notify Borrower
+      const agreementSigningService = require('../modules/agreementSigning/services/agreementSigning.service');
+      await agreementSigningService.sendAgreementOTP(application._id, req.user);
+
+      const borrower = await Borrower.findById(application.borrowerId);
       if (borrower) {
         await createNotification({
-          title: 'Approval Alert',
-          message: `Loan application ${application.applicationId} for amount R ${loanAmount} has been APPROVED.`,
-          notificationType: 'Approval Alert',
+          title: 'Digital Signature Consent Pending',
+          message: `Your loan application ${application.applicationId} has been approved by admin. Please review and sign the agreement via secure OTP.`,
+          notificationType: 'System Alert',
           priority: 'Important',
           receiverId: borrower._id,
           receiverRole: 'borrower',
@@ -424,19 +352,10 @@ const approveApplication = asyncHandler(async (req, res) => {
         // Create BorrowerAlert
         await BorrowerAlert.create({
           borrowerId: borrower._id,
-          title: 'Loan Approved',
-          message: `Congratulations! Your loan of R ${loanAmount} has been approved and is now active.`,
+          title: 'Agreement Signature Pending',
+          message: `Your loan application of R ${application.requestedAmount} requires digital agreement signature. Secure OTP email has been sent.`,
           alertType: 'LOAN_APPROVED',
           priority: 'High'
-        });
-
-        // Log Activity
-        await LoanActivity.create({
-          loanId: activeLoan[0]._id,
-          borrowerId: borrower._id,
-          title: 'Loan Approved',
-          message: `Your loan application ${application.applicationId} was approved for R ${loanAmount}.`,
-          type: 'StatusChange'
         });
 
         // Socket notification for borrower
@@ -445,49 +364,18 @@ const approveApplication = asyncHandler(async (req, res) => {
         if (io && borrower.userId) {
           const borrowerUserId = borrower.userId.toString();
           io.to(borrowerUserId).emit('loan-updated', { 
-            status: 'Approved',
-            loanId: activeLoan[0]._id,
-            message: 'Your loan application has been approved'
+            status: 'AGREEMENT_PENDING_VERIFICATION',
+            message: 'Your loan agreement requires signature'
           });
           io.to(borrowerUserId).emit('dashboard-updated');
           io.to(borrowerUserId).emit('notification-created');
         }
       }
-
-      if (borrower && borrower.assignedAgent) {
-        // Notify Agent
-        await createNotification({
-          receiverId: borrower.assignedAgent,
-          receiverRole: 'agent',
-          senderId: req.user._id,
-          senderRole: 'admin',
-          borrowerId: borrower._id,
-          loanApplicationId: application._id,
-          type: 'LOAN_APPROVAL',
-          title: 'New Loan Approved',
-          message: `Your borrower ${borrower.fullName}'s loan application ${application.applicationId} has been approved for R ${loanAmount}.`,
-          priority: 'IMPORTANT'
-        });
-
-        // Socket notification for agent
-        const { getIO } = require('../socket/socketServer'); 
-        const io = getIO();
-        if (io) {
-          io.to(borrower.assignedAgent.toString()).emit('commission:generated', {
-            message: `New commission generated for loan application ${application.applicationId}`,
-            borrowerName: borrower.fullName
-          });
-        }
-      }
     } catch (notifErr) {
-      console.error('Notification failed after approval commit:', notifErr.message);
+      console.error('Failed to trigger agreement OTP generation or notifications:', notifErr.message);
     }
 
-    // --- COMMIT TRANSACTION ---
-    await session.commitTransaction();
-    session.endSession();
-
-    sendSuccess(res, 'Loan application approved and active loan created', { application, activeLoan: activeLoan[0] });
+    sendSuccess(res, 'Loan application approved. Secure OTP dispatched and agreement signature is pending.', { application });
 
   } catch (error) {
     // --- ROLLBACK TRANSACTION ---

@@ -9,10 +9,12 @@ import {
 import { toast } from 'react-hot-toast';
 import { cn } from '../../utils/cn';
 import loanApplicationService from '../../services/loanApplicationService';
+import agreementService from '../../services/agreementService';
 import StatusBadge from '../../components/StatusBadge';
 import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
 import Input from '../../ui/Input';
+import AgreementPreviewModal from '../../components/AgreementPreviewModal';
 
 const ApplicationDetail = () => {
   const { id } = useParams();
@@ -26,6 +28,21 @@ const ApplicationDetail = () => {
     adminNotes: '', approvedAmount: '', finalDuration: '',
     interestOverride: '', rejectionReason: '', holdReason: ''
   });
+  const [agreementDetails, setAgreementDetails] = useState(null);
+  const [loadingAgreement, setLoadingAgreement] = useState(false);
+  const [isViewDocOpen, setIsViewDocOpen] = useState(false);
+  const [documentContent, setDocumentContent] = useState('');
+  const [loadingDoc, setLoadingDoc] = useState(false);
+  const [isAgreementPreviewOpen, setIsAgreementPreviewOpen] = useState(false);
+
+  const fetchAgreementStatus = async () => {
+    try {
+      const res = await agreementService.getAgreementStatus(id);
+      setAgreementDetails(res.data);
+    } catch (err) {
+      console.error('Failed to fetch agreement details:', err);
+    }
+  };
 
   useEffect(() => {
     const fetch = async () => {
@@ -39,6 +56,12 @@ const ApplicationDetail = () => {
           finalDuration: res.data?.requestedDuration || '',
           interestOverride: res.data?.interestRate || '',
         }));
+
+        const isApprovedOrHigher = ['Approved', 'Agreement Pending', 'Agreement Signed', 'Ready for Disbursement', 'AGREEMENT_PENDING', 'AGREEMENT_SIGNED', 'READY_FOR_DISBURSEMENT', 'AGREEMENT_PENDING_VERIFICATION', 'OTP_VERIFIED'].includes(res.data?.status);
+        if (isApprovedOrHigher) {
+          const agreementRes = await agreementService.getAgreementStatus(id);
+          setAgreementDetails(agreementRes.data);
+        }
       } catch {
         toast.error('Failed to load application details');
         navigate('/admin/applications');
@@ -49,6 +72,60 @@ const ApplicationDetail = () => {
     fetch();
   }, [id]);
 
+  const handleViewAgreement = async () => {
+    setIsAgreementPreviewOpen(true);
+  };
+
+  const handleDownloadAgreement = async () => {
+    setIsAgreementPreviewOpen(true);
+    toast.success('Opening high-fidelity document preview for PDF download...');
+  };
+
+  const handleGenerateAgreement = async () => {
+    try {
+      setLoadingAgreement(true);
+      await agreementService.generateAgreement(id);
+      toast.success('Loan agreement generated successfully');
+      
+      const appRes = await loanApplicationService.getApplicationDetails(id);
+      setApp(appRes.data);
+      await fetchAgreementStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to generate agreement');
+    } finally {
+      setLoadingAgreement(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    try {
+      setLoadingAgreement(true);
+      await agreementService.sendOtp(id);
+      toast.success('OTP email successfully resent to borrower');
+      await fetchAgreementStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to send OTP');
+    } finally {
+      setLoadingAgreement(false);
+    }
+  };
+
+  const handleMarkReadyForDisbursement = async () => {
+    try {
+      setLoadingAgreement(true);
+      await agreementService.markReadyForDisbursement(id);
+      toast.success('Loan application successfully marked as ready for disbursement');
+      
+      const appRes = await loanApplicationService.getApplicationDetails(id);
+      setApp(appRes.data);
+      await fetchAgreementStatus();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update disbursement status');
+    } finally {
+      setLoadingAgreement(false);
+    }
+  };
+
   const handleApprove = async () => {
     try {
       setIsSubmitting(true);
@@ -58,9 +135,13 @@ const ApplicationDetail = () => {
         adminNotes: decisionData.adminNotes,
         interestOverride: decisionData.interestOverride,
       });
-      toast.success('Application approved successfully');
+      toast.success('Application approved. Secure OTP dispatched.');
       setActiveModal(null);
-      navigate('/admin/applications');
+      
+      // Re-fetch application data
+      const res = await loanApplicationService.getApplicationDetails(id);
+      setApp(res.data);
+      await fetchAgreementStatus();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Approval failed');
     } finally {
@@ -411,6 +492,124 @@ const ApplicationDetail = () => {
               </div>
             )}
           </Section>
+
+          {/* Digital Loan Agreement Panel */}
+          {['Approved', 'Agreement Pending', 'Agreement Signed', 'Ready for Disbursement', 'AGREEMENT_PENDING', 'AGREEMENT_SIGNED', 'READY_FOR_DISBURSEMENT', 'AGREEMENT_PENDING_VERIFICATION', 'OTP_VERIFIED'].includes(app.status) && (
+            <Section title="Digital Loan Agreement Panel" icon={FileText}>
+              <div className="space-y-6 text-left">
+                {/* Details Section */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-5 bg-slate-50 rounded-[2rem] border border-slate-100">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase opacity-60">Agreement Status</p>
+                    <p className="text-sm font-bold text-slate-800">
+                      {['Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) ? 'Awaiting Signature' :
+                       ['Agreement Signed', 'AGREEMENT_SIGNED', 'READY_FOR_DISBURSEMENT', 'Ready for Disbursement'].includes(app.status) ? 'Digitally Signed' : 'Not Generated'}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase opacity-60">Agreement Generated At</p>
+                    <p className="text-sm font-bold text-slate-800">
+                      {app.agreementGeneratedAt ? new Date(app.agreementGeneratedAt).toLocaleString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase opacity-60">OTP Verification Status</p>
+                    <p className="text-sm font-bold text-slate-800">
+                      {app.otpVerificationStatus || 'Pending'}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black uppercase opacity-60">Borrower Consent Status</p>
+                    <p className="text-sm font-bold text-slate-800">
+                      {app.borrowerConsentVerified ? 'Verified & Completed' : 'Pending Borrower Signature'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Buttons Row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    onClick={handleViewAgreement}
+                    disabled={loadingDoc}
+                    className="py-3 bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 flex items-center justify-center gap-2"
+                  >
+                    {loadingDoc ? <Loader2 size={14} className="animate-spin text-slate-700" /> : <FileText size={14} className="text-slate-700" />}
+                    <span className="font-black uppercase tracking-widest text-[9px]">View Agreement</span>
+                  </Button>
+
+                  <Button
+                    onClick={handleDownloadAgreement}
+                    className="py-3 bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 flex items-center justify-center gap-2"
+                  >
+                    <Download size={14} className="text-slate-700" />
+                    <span className="font-black uppercase tracking-widest text-[9px]">Download Agreement</span>
+                  </Button>
+
+                  {['AGREEMENT_PENDING_VERIFICATION', 'Agreement Pending', 'AGREEMENT_PENDING'].includes(app.status) && (
+                    <Button
+                      onClick={handleResendOTP}
+                      disabled={loadingAgreement}
+                      className="py-3 bg-indigo-600 text-white hover:bg-indigo-700 flex items-center justify-center gap-2 border-none shadow-sm col-span-2"
+                    >
+                      {loadingAgreement ? <Loader2 size={14} className="animate-spin text-white" /> : <Clock size={14} className="text-white" />}
+                      <span className="font-black uppercase tracking-widest text-[9px]">Resend OTP Signature Code</span>
+                    </Button>
+                  )}
+
+                  {['READY_FOR_DISBURSEMENT', 'Ready for Disbursement', 'AGREEMENT_SIGNED', 'Agreement Signed', 'OTP_VERIFIED'].includes(app.status) && (
+                    <Button
+                      onClick={handleMarkReadyForDisbursement}
+                      disabled={loadingAgreement}
+                      className="py-3 bg-emerald-500 text-white hover:bg-emerald-600 flex items-center justify-center gap-2 border-none shadow-sm col-span-2"
+                    >
+                      {loadingAgreement ? <Loader2 size={14} className="animate-spin text-white" /> : <CheckCircle2 size={14} className="text-white" />}
+                      <span className="font-black uppercase tracking-widest text-[9px]">Confirm Disbursement Ready</span>
+                    </Button>
+                  )}
+                </div>
+
+                {/* OTP Verification History Logs */}
+                {agreementDetails?.otpHistory && agreementDetails.otpHistory.length > 0 && (
+                  <div className="space-y-3 pt-3 border-t border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OTP Request History</p>
+                    <div className="rounded-2xl border border-slate-100 overflow-hidden bg-white shadow-sm">
+                      <table className="w-full text-xs text-left">
+                        <thead>
+                          <tr className="bg-slate-50 text-[9px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                            <th className="px-4 py-2">Requested At</th>
+                            <th className="px-3 py-2">Attempts</th>
+                            <th className="px-4 py-2 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {agreementDetails.otpHistory.map((otp, idx) => {
+                            const isExpired = new Date() > new Date(otp.expiresAt);
+                            return (
+                              <tr key={idx} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+                                <td className="px-4 py-2.5 font-bold text-slate-600">
+                                  {new Date(otp.createdAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' })} {new Date(otp.createdAt).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                                <td className="px-3 py-2.5 font-black text-slate-500 text-center">{(otp.attempts !== undefined ? otp.attempts : otp.retryCount) || 0} / 5</td>
+                                <td className="px-4 py-2.5 text-right">
+                                  <span className={cn(
+                                    "inline-block px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-wide",
+                                    otp.verified ? "bg-emerald-100 text-emerald-700" :
+                                    isExpired ? "bg-rose-100 text-rose-700" : "bg-indigo-100 text-indigo-700"
+                                  )}>
+                                    {otp.verified ? 'Verified' : isExpired ? 'Expired' : 'Active'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Section>
+          )}
         </div>
       </div>
 
@@ -487,6 +686,36 @@ const ApplicationDetail = () => {
           </div>
         </div>
       </Modal>
+
+      {/* VIEW AGREEMENT MODAL */}
+      <Modal
+        isOpen={isViewDocOpen}
+        onClose={() => setIsViewDocOpen(false)}
+        title="View Loan Agreement Document"
+        maxWidth="max-w-2xl"
+      >
+        <div className="space-y-5 text-left">
+          <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 font-mono text-[10px] leading-relaxed text-slate-700 max-h-[350px] overflow-y-auto custom-scrollbar whitespace-pre-wrap">
+            {documentContent}
+          </div>
+          <div className="flex justify-end border-t border-slate-100 pt-3">
+            <Button
+              onClick={() => setIsViewDocOpen(false)}
+              className="py-3 px-6 bg-slate-900 text-white hover:bg-slate-800 border-none font-black uppercase tracking-widest text-[9px]"
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* High-Fidelity Agreement PDF Preview & Download Modal */}
+      <AgreementPreviewModal
+        isOpen={isAgreementPreviewOpen}
+        onClose={() => setIsAgreementPreviewOpen(false)}
+        app={app}
+        agreementDetails={agreementDetails}
+      />
     </div>
   );
 };

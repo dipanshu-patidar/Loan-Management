@@ -43,6 +43,8 @@ const agentProfileRoutes = require('./routes/agent/profileRoutes');
 const agentDashboardRoutes = require('./routes/agent/dashboardRoutes');
 const agentFollowUpRoutes = require('./routes/agent/followUpRoutes');
 const borrowerApplyLoanRoutes = require('./routes/borrowerLoanRoutes');
+const verificationRoutes = require('./routes/verification.routes');
+const agreementRoutes = require('./modules/agreementSigning/routes/agreementSigning.routes');
 
 
 
@@ -114,6 +116,8 @@ app.use('/api/agent', agentRoutes);
 app.use('/api/repayments', repaymentRoutes);
 
 
+app.use('/api/verification', verificationRoutes);
+app.use('/api/agreement', agreementRoutes);
 app.use('/api/upload', uploadRoutes);
 
 // Base route

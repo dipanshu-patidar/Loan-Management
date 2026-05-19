@@ -153,7 +153,7 @@ exports.getMyLoans = asyncHandler(async (req, res) => {
     borrowerId: userId,
     status: { $nin: ['Draft'] }
   })
-    .select('applicationId requestedAmount requestedDuration status reviewStatus rejectionReason submittedAt loanType estimatedMonthlyEMI staffReview')
+    .select('applicationId requestedAmount requestedDuration status reviewStatus rejectionReason submittedAt loanType estimatedMonthlyEMI staffReview fullName phoneNumber emailAddress idNumber interestRate approvedAmount processingFee totalRepayment agreementGeneratedAt agreementSignedAt agreementStatus borrowerConsentVerified verificationIp verificationUserAgent')
     .sort({ createdAt: -1 });
 
   // 5. Fetch recent activities
@@ -176,6 +176,20 @@ exports.getMyLoans = asyncHandler(async (req, res) => {
     loanType: app.loanType,
     estimatedMonthlyEMI: app.estimatedMonthlyEMI,
     reviewInfo: buildReviewInfo(app),
+    fullName: app.fullName,
+    phoneNumber: app.phoneNumber,
+    emailAddress: app.emailAddress,
+    idNumber: app.idNumber,
+    interestRate: app.interestRate,
+    approvedAmount: app.approvedAmount,
+    processingFee: app.processingFee,
+    totalRepayment: app.totalRepayment,
+    agreementGeneratedAt: app.agreementGeneratedAt,
+    agreementSignedAt: app.agreementSignedAt,
+    agreementStatus: app.agreementStatus,
+    borrowerConsentVerified: app.borrowerConsentVerified,
+    verificationIp: app.verificationIp,
+    verificationUserAgent: app.verificationUserAgent,
   }));
 
   sendSuccess(res, 'My loans retrieved successfully', {

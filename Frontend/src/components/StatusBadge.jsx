@@ -11,6 +11,12 @@ const StatusBadge = ({ status, className }) => {
     overdue: 'bg-red-50 text-red-600 border-red-100',
     verified: 'bg-indigo-50 text-indigo-600 border-indigo-100',
     settled: 'bg-teal-50 text-teal-600 border-teal-100',
+    'agreement pending': 'bg-amber-50 text-amber-600 border-amber-100',
+    'agreement signed': 'bg-teal-50 text-teal-600 border-teal-100',
+    'ready for disbursement': 'bg-indigo-50 text-indigo-600 border-indigo-100',
+    'agreement_pending_verification': 'bg-amber-50 text-amber-600 border-amber-100',
+    'waiting borrower otp verification': 'bg-amber-50 text-amber-600 border-amber-100',
+    'otp_verified': 'bg-teal-50 text-teal-600 border-teal-100',
     
     // Risk / Priority
     high: 'bg-rose-100 text-rose-700 border-rose-200',
@@ -47,7 +53,14 @@ const StatusBadge = ({ status, className }) => {
     </span>
   );
 
-  const currentStyle = styles[status.toLowerCase()] || styles[status.toLowerCase().replace(/\s+/g, '')] || 'bg-slate-100 text-slate-600 border-slate-200';
+  const displayStatusMap = {
+    'agreement_pending_verification': 'Waiting Borrower OTP Verification',
+    'otp_verified': 'OTP Verified',
+  };
+
+  const normalizedStatus = status.toLowerCase();
+  const displayStatus = displayStatusMap[normalizedStatus] || status;
+  const currentStyle = styles[normalizedStatus] || styles[normalizedStatus.replace(/\s+/g, '')] || 'bg-slate-100 text-slate-600 border-slate-200';
 
   return (
     <span className={cn(
@@ -55,7 +68,7 @@ const StatusBadge = ({ status, className }) => {
       currentStyle,
       className
     )}>
-      {status}
+      {displayStatus}
     </span>
   );
 };

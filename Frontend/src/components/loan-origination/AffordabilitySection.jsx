@@ -181,7 +181,12 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                 value={inputs.basicSalary}
                 onChange={handleInputChange}
                 placeholder="25000"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 font-semibold focus:outline-none focus:border-primary bg-slate-50/50"
+                className={cn(
+                  "w-full px-4 py-3 rounded-xl border font-semibold focus:outline-none bg-slate-50/50",
+                  totalIncome > 0 && !isIncomeCompliant
+                    ? "border-rose-500 focus:border-rose-500 text-rose-950 focus:ring-rose-200"
+                    : "border-slate-200 focus:border-primary"
+                )}
               />
             </div>
             <div>
@@ -192,7 +197,12 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                 value={inputs.allowances}
                 onChange={handleInputChange}
                 placeholder="1500"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 font-semibold focus:outline-none focus:border-primary bg-slate-50/50"
+                className={cn(
+                  "w-full px-4 py-3 rounded-xl border font-semibold focus:outline-none bg-slate-50/50",
+                  totalIncome > 0 && !isIncomeCompliant
+                    ? "border-rose-500 focus:border-rose-500 text-rose-950 focus:ring-rose-200"
+                    : "border-slate-200 focus:border-primary"
+                )}
               />
             </div>
             <div>
@@ -203,7 +213,12 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                 value={inputs.overtime}
                 onChange={handleInputChange}
                 placeholder="0"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 font-semibold focus:outline-none focus:border-primary bg-slate-50/50"
+                className={cn(
+                  "w-full px-4 py-3 rounded-xl border font-semibold focus:outline-none bg-slate-50/50",
+                  totalIncome > 0 && !isIncomeCompliant
+                    ? "border-rose-500 focus:border-rose-500 text-rose-950 focus:ring-rose-200"
+                    : "border-slate-200 focus:border-primary"
+                )}
               />
             </div>
             <div>
@@ -214,9 +229,19 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                 value={inputs.otherIncome}
                 onChange={handleInputChange}
                 placeholder="0"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 font-semibold focus:outline-none focus:border-primary bg-slate-50/50"
+                className={cn(
+                  "w-full px-4 py-3 rounded-xl border font-semibold focus:outline-none bg-slate-50/50",
+                  totalIncome > 0 && !isIncomeCompliant
+                    ? "border-rose-500 focus:border-rose-500 text-rose-950 focus:ring-rose-200"
+                    : "border-slate-200 focus:border-primary"
+                )}
               />
             </div>
+            {!isIncomeCompliant && totalIncome > 0 && (
+              <p className="text-[10px] font-bold text-rose-500 mt-2 flex items-start gap-1 leading-normal">
+                <AlertCircle size={12} className="shrink-0 mt-0.5" /> Total income of R{totalIncome.toLocaleString()} is below the minimum requirement of R{minIncomeLimit.toLocaleString()}.
+              </p>
+            )}
           </div>
         </div>
 
@@ -247,7 +272,12 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                 value={inputs.rentMortgage}
                 onChange={handleInputChange}
                 placeholder="6000"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 font-semibold focus:outline-none focus:border-primary bg-slate-50/50"
+                className={cn(
+                  "w-full px-4 py-3 rounded-xl border font-semibold focus:outline-none bg-slate-50/50",
+                  totalIncome > 0 && !isDtiCompliant
+                    ? "border-rose-500 focus:border-rose-500 text-rose-950 focus:ring-rose-200"
+                    : "border-slate-200 focus:border-primary"
+                )}
               />
             </div>
             <div>
@@ -258,7 +288,12 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                 value={inputs.debtRepayments}
                 onChange={handleInputChange}
                 placeholder="2000"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 font-semibold focus:outline-none focus:border-primary bg-slate-50/50"
+                className={cn(
+                  "w-full px-4 py-3 rounded-xl border font-semibold focus:outline-none bg-slate-50/50",
+                  totalIncome > 0 && !isDtiCompliant
+                    ? "border-rose-500 focus:border-rose-500 text-rose-950 focus:ring-rose-200"
+                    : "border-slate-200 focus:border-primary"
+                )}
               />
             </div>
             <div>
@@ -269,9 +304,33 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
                 value={inputs.livingExpenses}
                 onChange={handleInputChange}
                 placeholder="3000"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 font-semibold focus:outline-none focus:border-primary bg-slate-50/50"
+                className={cn(
+                  "w-full px-4 py-3 rounded-xl border font-semibold focus:outline-none bg-slate-50/50",
+                  totalIncome > 0 && (living < ncrBenchmark || !isDisposableCompliant)
+                    ? "border-rose-500 focus:border-rose-500 text-rose-950 focus:ring-rose-200"
+                    : "border-slate-200 focus:border-primary"
+                )}
               />
             </div>
+            {totalIncome > 0 && (!isDtiCompliant || !isDisposableCompliant || living < ncrBenchmark) && (
+              <div className="space-y-1.5 mt-2">
+                {!isDtiCompliant && (
+                  <p className="text-[10px] font-bold text-rose-500 flex items-start gap-1 leading-normal">
+                    <AlertCircle size={12} className="shrink-0 mt-0.5" /> DTI ratio of {debtToIncomeRatio.toFixed(1)}% exceeds the limit of {maxDti}%.
+                  </p>
+                )}
+                {!isDisposableCompliant && (
+                  <p className="text-[10px] font-bold text-rose-500 flex items-start gap-1 leading-normal">
+                    <AlertCircle size={12} className="shrink-0 mt-0.5" /> Disposable income of R{disposableIncome.toLocaleString()} is below the required R{minDisposable.toLocaleString()}.
+                  </p>
+                )}
+                {living < ncrBenchmark && (
+                  <p className="text-[10px] font-bold text-rose-500 flex items-start gap-1 leading-normal">
+                    <AlertCircle size={12} className="shrink-0 mt-0.5" /> Living expenses fall below survival benchmark buffer of R{Math.round(ncrBenchmark)}.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -468,10 +527,10 @@ const AffordabilitySection = ({ affordability, setAffordability, documents, setD
         </button>
         <button
           onClick={onNextStep}
-          disabled={totalIncome <= 0 || !hasUploadedAllDocs}
+          disabled={totalIncome <= 0 || !hasUploadedAllDocs || !isIncomeCompliant || !isDtiCompliant || !isDisposableCompliant || !isNcrCompliant}
           className={cn(
             "px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-md flex items-center gap-2 cursor-pointer",
-            totalIncome > 0 && hasUploadedAllDocs
+            totalIncome > 0 && hasUploadedAllDocs && isIncomeCompliant && isDtiCompliant && isDisposableCompliant && isNcrCompliant
               ? "bg-slate-900 text-white hover:bg-primary shadow-slate-900/15 hover:scale-[1.01]"
               : "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none"
           )}

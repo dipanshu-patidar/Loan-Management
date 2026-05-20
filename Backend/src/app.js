@@ -45,6 +45,7 @@ const agentFollowUpRoutes = require('./routes/agent/followUpRoutes');
 const borrowerApplyLoanRoutes = require('./routes/borrowerLoanRoutes');
 const verificationRoutes = require('./routes/verification.routes');
 const agreementRoutes = require('./modules/agreementSigning/routes/agreementSigning.routes');
+const validationRoutes = require('./routes/validationRoutes');
 
 
 
@@ -119,6 +120,7 @@ app.use('/api/repayments', repaymentRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/agreement', agreementRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/validation-rules', validationRoutes);
 
 // Base route
 app.get('/', (req, res) => {

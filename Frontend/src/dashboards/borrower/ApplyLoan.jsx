@@ -39,22 +39,30 @@ const ApplyLoan = () => {
   const [creditConsentAccepted, setCreditConsentAccepted] = useState(false);
   const [creditConsentError, setCreditConsentError] = useState(false);
   const [eligibilitySettings, setEligibilitySettings] = useState(null);
+  const [validationRules, setValidationRules] = useState(null);
 
   useEffect(() => {
-    const fetchEligibility = async () => {
+    const fetchEligibilityAndRules = async () => {
       try {
-        const res = await BorrowerLoanService.getEligibilitySettings();
-        if (res.success) {
-          setEligibilitySettings(res.data);
+        const [eligRes, rulesRes] = await Promise.allSettled([
+          BorrowerLoanService.getEligibilitySettings(),
+          BorrowerLoanService.getValidationRules()
+        ]);
+        
+        if (eligRes.status === 'fulfilled' && eligRes.value.success) {
+          setEligibilitySettings(eligRes.value.data);
+        }
+        if (rulesRes.status === 'fulfilled' && rulesRes.value.success) {
+          setValidationRules(rulesRes.value.data);
         }
       } catch (error) {
-        console.error('Error fetching eligibility:', error);
+        console.error('Error fetching eligibility/rules:', error);
       }
     };
-    fetchEligibility();
+    fetchEligibilityAndRules();
   }, []);
 
-  const { register, handleSubmit, formState: { errors }, setValue, watch, trigger } = useForm({
+  const { register, handleSubmit, formState: { errors }, setValue, watch, trigger, setError } = useForm({
     mode: 'onTouched',
     defaultValues: {
       fullName: '',
@@ -221,7 +229,26 @@ const ApplyLoan = () => {
       setIsSubmitted(true);
       window.scrollTo(0, 0);
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Submission failed');
+      if (error.response?.data?.validationErrors) {
+        const valErrors = error.response.data.validationErrors;
+        Object.keys(valErrors).forEach(key => {
+          let formKey = key;
+          if (key === 'age') formKey = 'dateOfBirth';
+          else if (key === 'monthlyIncome') formKey = 'monthlyIncome';
+          else if (key === 'employmentDuration') formKey = 'employmentDuration';
+          else if (key === 'loanAmount') formKey = 'requestedLoanAmount';
+          else if (key === 'loanDuration') formKey = 'requestedDuration';
+          else if (key === 'employmentType') formKey = 'employmentStatus';
+
+          setError(formKey, {
+            type: 'manual',
+            message: valErrors[key]
+          });
+        });
+        toast.error('Validation failed. Please review input fields.');
+      } else {
+        toast.error(error.response?.data?.message || 'Submission failed');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -294,8 +321,8 @@ const ApplyLoan = () => {
                                      required: 'DOB is required',
                                      validate: (val) => {
                                        const age = calculateAge(val);
-                                       const minAge = eligibilitySettings?.minimumAge || 18;
-                                       const maxAge = eligibilitySettings?.maximumAge || 65;
+                                       const minAge = validationRules?.minAge || eligibilitySettings?.minimumAge || 18;
+                                       const maxAge = validationRules?.maxAge || eligibilitySettings?.maximumAge || 65;
                                        if (age < minAge) return `Minimum age requirement is ${minAge} years.`;
                                        if (age > maxAge) return `Maximum eligible age is ${maxAge} years.`;
                                        return true;
@@ -327,7 +354,7 @@ const ApplyLoan = () => {
                                    {...register('employmentStatus', { 
                                      required: 'Employment status is required',
                                      validate: (val) => {
-                                       const allowedCategories = eligibilitySettings?.employmentCategories || [
+                                       const allowedCategories = validationRules?.employmentTypes || eligibilitySettings?.employmentCategories || [
                                          'Permanently Employed', 'Contract Worker', 'Self Employed', 'Government Employee'
                                        ];
                                        const normalizedStatus = val === 'Permanent' || val === 'Employed' ? 'Permanently Employed' 
@@ -350,7 +377,7 @@ const ApplyLoan = () => {
                                  </select>
                               </div>
                               <div>
-                                 <Input label="Employer Name" placeholder="Company name" icon={Building2} {...register('employerName', { required: watch('employmentStatus') === 'Employed' })} />
+                                 <Input label="Employer Name" placeholder="Company name" icon={Building2} error={errors.employerName?.message} {...register('employerName', { required: watch('employmentStatus') === 'Employed' })} />
                                  <ValidationMessage message={errors.employerName?.message} />
                               </div>
                               <div>
@@ -359,10 +386,11 @@ const ApplyLoan = () => {
                                    type="number" 
                                    placeholder="Gross monthly salary" 
                                    icon={Wallet} 
+                                   error={errors.monthlyIncome?.message}
                                    {...register('monthlyIncome', { 
                                      required: 'Income is required',
                                      validate: (val) => {
-                                       const minIncome = eligibilitySettings?.minSalaryRequirement || eligibilitySettings?.minimumMonthlyIncome || 5000;
+                                       const minIncome = validationRules?.minimumIncome || eligibilitySettings?.minSalaryRequirement || eligibilitySettings?.minimumMonthlyIncome || 5000;
                                        return Number(val) >= minIncome || `Minimum monthly income requirement is R${minIncome.toLocaleString()}.`;
                                      }
                                    })} 
@@ -374,10 +402,11 @@ const ApplyLoan = () => {
                                    label="Employment Duration" 
                                    placeholder="e.g. 12 Months" 
                                    icon={Clock} 
+                                   error={errors.employmentDuration?.message}
                                    {...register('employmentDuration', { 
                                      required: 'Duration is required',
                                      validate: (val) => {
-                                       const minMonths = eligibilitySettings?.minEmploymentDuration || 6;
+                                       const minMonths = validationRules?.minimumEmploymentMonths || eligibilitySettings?.minEmploymentDuration || 6;
                                        const num = parseInt(val.replace(/[^0-9]/g, ''), 10);
                                        if (isNaN(num)) return true;
                                        let months = num;
@@ -391,7 +420,7 @@ const ApplyLoan = () => {
                                  <ValidationMessage message={errors.employmentDuration?.message} />
                               </div>
                               <div className="md:col-span-2">
-                                 <Input label="Work Address" isTextArea placeholder="Enter company address..." icon={MapPin} {...register('workAddress', { required: 'Work address is required' })} />
+                                 <Input label="Work Address" isTextArea placeholder="Enter company address..." icon={MapPin} error={errors.workAddress?.message} {...register('workAddress', { required: 'Work address is required' })} />
                                  <ValidationMessage message={errors.workAddress?.message} />
                               </div>
                            </div>
@@ -430,8 +459,8 @@ const ApplyLoan = () => {
                                         {...register('requestedLoanAmount', { 
                                            required: 'Amount is required',
                                            validate: (val) => {
-                                              const min = eligibilitySettings?.eligibleMinimumPrincipal || 1000;
-                                              const max = eligibilitySettings?.eligibleMaximumPrincipal || 50000;
+                                              const min = validationRules?.minimumPrincipal || eligibilitySettings?.eligibleMinimumPrincipal || 1000;
+                                              const max = validationRules?.maximumPrincipal || eligibilitySettings?.eligibleMaximumPrincipal || 50000;
                                               if (Number(val) < min) return `Minimum loan amount is R${min.toLocaleString()}.`;
                                               if (Number(val) > max) return `Maximum loan amount is R${max.toLocaleString()}.`;
                                               return true;
@@ -448,7 +477,7 @@ const ApplyLoan = () => {
                                         {...register('requestedDuration', { required: 'Duration is required' })}
                                         className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10 transition-all shadow-inner cursor-pointer"
                                      >
-                                        {(eligibilitySettings?.allowedRepaymentDurations || '3, 6, 12, 18, 24').split(',').map(d => d.trim()).map(durationOption => (
+                                        {(validationRules?.allowedDurations ? validationRules.allowedDurations.map(String) : (eligibilitySettings?.allowedRepaymentDurations || '3, 6, 12, 18, 24').split(',').map(d => d.trim())).map(durationOption => (
                                            <option key={durationOption} value={durationOption}>{durationOption} {durationOption === '1' ? 'Month' : 'Months'}</option>
                                         ))}
                                      </select>

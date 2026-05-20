@@ -148,6 +148,28 @@ exports.submitFullApplication = asyncHandler(async (req, res, next) => {
     return sendError(res, 'Missing required information blocks', 400);
   }
 
+  // --- Dynamic Centralized Rules Validation ---
+  const { getValidationRules } = require('../services/validationRules.service');
+  const { validateLoanApplicationData } = require('../utils/loanValidationEngine');
+
+  const rules = await getValidationRules();
+  const validationResult = validateLoanApplicationData({
+    dob: personal.dateOfBirth || personal.dob,
+    monthlyIncome: employment.monthlyIncome,
+    employmentDuration: employment.employmentDuration,
+    requestedLoanAmount: banking.requestedLoanAmount,
+    requestedDuration: banking.requestedDuration,
+    employmentStatus: employment.employmentStatus,
+    documents: documents || []
+  }, rules);
+
+  if (!validationResult.isValid) {
+    return res.status(400).json({
+      success: false,
+      validationErrors: validationResult.errors
+    });
+  }
+
   // South Africa Phone Format
   const saPhoneRegex = /^0\d{9}$/;
   if (!saPhoneRegex.test(personal.phoneNumber)) {

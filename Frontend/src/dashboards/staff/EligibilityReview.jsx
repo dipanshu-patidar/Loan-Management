@@ -16,6 +16,7 @@ import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
 import { cn } from '../../utils/cn';
 import staffLoanRequestService from '../../services/staffLoanRequestService';
+import BorrowerLoanService from '../../services/BorrowerLoanService';
 
 const formatZAR = (amount) => {
   return new Intl.NumberFormat('en-ZA', {
@@ -36,17 +37,27 @@ const EligibilityReview = () => {
   
   const [application, setApplication] = useState(null);
   const [reviewNotes, setReviewNotes] = useState('');
+  const [validationRules, setValidationRules] = useState(null);
   
   // Load Application Details
   const loadDetails = async () => {
     try {
       setLoading(true);
-      const res = await staffLoanRequestService.getLoanRequestById(id);
-      if (res.success) {
-        setApplication(res.data);
+      const [res, rulesRes] = await Promise.allSettled([
+        staffLoanRequestService.getLoanRequestById(id),
+        BorrowerLoanService.getValidationRules()
+      ]);
+      
+      if (res.status === 'fulfilled' && res.value.success) {
+        setApplication(res.value.data);
       } else {
         toast.error('Invalid response payload.');
         navigate('/staff/loan-requests');
+        return;
+      }
+
+      if (rulesRes.status === 'fulfilled' && rulesRes.value.success) {
+        setValidationRules(rulesRes.value.data);
       }
     } catch (err) {
       toast.error('Failed to load application review details.');
@@ -101,16 +112,35 @@ const EligibilityReview = () => {
   const monthlyIncome = application.employment?.monthlyIncome || 0;
   const monthlyExpenses = application.affordability?.monthlyExpenses || 0;
   const surplus = monthlyIncome - monthlyExpenses;
-  const requestedAmount = application.loanDetails?.requestedAmount || 0;
+  const requestedAmount = application.loanDetails?.requestedAmount || application.banking?.requestedLoanAmount || 0;
   const estimatedEMI = application.loanDetails?.estimatedEMI || 0;
   const dtiRatio = monthlyIncome > 0 ? Math.round((estimatedEMI / monthlyIncome) * 100) : 0;
   
   const isDtiGood = dtiRatio < 30;
 
+  const calculateAge = (dob) => {
+    if (!dob) return 0;
+    const today = new Date();
+    const birthDate = new Date(dob);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
+  const dob = application.borrower?.dateOfBirth || application.personal?.dateOfBirth || application.personal?.dob;
+  const age = dob ? calculateAge(dob) : 0;
+  const minAge = validationRules?.minAge || 18;
+  const maxAge = validationRules?.maxAge || 65;
+  const isAgeValid = !dob || (age >= minAge && age <= maxAge);
+
   // Workflow helper state
-  const currentStatus = application.status;
+  const currentStatus = application.status || '';
+  const statusUpper = currentStatus.toUpperCase();
   const isLocked = application.staffReviewLocked || 
-    ['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP Verified', 'Reviewed', 'AGREEMENT_PENDING_VERIFICATION', 'Rejected', 'REJECTED'].includes(currentStatus);
+    ['APPROVED', 'ACTIVE', 'READY_FOR_DISBURSEMENT', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP VERIFIED', 'REVIEWED', 'AGREEMENT_PENDING_VERIFICATION', 'REJECTED'].includes(statusUpper);
 
   return (
     <div className="space-y-8 pb-20">
@@ -144,11 +174,20 @@ const EligibilityReview = () => {
          <div className="flex items-center justify-between max-w-4xl mx-auto">
             <WorkflowStep label="New" status="completed" />
             <WorkflowConnector active />
-            <WorkflowStep label="Pending Verification" status={(isLocked || ['Pending Verification', 'Pending Review', 'Reviewed'].includes(currentStatus)) ? 'completed' : 'active'} />
-            <WorkflowConnector active={isLocked || ['Pending Review', 'Reviewed'].includes(currentStatus)} />
-            <WorkflowStep label="Assessing" status={isLocked || currentStatus === 'Reviewed' ? 'completed' : ['Pending Review', 'Under Review'].includes(currentStatus) ? 'active' : 'pending'} />
-            <WorkflowConnector active={isLocked || currentStatus === 'Reviewed'} />
-            <WorkflowStep label="Reviewed" status={isLocked || currentStatus === 'Reviewed' ? 'completed' : 'pending'} />
+            <WorkflowStep 
+              label="Pending Verification" 
+              status={(isLocked || ['PENDING VERIFICATION', 'PENDING REVIEW', 'REVIEWED', 'APPROVED', 'ACTIVE'].includes(statusUpper)) ? 'completed' : 'active'} 
+            />
+            <WorkflowConnector active={isLocked || ['PENDING REVIEW', 'REVIEWED', 'APPROVED', 'ACTIVE'].includes(statusUpper)} />
+            <WorkflowStep 
+              label="Assessing" 
+              status={(isLocked || ['REVIEWED', 'APPROVED', 'ACTIVE'].includes(statusUpper)) ? 'completed' : ['PENDING REVIEW', 'UNDER REVIEW'].includes(statusUpper) ? 'active' : 'pending'} 
+            />
+            <WorkflowConnector active={isLocked || ['REVIEWED', 'APPROVED', 'ACTIVE'].includes(statusUpper)} />
+            <WorkflowStep 
+              label="Reviewed" 
+              status={(isLocked || ['REVIEWED', 'APPROVED', 'ACTIVE'].includes(statusUpper)) ? 'completed' : 'pending'} 
+            />
          </div>
       </section>
 
@@ -161,27 +200,27 @@ const EligibilityReview = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <MatchItem 
                    label="Income Threshold Match" 
-                   value={monthlyIncome > 5000 ? "Passed" : "Requires Review"} 
-                   status={monthlyIncome > 5000 ? "success" : "failed"}
-                   desc={`Earns ${formatZAR(monthlyIncome)} (Min R5,000 needed).`} 
+                   value={monthlyIncome >= (validationRules?.minimumIncome || 5000) ? "Passed" : "Requires Review"} 
+                   status={monthlyIncome >= (validationRules?.minimumIncome || 5000) ? "success" : "failed"}
+                   desc={`Earns ${formatZAR(monthlyIncome)} (Min ${formatZAR(validationRules?.minimumIncome || 5000)} needed).`} 
                  />
                  <MatchItem 
                    label="Loan Amount Range" 
-                   value={requestedAmount <= 100000 ? "Passed" : "Exceeds Limit"} 
-                   status={requestedAmount <= 100000 ? "success" : "failed"}
-                   desc={`Requested ${formatZAR(requestedAmount)} (Limit: R100,000).`} 
+                   value={requestedAmount <= (validationRules?.maximumPrincipal || 100000) ? "Passed" : "Exceeds Limit"} 
+                   status={requestedAmount <= (validationRules?.maximumPrincipal || 100000) ? "success" : "failed"}
+                   desc={`Requested ${formatZAR(requestedAmount)} (Limit: ${formatZAR(validationRules?.maximumPrincipal || 100000)}).`} 
                  />
                  <MatchItem 
-                   label="Gender & Demographics" 
-                   value="Registered" 
-                   status="success" 
-                   desc={`Gender: ${application.borrower?.gender}. Verified DOB.`} 
+                   label="Age Requirement Check" 
+                   value={isAgeValid ? "Passed" : "Requires Review"} 
+                   status={isAgeValid ? "success" : "failed"} 
+                   desc={dob ? `Age is ${age} years (Limits: ${minAge}-${maxAge} years).` : 'Verified DOB.'} 
                  />
                  <MatchItem 
                    label="Employment Validation" 
-                   value="Permanent" 
+                   value={application.employment?.employmentStatus || "Permanent"} 
                    status="success" 
-                   desc={`${application.employment?.employerName || 'N/A'} (${application.employment?.yearsOfService || 0} years).`} 
+                   desc={`${application.employment?.employerName || 'N/A'} (${application.employment?.employmentDuration || 'N/A'}).`} 
                  />
               </div>
            </ReviewCard>

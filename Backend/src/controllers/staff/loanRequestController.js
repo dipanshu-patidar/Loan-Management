@@ -312,6 +312,18 @@ const submitReview = asyncHandler(async (req, res) => {
     return sendError(res, 'This review has already been finalized and locked', 400);
   }
 
+  // --- Dynamic Centralized Rules Validation on Approval Recommendation ---
+  if (recommendation === 'Recommend Approval' || recommendation === 'Approved') {
+    const { validateDBApplication } = require('../../utils/loanValidationEngine');
+    const validationResult = await validateDBApplication(app._id);
+    if (!validationResult.isValid) {
+      return res.status(400).json({
+        success: false,
+        validationErrors: validationResult.errors
+      });
+    }
+  }
+
   // Apply Staff review payloads
   app.staffReview = {
     reviewedBy: req.user._id,

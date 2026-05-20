@@ -297,6 +297,19 @@ const approveApplication = asyncHandler(async (req, res) => {
     return sendError(res, 'Rejected applications cannot be approved', 400);
   }
 
+  // --- Dynamic Centralized Rules Validation on Approval ---
+  const { validateDBApplication } = require('../utils/loanValidationEngine');
+  const validationResult = await validateDBApplication(application._id, {
+    requestedLoanAmount: approvedAmount,
+    requestedDuration: finalDuration
+  });
+  if (!validationResult.isValid) {
+    return res.status(400).json({
+      success: false,
+      validationErrors: validationResult.errors
+    });
+  }
+
   // Business Rule: Must be reviewed/recommended by staff first
   if (application.status === 'Submitted') {
     return sendError(res, 'Please assign a reviewer and wait for staff recommendation before taking final decision', 400);
@@ -844,6 +857,28 @@ const createApplicationOnBehalf = asyncHandler(async (req, res) => {
 
   if (!personal || !employment || !banking) {
     return sendError(res, 'Missing required information blocks', 400);
+  }
+
+  // --- Dynamic Centralized Rules Validation ---
+  const { getValidationRules } = require('../services/validationRules.service');
+  const { validateLoanApplicationData } = require('../utils/loanValidationEngine');
+
+  const rules = await getValidationRules();
+  const validationResult = validateLoanApplicationData({
+    dob: personal.dateOfBirth || personal.dob,
+    monthlyIncome: employment.monthlyIncome,
+    employmentDuration: employment.employmentDuration,
+    requestedLoanAmount: banking.requestedLoanAmount,
+    requestedDuration: banking.requestedDuration,
+    employmentStatus: employment.employmentStatus,
+    documents: documents || []
+  }, rules);
+
+  if (!validationResult.isValid) {
+    return res.status(400).json({
+      success: false,
+      validationErrors: validationResult.errors
+    });
   }
 
   // Unique ID Check

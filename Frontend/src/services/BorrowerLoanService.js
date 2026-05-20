@@ -32,12 +32,18 @@ const getEligibilitySettings = async () => {
   return response.data;
 };
 
+const getValidationRules = async () => {
+  const response = await api.get('/validation-rules');
+  return response.data;
+};
+
 const BorrowerLoanService = {
   getLoanEstimate,
   uploadDocumentOnly,
   submitFullApplication,
   getApplicationStatus,
-  getEligibilitySettings
+  getEligibilitySettings,
+  getValidationRules
 };
 
 export default BorrowerLoanService;

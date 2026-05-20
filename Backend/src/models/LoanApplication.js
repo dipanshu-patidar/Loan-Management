@@ -32,7 +32,7 @@ const loanApplicationSchema = new mongoose.Schema(
     // Status Tracking
     status: {
       type: String,
-      enum: ['Draft', 'New', 'Submitted', 'Pending Review', 'Under Review', 'Reviewed', 'Recommended', 'Pending Verification', 'Approved', 'Rejected', 'Disbursed', 'Hold', 'Agreement Pending', 'Agreement Signed', 'Ready for Disbursement', 'SUBMITTED', 'UNDER_REVIEW', 'STAFF_RECOMMENDED', 'AGREEMENT_PENDING_VERIFICATION', 'OTP_VERIFIED', 'AGREEMENT_SIGNED', 'READY_FOR_DISBURSEMENT', 'REJECTED'],
+      enum: ['Draft', 'New', 'Submitted', 'Pending Review', 'Under Review', 'Reviewed', 'Recommended', 'Pending Verification', 'Approved', 'APPROVED', 'ACTIVE', 'STAFF_VERIFIED', 'ADMIN_APPROVED_PENDING_SIGNATURE', 'OTP_SENT', 'Rejected', 'Disbursed', 'Hold', 'Agreement Pending', 'Agreement Signed', 'Ready for Disbursement', 'SUBMITTED', 'UNDER_REVIEW', 'STAFF_RECOMMENDED', 'AGREEMENT_PENDING_VERIFICATION', 'OTP_VERIFIED', 'AGREEMENT_SIGNED', 'READY_FOR_DISBURSEMENT', 'REJECTED'],
       default: 'Draft',
     },
     
@@ -134,10 +134,13 @@ const loanApplicationSchema = new mongoose.Schema(
     agreementGenerated: { type: Boolean, default: false },
     agreementGeneratedAt: { type: Date },
     agreementSignedAt: { type: Date },
-    agreementStatus: { type: String, enum: ['Not Generated', 'Pending', 'Signed', 'PENDING SIGNATURE'], default: 'Not Generated' },
-    otpVerificationStatus: { type: String, enum: ['Pending', 'Verified', 'Failed'], default: 'Pending' },
+    agreementStatus: { type: String, enum: ['Not Generated', 'Pending', 'Signed', 'PENDING SIGNATURE', 'SIGNED'], default: 'Not Generated' },
+    otpVerificationStatus: { type: String, enum: ['Pending', 'Verified', 'Failed', 'VERIFIED'], default: 'Pending' },
     agreementDocumentUrl: { type: String, default: '' },
-    borrowerConsentVerified: { type: Boolean, default: false }
+    borrowerConsentVerified: { type: Boolean, default: false },
+    agreementHtml: { type: String, default: '' },
+    agreementPdfUrl: { type: String, default: '' },
+    signedAgreement: { type: String, default: '' }
   },
   {
     timestamps: true,

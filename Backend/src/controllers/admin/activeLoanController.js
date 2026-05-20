@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
 const ActiveLoan = require('../../models/ActiveLoan');
+const LoanApplication = require('../../models/LoanApplication');
 const Agent = require('../../models/Agent');
 const AgentAssignment = require('../../models/AgentAssignment');
 const Notification = require('../../models/Notification');
@@ -46,10 +47,32 @@ const getAllActiveLoans = asyncHandler(async (req, res) => {
     .skip(skip)
     .limit(Number(limit));
 
+  const populatedLoans = await Promise.all(activeLoans.map(async (loan) => {
+    const loanObj = loan.toObject();
+    if (!loanObj.fullName || !loanObj.applicationId) {
+      const appRecord = await LoanApplication.findById(loanObj.loanApplicationId);
+      if (appRecord) {
+        loanObj.fullName = loanObj.fullName || appRecord.fullName;
+        loanObj.emailAddress = loanObj.emailAddress || appRecord.emailAddress;
+        loanObj.phoneNumber = loanObj.phoneNumber || appRecord.phoneNumber;
+        loanObj.idNumber = loanObj.idNumber || appRecord.idNumber;
+        loanObj.applicationId = loanObj.applicationId || appRecord.applicationId;
+        loanObj.agreementSignedAt = loanObj.agreementSignedAt || appRecord.agreementSignedAt;
+        loanObj.agreementStatus = loanObj.agreementStatus || appRecord.agreementStatus;
+        loanObj.agreementGeneratedAt = loanObj.agreementGeneratedAt || appRecord.agreementGeneratedAt;
+        loanObj.verificationIp = loanObj.verificationIp || appRecord.verificationIp;
+        loanObj.verificationUserAgent = loanObj.verificationUserAgent || appRecord.verificationUserAgent;
+        loanObj.processingFee = loanObj.processingFee || appRecord.processingFee;
+        loanObj.agreementDocumentUrl = loanObj.agreementDocumentUrl || appRecord.agreementDocumentUrl;
+      }
+    }
+    return loanObj;
+  }));
+
   const total = await ActiveLoan.countDocuments(query);
 
   sendSuccess(res, 'Active loans fetched successfully', {
-    activeLoans,
+    activeLoans: populatedLoans,
     pagination: {
       total,
       page: Number(page),
@@ -168,7 +191,26 @@ const getLoanDetails = asyncHandler(async (req, res) => {
     return sendError(res, 'Loan not found', 404);
   }
 
-  sendSuccess(res, 'Loan details fetched successfully', { activeLoan });
+  const loanObj = activeLoan.toObject();
+  if (!loanObj.fullName || !loanObj.applicationId) {
+    const appRecord = await LoanApplication.findById(loanObj.loanApplicationId);
+    if (appRecord) {
+      loanObj.fullName = loanObj.fullName || appRecord.fullName;
+      loanObj.emailAddress = loanObj.emailAddress || appRecord.emailAddress;
+      loanObj.phoneNumber = loanObj.phoneNumber || appRecord.phoneNumber;
+      loanObj.idNumber = loanObj.idNumber || appRecord.idNumber;
+      loanObj.applicationId = loanObj.applicationId || appRecord.applicationId;
+      loanObj.agreementSignedAt = loanObj.agreementSignedAt || appRecord.agreementSignedAt;
+      loanObj.agreementStatus = loanObj.agreementStatus || appRecord.agreementStatus;
+      loanObj.agreementGeneratedAt = loanObj.agreementGeneratedAt || appRecord.agreementGeneratedAt;
+      loanObj.verificationIp = loanObj.verificationIp || appRecord.verificationIp;
+      loanObj.verificationUserAgent = loanObj.verificationUserAgent || appRecord.verificationUserAgent;
+      loanObj.processingFee = loanObj.processingFee || appRecord.processingFee;
+      loanObj.agreementDocumentUrl = loanObj.agreementDocumentUrl || appRecord.agreementDocumentUrl;
+    }
+  }
+
+  sendSuccess(res, 'Loan details fetched successfully', { activeLoan: loanObj });
 });
 
 /**

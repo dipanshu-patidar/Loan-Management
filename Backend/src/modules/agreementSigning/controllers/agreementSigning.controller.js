@@ -57,7 +57,14 @@ const verifyOtp = asyncHandler(async (req, res) => {
   }
 
   try {
-    const application = await agreementSigningService.signAgreement(loanApplicationId, otpCode);
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const userAgent = req.headers['user-agent'] || '';
+    const application = await agreementSigningService.signAgreement(
+      loanApplicationId,
+      otpCode,
+      clientIp,
+      userAgent
+    );
     return sendSuccess(res, 'Agreement signed successfully', { application });
   } catch (error) {
     return sendError(res, error.message, 400);
@@ -77,13 +84,21 @@ const getAgreementStatus = asyncHandler(async (req, res) => {
   }
 
   try {
-    const application = await LoanApplication.findById(loanId).lean();
+    let application = await LoanApplication.findById(loanId).lean();
+    if (!application) {
+      const ActiveLoan = require('../../../models/ActiveLoan');
+      const activeLoan = await ActiveLoan.findById(loanId).lean();
+      if (activeLoan && activeLoan.loanApplicationId) {
+        application = await LoanApplication.findById(activeLoan.loanApplicationId).lean();
+      }
+    }
+
     if (!application) {
       return sendError(res, 'Loan application not found', 404);
     }
 
-    // Fetch OTP requests history
-    const otpHistory = await AgreementOTP.find({ loanApplicationId: loanId })
+    // Fetch OTP requests history using the application's actual ID
+    const otpHistory = await AgreementOTP.find({ loanApplicationId: application._id })
       .select('createdAt expiresAt verified attempts')
       .sort({ createdAt: -1 })
       .lean();
@@ -154,12 +169,20 @@ const getAgreementDocument = asyncHandler(async (req, res) => {
   }
 
   try {
-    const application = await LoanApplication.findById(loanId).lean();
+    let application = await LoanApplication.findById(loanId).lean();
+    if (!application) {
+      const ActiveLoan = require('../../../models/ActiveLoan');
+      const activeLoan = await ActiveLoan.findById(loanId).lean();
+      if (activeLoan && activeLoan.loanApplicationId) {
+        application = await LoanApplication.findById(activeLoan.loanApplicationId).lean();
+      }
+    }
+
     if (!application) {
       return sendError(res, 'Loan application not found', 404);
     }
 
-    const documentText = `========================================================================
+    const documentText = application.signedAgreement || `========================================================================
 POINT.47 LOAN AGREEMENT & SIGNATURE RECEIPT
 ========================================================================
 Application ID: ${application.applicationId}

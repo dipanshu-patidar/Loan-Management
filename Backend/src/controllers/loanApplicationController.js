@@ -47,7 +47,7 @@ const getAllApplications = asyncHandler(async (req, res) => {
     } else if (status === 'Under Review') {
       query.status = { $in: ['Under Review', 'Pending Review', 'Reviewed'] };
     } else if (status === 'Approved') {
-      query.status = { $in: ['Approved', 'Disbursed'] };
+      query.status = { $in: ['Approved', 'APPROVED', 'ACTIVE', 'READY_FOR_DISBURSEMENT', 'Ready for Disbursement', 'Disbursed'] };
     } else {
       query.status = status;
     }
@@ -171,7 +171,7 @@ const getApplicationStats = asyncHandler(async (req, res) => {
       formattedStats.New += count;
     } else if (['Under Review', 'Pending Review', 'Reviewed'].includes(status)) {
       formattedStats['Under Review'] += count;
-    } else if (['Approved', 'Disbursed'].includes(status)) {
+    } else if (['Approved', 'APPROVED', 'ACTIVE', 'READY_FOR_DISBURSEMENT', 'Ready for Disbursement', 'Disbursed'].includes(status)) {
       formattedStats.Approved += count;
     } else if (formattedStats[status] !== undefined) {
       formattedStats[status] += count;

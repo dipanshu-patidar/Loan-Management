@@ -49,7 +49,19 @@ const AgreementPreviewModal = ({ isOpen, onClose, app, agreementDetails }) => {
   const agreementDateStr = formatSafeDate(app.agreementGeneratedAt || app.submittedAt, 'dd MMMM yyyy');
 
   // Consent logs
-  const isSigned = app.status === 'READY_FOR_DISBURSEMENT' || app.status === 'AGREEMENT_SIGNED' || app.status === 'OTP_VERIFIED' || app.agreementStatus === 'Signed' || app.agreementStatus === 'SIGNED';
+  const isSigned = 
+    app.status === 'READY_FOR_DISBURSEMENT' || 
+    app.status === 'AGREEMENT_SIGNED' || 
+    app.status === 'OTP_VERIFIED' || 
+    app.status === 'Approved' || 
+    app.status === 'APPROVED' || 
+    app.loanStatus === 'Active' || 
+    app.loanStatus === 'ACTIVE' || 
+    app.loanStatus === 'Completed' || 
+    app.loanStatus === 'Closed' || 
+    app.agreementStatus === 'Signed' || 
+    app.agreementStatus === 'SIGNED' || 
+    !!app.agreementSignedAt;
   const consentStatus = isSigned ? 'VERIFIED & COMPLETED' : 'PENDING BORROWER OTP SIGNATURE';
   const statusLabel = isSigned ? 'SIGNED' : 'PENDING';
   

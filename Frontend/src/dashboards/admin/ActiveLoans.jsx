@@ -4,7 +4,8 @@ import {
   Search, Download, MoreVertical, Clock, CheckCircle2,
   AlertTriangle, ArrowRight, X, Calendar,
   Activity, ArrowUpRight, ArrowDownRight, History,
-  ShieldCheck, Phone, Mail, UserCheck, CreditCard, FileUp, UserPlus, Users
+  ShieldCheck, Phone, Mail, UserCheck, CreditCard, FileUp, UserPlus, Users,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
@@ -22,6 +23,8 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Loader2 } from 'lucide-react';
 import repaymentService from '../../services/repaymentService';
+import agreementService from '../../services/agreementService';
+import AgreementPreviewModal from '../../components/AgreementPreviewModal';
 
 const ActiveLoans = () => {
   const [loans, setLoans] = useState([]);
@@ -48,6 +51,46 @@ const ActiveLoans = () => {
   const [adminNotes, setAdminNotes] = useState('');
   const [repaymentSchedule, setRepaymentSchedule] = useState([]);
   const [isScheduleLoading, setIsScheduleLoading] = useState(false);
+
+  const [isAgreementPreviewOpen, setIsAgreementPreviewOpen] = useState(false);
+  const [agreementDetails, setAgreementDetails] = useState(null);
+
+  const handleViewAgreement = async (loan) => {
+    setSelectedLoan(loan);
+    setIsAgreementPreviewOpen(true);
+    try {
+      const res = await agreementService.getAgreementStatus(loan.loanApplicationId || loan._id);
+      setAgreementDetails(res.data);
+    } catch (err) {
+      setAgreementDetails({
+        status: loan.loanStatus || 'Active',
+        agreementGenerated: true,
+        agreementGeneratedAt: loan.agreementGeneratedAt || loan.createdAt,
+        agreementSignedAt: loan.agreementSignedAt || loan.createdAt,
+        agreementStatus: loan.agreementStatus || 'SIGNED',
+        otpHistory: []
+      });
+    }
+  };
+
+  const handleDownloadAgreement = async (loan) => {
+    setSelectedLoan(loan);
+    setIsAgreementPreviewOpen(true);
+    toast.success('Opening digital agreement document...');
+    try {
+      const res = await agreementService.getAgreementStatus(loan.loanApplicationId || loan._id);
+      setAgreementDetails(res.data);
+    } catch (err) {
+      setAgreementDetails({
+        status: loan.loanStatus || 'Active',
+        agreementGenerated: true,
+        agreementGeneratedAt: loan.agreementGeneratedAt || loan.createdAt,
+        agreementSignedAt: loan.agreementSignedAt || loan.createdAt,
+        agreementStatus: loan.agreementStatus || 'SIGNED',
+        otpHistory: []
+      });
+    }
+  };
 
   const fetchDashboardData = async () => {
     try {
@@ -483,6 +526,17 @@ const ActiveLoans = () => {
                                             icon={Download} 
                                             label="Export Statement" 
                                             onClick={() => openModal('export', loan)} 
+                                         />
+                                         <div className="my-1 border-t border-slate-50" />
+                                         <DropdownItem 
+                                            icon={FileText} 
+                                            label="View Agreement" 
+                                            onClick={() => handleViewAgreement(loan)} 
+                                         />
+                                         <DropdownItem 
+                                            icon={Download} 
+                                            label="Download Agreement" 
+                                            onClick={() => handleDownloadAgreement(loan)} 
                                          />
                                       </motion.div>
                                    )}
@@ -996,6 +1050,35 @@ const ActiveLoans = () => {
                   </div>
                </div>
 
+               {/* Digital Loan Agreement Panel */}
+               <div className="space-y-5">
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                     <FileText size={14} className="text-primary" /> Digital Loan Agreement
+                  </h4>
+                  <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-sm space-y-4">
+                     <div className="grid grid-cols-2 gap-4">
+                        <ReviewRow label="Agreement Status" value={selectedLoan.agreementStatus || 'SIGNED'} />
+                        <ReviewRow label="Signed Date" value={selectedLoan.agreementSignedAt ? new Date(selectedLoan.agreementSignedAt).toLocaleDateString('en-GB') : new Date(selectedLoan.createdAt || selectedLoan.approvedDate).toLocaleDateString('en-GB')} />
+                     </div>
+                     <div className="flex gap-3 pt-2">
+                        <Button
+                           onClick={() => handleViewAgreement(selectedLoan)}
+                           className="flex-1 py-3 bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 flex items-center justify-center gap-2"
+                        >
+                           <FileText size={14} className="text-slate-700" />
+                           <span className="font-black uppercase tracking-widest text-[9px]">View Agreement</span>
+                        </Button>
+                        <Button
+                           onClick={() => handleDownloadAgreement(selectedLoan)}
+                           className="flex-1 py-3 bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 flex items-center justify-center gap-2"
+                        >
+                           <Download size={14} className="text-slate-700" />
+                           <span className="font-black uppercase tracking-widest text-[9px]">Download Agreement</span>
+                        </Button>
+                     </div>
+                  </div>
+               </div>
+
                <div className="pt-6 border-t border-slate-100 flex gap-4 sticky bottom-0 bg-white">
                   <Button variant="ghost" className="flex-1" onClick={() => openModal('schedule', selectedLoan)}>Full Schedule</Button>
                   <Button onClick={() => openModal('complete', selectedLoan)} className="flex-1 shadow-lg shadow-primary/20">Settle Loan</Button>
@@ -1003,6 +1086,13 @@ const ActiveLoans = () => {
             </div>
          )}
       </Drawer>
+
+      <AgreementPreviewModal
+         isOpen={isAgreementPreviewOpen}
+         onClose={() => setIsAgreementPreviewOpen(false)}
+         app={selectedLoan}
+         agreementDetails={agreementDetails}
+      />
     </div>
   );
 };

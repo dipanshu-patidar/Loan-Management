@@ -127,7 +127,7 @@ const sendAgreementOTP = async (loanApplicationId, requestUser) => {
 /**
  * Verify OTP and sign the agreement
  */
-const signAgreement = async (loanApplicationId, otpCode) => {
+const signAgreement = async (loanApplicationId, otpCode, ip = '', userAgent = '') => {
   const application = await LoanApplication.findById(loanApplicationId);
   if (!application) {
     throw new Error('Loan application not found');
@@ -144,18 +144,76 @@ const signAgreement = async (loanApplicationId, otpCode) => {
   await verifyOTP(application.borrowerId, application._id, otpCode);
   console.log(`[AgreementService] OTP verified successfully for agreement ${application.applicationId} by borrower.`);
 
-  // Update application status
-  application.status = 'READY_FOR_DISBURSEMENT';
-  application.agreementSignedAt = new Date();
-  application.agreementStatus = 'Signed';
-  application.otpVerificationStatus = 'Verified';
-  application.borrowerConsentVerified = true;
+  const signedAtDate = new Date();
+  const documentText = `========================================================================
+POINT.47 LOAN AGREEMENT & SIGNATURE RECEIPT
+========================================================================
+Application ID: ${application.applicationId}
+Borrower Name: ${application.fullName}
+Email Address: ${application.emailAddress}
+Mobile Number: ${application.phoneNumber}
+ID Number: ${application.idNumber}
 
-  application.statusHistory.push({
-    status: 'READY_FOR_DISBURSEMENT',
-    changedBy: application.fullName,
-    notes: 'Loan agreement digitally signed and verified via OTP. Consent logged successfully.',
-  });
+LOAN PRINCIPAL DETAILS:
+Approved Amount: R ${Number(application.requestedAmount || 0).toLocaleString()}
+Duration: ${application.requestedDuration} Months
+Estimated EMI: R ${Math.round(application.estimatedMonthlyEMI || 0).toLocaleString()}
+Interest Rate: ${application.interestRate || '12'}% per annum
+
+DIGITAL VERIFICATION & CONSENT RECORD:
+Signing Method: Multi-Factor Secure OTP Consent
+Consent Status: VERIFIED & COMPLETED
+Agreement Status: SIGNED
+Generated At: ${application.agreementGeneratedAt ? new Date(application.agreementGeneratedAt).toLocaleString() : new Date().toLocaleString()}
+Signed At: ${signedAtDate.toLocaleString()}
+
+Thank you for choosing Point.47.
+========================================================================`;
+
+  const agreementHtml = `<div style="font-family: monospace; white-space: pre-wrap; padding: 20px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; color: #334155;">${documentText}</div>`;
+
+  // Update application status and agreement fields
+  application.status = 'APPROVED';
+  application.agreementSignedAt = signedAtDate;
+  application.agreementStatus = 'SIGNED';
+  application.otpVerificationStatus = 'VERIFIED';
+  application.borrowerConsentVerified = true;
+  application.signedAgreement = documentText;
+  application.agreementHtml = agreementHtml;
+  application.agreementPdfUrl = `/api/agreement/document/${application._id}`;
+
+  // Log sequence: AGREEMENT_SIGNED -> APPROVED -> ACTIVE -> READY_FOR_DISBURSEMENT
+  application.statusHistory.push(
+    {
+      status: 'AGREEMENT_SIGNED',
+      changedBy: application.fullName,
+      notes: 'Loan agreement digitally signed by borrower via secure OTP.',
+      changedAt: new Date()
+    },
+    {
+      status: 'APPROVED',
+      changedBy: 'System',
+      notes: 'Loan application status updated to APPROVED after digital signature verification.',
+      changedAt: new Date()
+    },
+    {
+      status: 'ACTIVE',
+      changedBy: 'System',
+      notes: 'Loan record activated and repayments scheduled.',
+      changedAt: new Date()
+    },
+    {
+      status: 'READY_FOR_DISBURSEMENT',
+      changedBy: 'System',
+      notes: 'Loan marked ready for disbursement internally.',
+      changedAt: new Date()
+    }
+  );
+
+  const borrower = await Borrower.findOne({ userId: application.borrowerId });
+  if (!borrower) {
+    throw new Error('Borrower profile not found for associated user account.');
+  }
 
   await application.save();
 
@@ -172,8 +230,6 @@ const signAgreement = async (loanApplicationId, otpCode) => {
       (Math.pow(1 + monthlyRate, duration) - 1)
     );
 
-    const borrower = await Borrower.findOne({ userId: application.borrowerId });
-    
     const emiSchedule = [];
     let remainingBal = loanAmount;
     const startDate = new Date();
@@ -201,11 +257,11 @@ const signAgreement = async (loanApplicationId, otpCode) => {
     const RepaymentSchedule = require('../../../models/RepaymentSchedule');
 
     const activeLoan = await ActiveLoan.create({
-      borrowerId: application.borrowerId,
-      borrowerName: application.fullName || (borrower && borrower.fullName) || 'Unknown',
-      borrowerPhoto: borrower?.profilePhoto || null,
-      borrowerEmail: application.emailAddress || borrower?.email,
-      borrowerPhone: application.phoneNumber || borrower?.phoneNumber,
+      borrowerId: borrower._id, // Bug Fix: use borrower._id (ref Borrower) instead of application.borrowerId (ref User)
+      borrowerName: application.fullName || borrower.fullName || 'Unknown',
+      borrowerPhoto: borrower.profilePhoto || null,
+      borrowerEmail: application.emailAddress || borrower.email,
+      borrowerPhone: application.phoneNumber || borrower.phoneNumber,
       loanApplicationId: application._id,
       loanType: application.loanType || 'Personal Loan',
       approvedAmount: loanAmount,
@@ -217,12 +273,37 @@ const signAgreement = async (loanApplicationId, otpCode) => {
       nextDueDate: emiSchedule[0].dueDate,
       repaymentSchedule: emiSchedule,
       approvedBy: application.adminDecision?.approvedBy || null,
+      notes: application.adminDecision?.adminNotes || null,
+      
+      // Metadata added for Requirement 2 & 3:
+      applicationId: application.applicationId,
+      fullName: application.fullName || borrower.fullName || 'Unknown',
+      emailAddress: application.emailAddress || borrower.email,
+      phoneNumber: application.phoneNumber || borrower.phoneNumber,
+      idNumber: application.idNumber,
+      requestedAmount: application.requestedAmount,
+      requestedDuration: application.requestedDuration,
+      estimatedMonthlyEMI: application.estimatedMonthlyEMI,
+      agreementGeneratedAt: application.agreementGeneratedAt || new Date(),
+      verificationIp: ip,
+      verificationUserAgent: userAgent,
+      agreementHtml: application.agreementHtml || agreementHtml,
+      agreementPdfUrl: application.agreementPdfUrl || `/api/agreement/document/${application._id}`,
+      signedAgreement: application.signedAgreement || documentText,
+      otpVerificationStatus: application.otpVerificationStatus || 'VERIFIED',
+      processingFee: application.processingFee || 0,
+      
+      disbursementReady: true,
+      disbursementStatus: 'Ready for Disbursement',
+      agreementStatus: 'SIGNED',
+      agreementSignedAt: signedAtDate,
+      agreementDocumentUrl: application.agreementDocumentUrl || `/api/agreement/document/${application._id}`
     });
 
     // Create records in centralized RepaymentSchedule collection
     const repaymentEntries = emiSchedule.map(emi => ({
       loanId: activeLoan._id,
-      borrowerId: application.borrowerId,
+      borrowerId: borrower._id, // Bug Fix: use borrower._id instead of application.borrowerId
       emiNumber: emi.installmentNumber,
       dueDate: emi.dueDate,
       amount: emi.emiAmount,
@@ -282,7 +363,7 @@ const signAgreement = async (loanApplicationId, otpCode) => {
       if (io) {
         const borrowerUserId = borrower.userId.toString();
         io.to(borrowerUserId).emit('loan-updated', { 
-          status: 'READY_FOR_DISBURSEMENT',
+          status: 'APPROVED',
           loanId: activeLoan._id,
           message: 'Your loan agreement has been successfully signed!'
         });

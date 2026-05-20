@@ -427,11 +427,11 @@ const ApplicationDetail = () => {
 
           {/* Admin Final Decision */}
           <Section title="Admin Final Decision" icon={CheckCircle2}>
-            {['Approved', 'Rejected', 'Hold'].includes(app.status) ? (
+            {['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION', 'Rejected', 'REJECTED', 'Hold', 'HOLD'].includes(app.status) ? (
               <div className={cn(
                 "p-6 rounded-[2rem] space-y-4 border shadow-sm",
-                app.status === 'Approved' ? "bg-emerald-50 border-emerald-200 text-emerald-900" :
-                app.status === 'Rejected' ? "bg-rose-50 border-rose-200 text-rose-900" :
+                ['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) ? "bg-emerald-50 border-emerald-200 text-emerald-900" :
+                ['Rejected', 'REJECTED'].includes(app.status) ? "bg-rose-50 border-rose-200 text-rose-900" :
                 "bg-amber-50 border-amber-200 text-amber-900"
               )}>
                 <div className="flex items-center justify-between">
@@ -439,15 +439,15 @@ const ApplicationDetail = () => {
                   <StatusBadge status={app.status} />
                 </div>
                 
-                {app.status === 'Approved' && (
+                {['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) && (
                   <div className="grid grid-cols-2 gap-4 py-3 border-y border-emerald-200/50">
                     <div>
                       <p className="text-[9px] font-black uppercase opacity-60">Approved Amount</p>
-                      <p className="text-lg font-black">R {app.adminDecision?.approvedAmount?.toLocaleString()}</p>
+                      <p className="text-lg font-black">R {app.adminDecision?.approvedAmount?.toLocaleString() || app.requestedAmount?.toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-[9px] font-black uppercase opacity-60">Final Duration</p>
-                      <p className="text-lg font-black">{app.adminDecision?.finalDuration} Months</p>
+                      <p className="text-lg font-black">{app.adminDecision?.finalDuration || app.requestedDuration} Months</p>
                     </div>
                   </div>
                 )}
@@ -461,7 +461,7 @@ const ApplicationDetail = () => {
 
                 <div className="pt-2 flex items-center justify-between text-[9px] font-bold opacity-40 uppercase tracking-widest">
                   <span>Decided By Admin</span>
-                  <span>{app.adminDecision?.approvedDate && new Date(app.adminDecision.approvedDate).toLocaleDateString()}</span>
+                  <span>{new Date(app.adminDecision?.approvedDate || app.adminDecision?.rejectedDate || app.adminDecision?.holdDate || app.updatedAt).toLocaleDateString()}</span>
                 </div>
               </div>
             ) : (

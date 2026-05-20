@@ -506,6 +506,39 @@ const MyLoans = () => {
                         </p>
                      </div>
                   </div>
+
+                  {/* Agreement Section */}
+                  <div className="border-t border-slate-50 p-8 bg-slate-50/20 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+                     <div className="flex items-start gap-4">
+                        <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shrink-0">
+                           <ShieldCheck size={20} />
+                        </div>
+                        <div className="space-y-1">
+                           <span className="px-2.5 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700">
+                              Agreement Signed Successfully
+                           </span>
+                           <h4 className="text-sm font-black text-slate-800 tracking-tight pt-1">Point.47 Digital Loan Agreement</h4>
+                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                              Signed: {activeLoan.agreementSignedAt ? format(new Date(activeLoan.agreementSignedAt), 'dd MMM yyyy, hh:mm a') : activeLoan.createdAt ? format(new Date(activeLoan.createdAt), 'dd MMM yyyy, hh:mm a') : '—'}
+                           </p>
+                        </div>
+                     </div>
+                     <div className="flex items-center gap-3">
+                        <Button
+                           onClick={() => handleDownloadAgreement(activeLoan)}
+                           variant="secondary"
+                           className="flex items-center gap-2 font-black text-[10px] uppercase tracking-widest px-6 border-slate-200 bg-white"
+                        >
+                           <Eye size={16} /> View Signed Agreement
+                        </Button>
+                        <Button
+                           onClick={() => handleDownloadAgreement(activeLoan)}
+                           className="flex items-center gap-2 font-black text-[10px] uppercase tracking-widest px-6 shadow-lg shadow-primary/20"
+                        >
+                           <Download size={16} /> Download Agreement PDF
+                        </Button>
+                     </div>
+                  </div>
                </section>
 
                {/* EMI SCHEDULE TABLE */}

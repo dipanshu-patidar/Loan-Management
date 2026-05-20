@@ -466,12 +466,14 @@ const Applications = () => {
                     </td>
                     <td className="px-8 py-5">
                       <div className="flex items-center justify-end gap-1 relative">
-                        <TableAction 
-                          icon={UserPlus} 
-                          color="text-indigo-500 hover:bg-indigo-50" 
-                          onClick={() => openDecisionModal('assign', app)} 
-                          tooltip="Assign Reviewer" 
-                        />
+                        {!['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) && (
+                          <TableAction 
+                            icon={UserPlus} 
+                            color="text-indigo-500 hover:bg-indigo-50" 
+                            onClick={() => openDecisionModal('assign', app)} 
+                            tooltip="Assign Reviewer" 
+                          />
+                        )}
                         <TableAction 
                           icon={Eye} 
                           color="text-primary hover:bg-primary/5" 
@@ -480,9 +482,9 @@ const Applications = () => {
                         />
                         <TableAction 
                           icon={Trash2} 
-                          color={['Approved', 'Disbursed'].includes(app.status) ? "text-slate-200 cursor-not-allowed" : "text-rose-500 hover:bg-rose-50"} 
-                          onClick={() => !['Approved', 'Disbursed'].includes(app.status) && handleDeleteClick(app)} 
-                          tooltip={['Approved', 'Disbursed'].includes(app.status) ? "Cannot delete approved loans" : "Delete Application"} 
+                          color={['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) ? "text-slate-200 cursor-not-allowed" : "text-rose-500 hover:bg-rose-50"} 
+                          onClick={() => !['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) && handleDeleteClick(app)} 
+                          tooltip={['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) ? "Cannot delete approved/active loans" : "Delete Application"} 
                         />
 
                         {/* Dropdown Menu */}
@@ -505,27 +507,32 @@ const Applications = () => {
                                 exit={{ opacity: 0, scale: 0.95, y: 10 }}
                                 className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 z-50"
                               >
-                                <DropdownItem 
-                                  icon={CheckCircle} 
-                                  label="Approve Loan" 
-                                  color="text-emerald-600 hover:bg-emerald-50"
-                                  onClick={() => openDecisionModal('approve', app)}
-                                  disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
-                                />
-                                <DropdownItem 
-                                  icon={Pause} 
-                                  label="Put On Hold" 
-                                  color="text-amber-600 hover:bg-amber-50"
-                                  onClick={() => openDecisionModal('hold', app)}
-                                  disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
-                                />
-                                <DropdownItem 
-                                  icon={XCircle} 
-                                  label="Reject Loan" 
-                                  color="text-rose-600 hover:bg-rose-50"
-                                  onClick={() => openDecisionModal('reject', app)}
-                                  disabled={['Submitted', 'Approved', 'Rejected', 'Hold'].includes(app.status)}
-                                />
+                                {!['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION', 'Rejected', 'REJECTED', 'Hold', 'HOLD'].includes(app.status) ? (
+                                  <>
+                                    <DropdownItem 
+                                      icon={CheckCircle} 
+                                      label="Approve Loan" 
+                                      color="text-emerald-600 hover:bg-emerald-50"
+                                      onClick={() => openDecisionModal('approve', app)}
+                                    />
+                                    <DropdownItem 
+                                      icon={Pause} 
+                                      label="Put On Hold" 
+                                      color="text-amber-600 hover:bg-amber-50"
+                                      onClick={() => openDecisionModal('hold', app)}
+                                    />
+                                    <DropdownItem 
+                                      icon={XCircle} 
+                                      label="Reject Loan" 
+                                      color="text-rose-600 hover:bg-rose-50"
+                                      onClick={() => openDecisionModal('reject', app)}
+                                    />
+                                  </>
+                                ) : (
+                                  <div className="px-3 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
+                                    No Actions Available
+                                  </div>
+                                )}
                               </motion.div>
                             )}
                           </AnimatePresence>
@@ -791,18 +798,18 @@ const Applications = () => {
                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
                        <CheckCircle2 size={16} className="text-primary" /> Admin Final Decision
                      </h3>
-                      {selectedApp.status === 'Approved' || selectedApp.status === 'Rejected' || selectedApp.status === 'Hold' ? (
+                      {['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION', 'Rejected', 'REJECTED', 'Hold', 'HOLD'].includes(selectedApp.status) ? (
                         <div className={cn(
-                          "p-6 rounded-[2rem] space-y-4 border shadow-sm",
-                          selectedApp.status === 'Approved' ? "bg-emerald-50 border-emerald-100" :
-                          selectedApp.status === 'Rejected' ? "bg-rose-50 border-rose-100" : "bg-amber-50 border-amber-100"
+                          "p-6 rounded-[2rem] space-y-4 border shadow-sm text-left",
+                          ['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(selectedApp.status) ? "bg-emerald-50 border-emerald-100" :
+                          ['Rejected', 'REJECTED'].includes(selectedApp.status) ? "bg-rose-50 border-rose-100" : "bg-amber-50 border-amber-100"
                         )}>
                            <div className="flex items-center justify-between">
                               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Outcome</p>
                               <StatusBadge status={selectedApp.status} />
                            </div>
                            
-                           {selectedApp.status === 'Approved' && (
+                           {['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(selectedApp.status) && (
                              <div className="grid grid-cols-2 gap-4 py-3 border-y border-emerald-100/50">
                                 <div>
                                    <p className="text-[9px] font-black text-emerald-600/60 uppercase">Approved Amount</p>
@@ -828,7 +835,7 @@ const Applications = () => {
                            </div>
                         </div>
                       ) : (
-                        <div className="p-6 bg-slate-900 rounded-[2rem] space-y-6 shadow-xl shadow-slate-900/20">
+                        <div className="p-6 bg-slate-900 rounded-[2rem] space-y-6 shadow-xl shadow-slate-900/20 text-left">
                         <div className="grid grid-cols-1 gap-3">
                            <Button 
                              onClick={() => openDecisionModal('approve')}
@@ -855,7 +862,7 @@ const Applications = () => {
                            </Button>
                         </div>
                      </div>
-                   )}
+                    )}
                   </section>
                </div>
             </div>

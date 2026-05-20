@@ -141,6 +141,9 @@ const loanApplicationSchema = new mongoose.Schema(
     reviewSubmittedAt: {
       type: Date
     },
+    reviewLockedAt: {
+      type: Date
+    },
     reviewStage: {
       type: String,
       enum: [

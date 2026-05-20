@@ -232,7 +232,9 @@ const recommendApproval = asyncHandler(async (req, res) => {
   }
 
   // Prevent duplicate submissions on locked reviews
-  if (app.staffReviewLocked) {
+  const isLocked = app.staffReviewLocked || 
+    ['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP Verified', 'Reviewed', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status);
+  if (isLocked) {
     return sendError(res, 'This review has already been finalized and locked', 400);
   }
 
@@ -313,7 +315,9 @@ const recommendRejection = asyncHandler(async (req, res) => {
   }
 
   // Prevent duplicate submissions on locked reviews
-  if (app.staffReviewLocked) {
+  const isLocked = app.staffReviewLocked || 
+    ['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP Verified', 'Reviewed', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status);
+  if (isLocked) {
     return sendError(res, 'This review has already been finalized and locked', 400);
   }
 
@@ -399,7 +403,9 @@ const requestDocuments = asyncHandler(async (req, res) => {
   }
 
   // Prevent requesting documents on locked reviews
-  if (app.staffReviewLocked) {
+  const isLocked = app.staffReviewLocked || 
+    ['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP Verified', 'Reviewed', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status);
+  if (isLocked) {
     return sendError(res, 'This review has already been finalized and locked', 400);
   }
 

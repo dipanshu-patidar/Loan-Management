@@ -484,9 +484,9 @@ const Applications = () => {
                         />
                         <TableAction 
                           icon={Trash2} 
-                          color={['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) ? "text-slate-200 cursor-not-allowed" : "text-rose-500 hover:bg-rose-50"} 
-                          onClick={() => !['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) && handleDeleteClick(app)} 
-                          tooltip={['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) ? "Cannot delete approved/active loans" : "Delete Application"} 
+                          color={app.hasActiveLoan ? "text-slate-200 cursor-not-allowed" : "text-rose-500 hover:bg-rose-50"} 
+                          onClick={() => !app.hasActiveLoan && handleDeleteClick(app)} 
+                          tooltip={app.hasActiveLoan ? "Cannot delete application with running active loan" : "Delete Application"} 
                         />
 
                         {/* Dropdown Menu */}

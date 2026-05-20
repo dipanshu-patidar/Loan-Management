@@ -109,6 +109,8 @@ const EligibilityReview = () => {
 
   // Workflow helper state
   const currentStatus = application.status;
+  const isLocked = application.staffReviewLocked || 
+    ['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP Verified', 'Reviewed', 'AGREEMENT_PENDING_VERIFICATION', 'Rejected', 'REJECTED'].includes(currentStatus);
 
   return (
     <div className="space-y-8 pb-20">
@@ -142,11 +144,11 @@ const EligibilityReview = () => {
          <div className="flex items-center justify-between max-w-4xl mx-auto">
             <WorkflowStep label="New" status="completed" />
             <WorkflowConnector active />
-            <WorkflowStep label="Pending Verification" status={['Pending Verification', 'Pending Review', 'Reviewed'].includes(currentStatus) ? 'completed' : 'active'} />
-            <WorkflowConnector active={['Pending Review', 'Reviewed'].includes(currentStatus)} />
-            <WorkflowStep label="Assessing" status={currentStatus === 'Reviewed' ? 'completed' : ['Pending Review', 'Under Review'].includes(currentStatus) ? 'active' : 'pending'} />
-            <WorkflowConnector active={currentStatus === 'Reviewed'} />
-            <WorkflowStep label="Reviewed" status={currentStatus === 'Reviewed' ? 'completed' : 'pending'} />
+            <WorkflowStep label="Pending Verification" status={(isLocked || ['Pending Verification', 'Pending Review', 'Reviewed'].includes(currentStatus)) ? 'completed' : 'active'} />
+            <WorkflowConnector active={isLocked || ['Pending Review', 'Reviewed'].includes(currentStatus)} />
+            <WorkflowStep label="Assessing" status={isLocked || currentStatus === 'Reviewed' ? 'completed' : ['Pending Review', 'Under Review'].includes(currentStatus) ? 'active' : 'pending'} />
+            <WorkflowConnector active={isLocked || currentStatus === 'Reviewed'} />
+            <WorkflowStep label="Reviewed" status={isLocked || currentStatus === 'Reviewed' ? 'completed' : 'pending'} />
          </div>
       </section>
 
@@ -257,35 +259,48 @@ const EligibilityReview = () => {
                     </div>
                  </div>
                  
-                 <div className="space-y-3">
-                    <Button 
-                     onClick={() => setActiveModal('approve')}
-                     disabled={currentStatus === 'Reviewed'}
-                     className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-emerald-500/20 disabled:opacity-50"
-                    >
-                       Recommend Approval
-                    </Button>
-                    <Button 
-                     onClick={() => setActiveModal('reject')}
-                     disabled={currentStatus === 'Reviewed'}
-                     className="w-full bg-rose-500 hover:bg-rose-600 text-white font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-rose-500/20 disabled:opacity-50"
-                    >
-                       Recommend Rejection
-                    </Button>
-                    <Button 
-                     onClick={() => setActiveModal('hold')}
-                     disabled={currentStatus === 'Reviewed'}
-                     variant="secondary" 
-                     className="w-full bg-white/10 border-white/10 text-white font-black uppercase tracking-widest text-[10px] py-4 hover:bg-white/20 disabled:opacity-50"
-                    >
-                       Put Case On Hold
-                    </Button>
-                 </div>
-                 {currentStatus === 'Reviewed' && (
-                   <div className="p-4 bg-white/5 rounded-2xl border border-white/10 text-center">
-                     <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Recommendation Locked</p>
-                     <p className="text-[9px] text-white/60 mt-0.5">File passed onto Administrator queue.</p>
-                   </div>
+                 {isLocked ? (
+                    <div className="p-5 bg-white/5 rounded-3xl border border-white/10 text-center space-y-2">
+                       {['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP Verified', 'AGREEMENT_PENDING_VERIFICATION'].includes(currentStatus) ? (
+                          <>
+                             <p className="text-xs font-black uppercase tracking-widest text-emerald-400">Loan Already Approved</p>
+                             <p className="text-[10px] text-white/60 font-medium">Review Locked</p>
+                          </>
+                       ) : currentStatus === 'Reviewed' ? (
+                          <>
+                             <p className="text-xs font-black uppercase tracking-widest text-amber-400">Review Submitted</p>
+                             <p className="text-[10px] text-white/60 font-medium">Waiting For Admin Decision</p>
+                          </>
+                       ) : (
+                          <>
+                             <p className="text-xs font-black uppercase tracking-widest text-slate-400">Application Finalized</p>
+                             <p className="text-[10px] text-white/60 font-medium">Review Completed</p>
+                          </>
+                       )}
+                       <p className="text-[9px] text-white/40 pt-2 border-t border-white/5 font-semibold">Assessment Workbench Locked</p>
+                    </div>
+                 ) : (
+                    <div className="space-y-3">
+                       <Button 
+                        onClick={() => setActiveModal('approve')}
+                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-emerald-500/20"
+                       >
+                          Recommend Approval
+                       </Button>
+                       <Button 
+                        onClick={() => setActiveModal('reject')}
+                        className="w-full bg-rose-500 hover:bg-rose-600 text-white font-black uppercase tracking-widest text-[10px] py-4 shadow-lg shadow-rose-500/20"
+                       >
+                          Recommend Rejection
+                       </Button>
+                       <Button 
+                        onClick={() => setActiveModal('hold')}
+                        variant="secondary" 
+                        className="w-full bg-white/10 border-white/10 text-white font-black uppercase tracking-widest text-[10px] py-4 hover:bg-white/20"
+                       >
+                          Put Case On Hold
+                       </Button>
+                    </div>
                  )}
               </div>
            </div>

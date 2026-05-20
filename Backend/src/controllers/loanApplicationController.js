@@ -92,6 +92,13 @@ const getAllApplications = asyncHandler(async (req, res) => {
     if (b.userId) borrowerMap[b.userId.toString()] = b;
   });
 
+  // Batch-fetch active loans for these applications
+  const activeLoans = await ActiveLoan.find({
+    loanApplicationId: { $in: applications.map(a => a._id) },
+    isDeleted: false
+  }).select('loanApplicationId').lean();
+  const activeLoanIds = new Set(activeLoans.map(al => al.loanApplicationId.toString()));
+
   const responseData = applications.map(app => {
     const bp = borrowerMap[app.borrowerId?.toString()];
     const photoUrl = bp?.profilePhoto && bp.profilePhoto !== 'no-photo.jpg' ? bp.profilePhoto : null;
@@ -115,6 +122,7 @@ const getAllApplications = asyncHandler(async (req, res) => {
         : (app.staffReview?.staffName ? { fullName: app.staffReview.staffName } : null),
       assignedAt: app.assignedAt || null,
       status: app.status,
+      hasActiveLoan: activeLoanIds.has(app._id.toString()),
       reviewStatus: app.reviewStatus === 'Pending' && app.staffReview?.recommendation && app.staffReview.recommendation !== 'Pending'
         ? (app.staffReview.recommendation.includes('Reject') ? 'Rejected Recommendation' : 'Recommendation Submitted')
         : app.reviewStatus,
@@ -233,6 +241,8 @@ const getApplicationDetails = asyncHandler(async (req, res) => {
     ? borrowerProfile.profilePhoto
     : null;
 
+  const activeLoanExists = await ActiveLoan.exists({ loanApplicationId: application._id, isDeleted: false });
+
   // Combine data and fix field name mismatches for frontend
   const fullApplication = {
     ...employment,
@@ -241,6 +251,7 @@ const getApplicationDetails = asyncHandler(async (req, res) => {
     yearsOfService: employment?.employmentDuration,
     accountHolder: banking?.accountHolderName,
     documents: formattedDocs,
+    hasActiveLoan: !!activeLoanExists,
     borrower: {
       fullName: application.fullName,
       profilePhoto: photoUrl ? { url: photoUrl } : null,
@@ -308,6 +319,9 @@ const approveApplication = asyncHandler(async (req, res) => {
     // Update application status to AGREEMENT_PENDING_VERIFICATION
     application.status = 'AGREEMENT_PENDING_VERIFICATION';
     application.reviewStatus = 'Approved'; // Ensure it leaves the review queue
+    application.staffReviewLocked = true;
+    application.staffReviewCompleted = true;
+    application.reviewLockedAt = new Date();
     application.adminDecision = {
       decision: 'Approved',
       adminNotes,
@@ -414,6 +428,9 @@ const rejectApplication = asyncHandler(async (req, res) => {
 
   application.status = 'Rejected';
   application.reviewStatus = 'Rejected';
+  application.staffReviewLocked = true;
+  application.staffReviewCompleted = true;
+  application.reviewLockedAt = new Date();
   application.adminDecision = {
     decision: 'Rejected',
     rejectionReason,
@@ -715,11 +732,6 @@ const assignReviewer = asyncHandler(async (req, res) => {
   }
 });
 
-/**
- * @desc    Delete loan application
- * @route   DELETE /api/admin/loan-applications/:id
- * @access  Private/Admin
- */
 const deleteApplication = asyncHandler(async (req, res) => {
   const application = await LoanApplication.findById(req.params.id);
 
@@ -727,14 +739,86 @@ const deleteApplication = asyncHandler(async (req, res) => {
     return sendError(res, 'Loan application not found', 404);
   }
 
-  // Business Rule: Don't allow deleting approved/active loans from here
-  if (application.status === 'Approved' || application.status === 'Disbursed') {
-    return sendError(res, 'Approved or Disbursed applications cannot be deleted. Please close the loan instead.', 400);
+  // Business Rule: Don't allow deleting applications if there is an active running loan
+  const activeLoan = await ActiveLoan.findOne({ loanApplicationId: application._id, isDeleted: false });
+  if (activeLoan) {
+    return sendError(
+      res,
+      'This application has an associated active loan in running state. Please close and delete the active loan first.',
+      400
+    );
   }
 
-  await application.deleteOne();
+  const mongoose = require('mongoose');
+  const LoanEmployment = require('../models/LoanEmployment');
+  const LoanBanking = require('../models/LoanBanking');
+  const LoanDocument = require('../models/LoanDocument');
+  const LoanReview = require('../models/LoanReview');
+  const LoanStatusHistory = require('../models/LoanStatusHistory');
+  const Notification = require('../models/Notification');
+  const Conversation = require('../models/Conversation');
+  const Message = require('../models/Message');
 
-  sendSuccess(res, 'Loan application deleted successfully');
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // 1. Cascade delete employment details
+    await LoanEmployment.deleteMany({ loanApplicationId: application._id }, { session });
+
+    // 2. Cascade delete banking details
+    await LoanBanking.deleteMany({ loanApplicationId: application._id }, { session });
+
+    // 3. Cascade delete documents
+    await LoanDocument.deleteMany({ loanApplicationId: application._id }, { session });
+
+    // 4. Cascade delete reviews
+    await LoanReview.deleteMany({ loanApplicationId: application._id }, { session });
+
+    // 5. Cascade delete status history
+    await LoanStatusHistory.deleteMany({ loanApplicationId: application._id }, { session });
+
+    // 6. Cascade delete notifications
+    await Notification.deleteMany({ 
+      $or: [
+        { loanApplicationId: application._id },
+        { relatedId: application._id }
+      ]
+    }, { session });
+
+    // 7. Cascade delete conversations and messages
+    const conversations = await Conversation.find({ applicationId: application._id }).session(session);
+    const convIds = conversations.map(c => c._id);
+    if (convIds.length > 0) {
+      await Message.deleteMany({ conversationId: { $in: convIds } }, { session });
+      await Conversation.deleteMany({ _id: { $in: convIds } }, { session });
+    }
+
+    // 8. Delete the application itself
+    await application.deleteOne({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // Emit real-time update to refresh dashboards
+    try {
+      const { getIO } = require('../socket/socketServer');
+      const io = getIO();
+      if (io) {
+        io.emit('application:deleted', { applicationId: application._id });
+        io.emit('dashboard:updated', { trigger: 'application_deletion' });
+      }
+    } catch (ioErr) {}
+
+    sendSuccess(res, 'Loan application and all linked records permanently deleted');
+  } catch (err) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    session.endSession();
+    console.error('Application deletion cascade error:', err);
+    return sendError(res, 'Deletion failed: ' + err.message, 500);
+  }
 });
 
 /**

@@ -562,14 +562,16 @@ const LoanReview = () => {
               {/* FOOTER ACTION KEYS */}
               {activeDossier && (
                 <div className="p-8 border-t border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-                  {activeDossier.staffReviewLocked ? (
+                  {activeDossier.staffReviewLocked || ['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP Verified', 'Reviewed', 'AGREEMENT_PENDING_VERIFICATION'].includes(activeDossier.status) || activeDossier.reviewStatus === 'Recommendation Submitted' ? (
                     <div className="p-5 bg-slate-100 border border-slate-200 rounded-2xl space-y-2">
                       <div className="flex items-center gap-2 text-slate-700">
                         <Clock size={16} className="text-primary animate-pulse" />
                         <span className="text-xs font-black uppercase tracking-wider">🔒 Review Locked</span>
                       </div>
                       <p className="text-xs font-bold text-slate-600">
-                        Recommendation has been finalized and submitted to the Administrator queue.
+                        {['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP Verified', 'AGREEMENT_PENDING_VERIFICATION'].includes(activeDossier.status) 
+                          ? "Loan has been approved/activated by the Administrator. Review is locked."
+                          : "Recommendation has been finalized and submitted to the Administrator queue."}
                       </p>
                       {activeDossier.reviewSubmittedAt && (
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -578,7 +580,9 @@ const LoanReview = () => {
                       )}
                       <div className="pt-2">
                         <span className="inline-block px-3 py-1 bg-primary/10 text-primary text-[10px] font-black rounded-lg uppercase tracking-wider">
-                          Awaiting Admin Final Decision
+                          {['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'OTP Verified', 'AGREEMENT_PENDING_VERIFICATION'].includes(activeDossier.status) 
+                            ? "Loan Process Finalized"
+                            : "Awaiting Admin Final Decision"}
                         </span>
                       </div>
                     </div>

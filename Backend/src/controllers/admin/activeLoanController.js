@@ -332,6 +332,10 @@ const deleteLoan = asyncHandler(async (req, res) => {
   const mongoose = require('mongoose');
   const RepaymentSchedule = require('../../models/RepaymentSchedule');
   const Payment = require('../../models/Payment');
+  const DuePayment = require('../../models/DuePayment');
+  const AgentAssignment = require('../../models/AgentAssignment');
+  const Commission = require('../../models/Commission');
+  const LoanActivity = require('../../models/LoanActivity');
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -346,6 +350,30 @@ const deleteLoan = asyncHandler(async (req, res) => {
     // Cascade delete: remove all linked payment records
     await Payment.deleteMany(
       { activeLoanId: activeLoan._id },
+      { session }
+    );
+
+    // Cascade delete: remove all linked due payment records
+    await DuePayment.deleteMany(
+      { loanId: activeLoan._id },
+      { session }
+    );
+
+    // Cascade delete: remove all linked agent assignments
+    await AgentAssignment.deleteMany(
+      { loanId: activeLoan._id },
+      { session }
+    );
+
+    // Cascade delete: remove all linked commissions
+    await Commission.deleteMany(
+      { loanId: activeLoan._id },
+      { session }
+    );
+
+    // Cascade delete: remove all linked loan activities
+    await LoanActivity.deleteMany(
+      { loanId: activeLoan._id },
       { session }
     );
 

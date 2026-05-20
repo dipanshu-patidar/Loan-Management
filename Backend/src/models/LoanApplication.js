@@ -130,6 +130,28 @@ const loanApplicationSchema = new mongoose.Schema(
     assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     assignedAt: { type: Date },
 
+    staffReviewLocked: {
+      type: Boolean,
+      default: false
+    },
+    staffReviewCompleted: {
+      type: Boolean,
+      default: false
+    },
+    reviewSubmittedAt: {
+      type: Date
+    },
+    reviewStage: {
+      type: String,
+      enum: [
+        "PENDING",
+        "UNDER_REVIEW",
+        "FINALIZED",
+        "REOPENED"
+      ],
+      default: "PENDING"
+    },
+
     // Digital Agreement Signature Fields
     agreementGenerated: { type: Boolean, default: false },
     agreementGeneratedAt: { type: Date },

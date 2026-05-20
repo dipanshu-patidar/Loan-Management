@@ -97,6 +97,12 @@ const activeLoanSchema = new mongoose.Schema({
   
   lastPaymentDate: { type: Date },
   
+  // Loan Closure Metadata (admin close-before-delete lifecycle)
+  closedAt: { type: Date },
+  closedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  closureReason: { type: String },
+  closureNotes: { type: String },
+
   notes: { type: String },
   isDeleted: { type: Boolean, default: false }
 }, {

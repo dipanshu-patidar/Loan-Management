@@ -75,6 +75,7 @@ const getAllApplications = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
 
   const applications = await LoanApplication.find(query)
+    .populate('assignedReviewer', 'fullName email role')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(Number(limit));
@@ -108,7 +109,11 @@ const getAllApplications = asyncHandler(async (req, res) => {
       loanDuration: app.requestedDuration,
       interestRate: app.interestRate,
       estimatedEMI: app.estimatedMonthlyEMI,
-      staffReviewer: app.staffReview?.staffName ? { fullName: app.staffReview.staffName } : null,
+      // Prefer assignedReviewer (set at assignment time) over staffReview.staffName (set after review submission)
+      staffReviewer: app.assignedReviewer
+        ? { fullName: app.assignedReviewer.fullName, _id: app.assignedReviewer._id }
+        : (app.staffReview?.staffName ? { fullName: app.staffReview.staffName } : null),
+      assignedAt: app.assignedAt || null,
       status: app.status,
       reviewStatus: app.reviewStatus === 'Pending' && app.staffReview?.recommendation && app.staffReview.recommendation !== 'Pending'
         ? (app.staffReview.recommendation.includes('Reject') ? 'Rejected Recommendation' : 'Recommendation Submitted')
@@ -599,6 +604,16 @@ const assignReviewer = asyncHandler(async (req, res) => {
     return sendError(res, 'Application Already Closed', 400);
   }
 
+  // Prevent duplicate assignment — block if reviewer already assigned
+  if (application.assignedReviewer) {
+    const existingStaff = await User.findById(application.assignedReviewer).select('fullName');
+    return sendError(
+      res,
+      `Application already assigned to ${existingStaff?.fullName || 'a staff member'}. Cannot reassign without admin clearance.`,
+      400
+    );
+  }
+
   const staffUser = await User.findById(staffId);
   if (!staffUser || staffUser.role !== 'staff') {
     return sendError(res, 'Invalid Staff Role', 400);
@@ -620,6 +635,12 @@ const assignReviewer = asyncHandler(async (req, res) => {
     application.assignedReviewer = staffId;
     application.assignedAt = new Date();
     application.assignedBy = req.user._id;
+    
+    // Reset staff review locks to allow new review inputs
+    application.staffReviewLocked = false;
+    application.staffReviewCompleted = false;
+    application.reviewStage = 'REOPENED';
+    
     await application.save({ session });
 
     // B. Create/Update LoanReview Task

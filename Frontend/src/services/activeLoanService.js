@@ -37,7 +37,13 @@ const activeLoanService = {
     return await api.put(`/admin/active-loans/${id}/notes`, { notes });
   },
 
-  softDeleteLoan: async (id) => {
+  // Close a loan before deletion (admin-only lifecycle step)
+  closeLoan: async (id, payload) => {
+    return await api.put(`/admin/active-loans/${id}/close`, payload);
+  },
+
+  // Permanently delete a CLOSED loan with full cascade
+  deleteLoan: async (id) => {
     return await api.delete(`/admin/active-loans/${id}`);
   },
 
@@ -47,3 +53,4 @@ const activeLoanService = {
 };
 
 export default activeLoanService;
+

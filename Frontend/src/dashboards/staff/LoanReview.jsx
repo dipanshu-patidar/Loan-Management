@@ -562,40 +562,64 @@ const LoanReview = () => {
               {/* FOOTER ACTION KEYS */}
               {activeDossier && (
                 <div className="p-8 border-t border-slate-100 bg-slate-50/50 flex flex-col gap-3">
-                  <Button 
-                    className={cn(
-                      "w-full font-black uppercase tracking-widest text-[10px] py-4 bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20",
-                      (isInactive || activeDossier.reviewStatus === 'Recommendation Submitted') && "bg-slate-300 hover:bg-slate-300 opacity-50 cursor-not-allowed shadow-none"
-                    )}
-                    onClick={() => !isInactive && activeDossier.reviewStatus !== 'Recommendation Submitted' && setIsApprovalModalOpen(true)}
-                    disabled={isInactive || activeDossier.reviewStatus === 'Recommendation Submitted'}
-                  >
-                    Approve Recommendation
-                  </Button>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button 
-                      variant="secondary" 
-                      className={cn(
-                        "font-black uppercase tracking-widest text-[8px] py-4 border-rose-100 text-rose-500",
-                        isInactive && "opacity-50"
+                  {activeDossier.staffReviewLocked ? (
+                    <div className="p-5 bg-slate-100 border border-slate-200 rounded-2xl space-y-2">
+                      <div className="flex items-center gap-2 text-slate-700">
+                        <Clock size={16} className="text-primary animate-pulse" />
+                        <span className="text-xs font-black uppercase tracking-wider">🔒 Review Locked</span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-600">
+                        Recommendation has been finalized and submitted to the Administrator queue.
+                      </p>
+                      {activeDossier.reviewSubmittedAt && (
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          Submitted At: {new Date(activeDossier.reviewSubmittedAt).toLocaleString()}
+                        </p>
                       )}
-                      onClick={() => !isInactive && setIsRejectionModalOpen(true)}
-                      disabled={isInactive}
-                    >
-                      Reject
-                    </Button>
-                    <Button 
-                      variant="secondary" 
-                      className={cn(
-                        "font-black uppercase tracking-widest text-[8px] py-4 border-slate-200",
-                        isInactive && "opacity-50"
-                      )}
-                      onClick={() => !isInactive && setIsRequestDocsModalOpen(true)}
-                      disabled={isInactive}
-                    >
-                      Request Docs
-                    </Button>
-                  </div>
+                      <div className="pt-2">
+                        <span className="inline-block px-3 py-1 bg-primary/10 text-primary text-[10px] font-black rounded-lg uppercase tracking-wider">
+                          Awaiting Admin Final Decision
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <Button 
+                        className={cn(
+                          "w-full font-black uppercase tracking-widest text-[10px] py-4 bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20",
+                          (isInactive || activeDossier.reviewStatus === 'Recommendation Submitted') && "bg-slate-300 hover:bg-slate-300 opacity-50 cursor-not-allowed shadow-none"
+                        )}
+                        onClick={() => !isInactive && activeDossier.reviewStatus !== 'Recommendation Submitted' && setIsApprovalModalOpen(true)}
+                        disabled={isInactive || activeDossier.reviewStatus === 'Recommendation Submitted'}
+                      >
+                        Approve Recommendation
+                      </Button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Button 
+                          variant="secondary" 
+                          className={cn(
+                            "font-black uppercase tracking-widest text-[8px] py-4 border-rose-100 text-rose-500",
+                            isInactive && "opacity-50"
+                          )}
+                          onClick={() => !isInactive && setIsRejectionModalOpen(true)}
+                          disabled={isInactive}
+                        >
+                          Reject
+                        </Button>
+                        <Button 
+                          variant="secondary" 
+                          className={cn(
+                            "font-black uppercase tracking-widest text-[8px] py-4 border-slate-200",
+                            isInactive && "opacity-50"
+                          )}
+                          onClick={() => !isInactive && setIsRequestDocsModalOpen(true)}
+                          disabled={isInactive}
+                        >
+                          Request Docs
+                        </Button>
+                      </div>
+                    </>
+                  )}
                   <Button 
                     variant="ghost" 
                     className="w-full font-black uppercase tracking-widest text-[8px] py-3 text-slate-400 hover:text-primary" 

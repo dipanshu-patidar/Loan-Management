@@ -160,7 +160,8 @@ const Applications = () => {
         notes: assignmentData.notes
       });
       toast.success('Reviewer assigned successfully');
-      fetchApplications();
+      // Refresh both table AND stats cards for real-time sync
+      await Promise.all([fetchApplications(), fetchStats()]);
       setActiveModal(null);
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to assign reviewer');
@@ -466,7 +467,8 @@ const Applications = () => {
                     </td>
                     <td className="px-8 py-5">
                       <div className="flex items-center justify-end gap-1 relative">
-                        {!['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) && (
+                        {/* Assign Reviewer: hide if already assigned (staffReviewer set) OR if loan is approved/active */}
+                        {!app.staffReviewer && !['Approved', 'APPROVED', 'Active', 'ACTIVE', 'Ready for Disbursement', 'READY_FOR_DISBURSEMENT', 'Disbursed', 'DISBURSED', 'Agreement Signed', 'AGREEMENT_SIGNED', 'OTP_VERIFIED', 'Agreement Pending', 'AGREEMENT_PENDING', 'AGREEMENT_PENDING_VERIFICATION'].includes(app.status) && (
                           <TableAction 
                             icon={UserPlus} 
                             color="text-indigo-500 hover:bg-indigo-50" 

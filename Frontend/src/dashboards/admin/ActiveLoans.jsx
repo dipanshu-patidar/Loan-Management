@@ -5,7 +5,7 @@ import {
   AlertTriangle, ArrowRight, X, Calendar,
   Activity, ArrowUpRight, ArrowDownRight, History,
   ShieldCheck, Phone, Mail, UserCheck, CreditCard, FileUp, UserPlus, Users,
-  FileText
+  FileText, Lock, XCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/cn';
@@ -51,6 +51,10 @@ const ActiveLoans = () => {
   const [adminNotes, setAdminNotes] = useState('');
   const [repaymentSchedule, setRepaymentSchedule] = useState([]);
   const [isScheduleLoading, setIsScheduleLoading] = useState(false);
+
+  // Close Loan states
+  const [closureReason, setClosureReason] = useState('Fully Repaid');
+  const [closureNotes, setClosureNotes] = useState('');
 
   const [isAgreementPreviewOpen, setIsAgreementPreviewOpen] = useState(false);
   const [agreementDetails, setAgreementDetails] = useState(null);
@@ -243,14 +247,35 @@ const ActiveLoans = () => {
   };
 
   const handleDeleteLoan = async () => {
+    // Guard: only allow deletion of closed loans
+    if (selectedLoan?.loanStatus !== 'Closed') {
+      toast.error('Loan must be closed before deletion.');
+      return;
+    }
     try {
       setIsSubmitting(true);
-      await activeLoanService.softDeleteLoan(selectedLoan._id);
-      toast.success('Loan removed successfully');
+      await activeLoanService.deleteLoan(selectedLoan._id);
+      toast.success('Loan permanently deleted.');
       fetchDashboardData();
       closeModal();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to delete loan');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCloseLoan = async () => {
+    try {
+      setIsSubmitting(true);
+      await activeLoanService.closeLoan(selectedLoan._id, { closureReason, closureNotes });
+      toast.success(`Loan ${selectedLoan.loanCode} closed successfully.`);
+      fetchDashboardData();
+      closeModal();
+      setClosureReason('Fully Repaid');
+      setClosureNotes('');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to close loan');
     } finally {
       setIsSubmitting(false);
     }
@@ -327,6 +352,7 @@ const ActiveLoans = () => {
     { id: 'Active', label: 'Active', count: stats.totalActiveLoans },
     { id: 'Overdue', label: 'Overdue', count: stats.overdueLoans },
     { id: 'Completed', label: 'Completed', count: stats.completedThisMonth },
+    { id: 'Closed', label: 'Closed', count: stats.closedLoans || 0 },
   ];
 
   return (
@@ -481,10 +507,15 @@ const ActiveLoans = () => {
                           <div className="flex items-center justify-end gap-2">
                              <TableAction icon={Eye} color="text-blue-500 hover:bg-blue-50" onClick={() => openDrawer('view', loan)} tooltip="View Loan" />
                              <TableAction icon={CalendarDays} color="text-primary hover:bg-primary/5" onClick={() => openModal('schedule', loan)} tooltip="Repayment Schedule" />
-                             {loan.loanStatus === 'Active' && !loan.assignedAgent && (
-                                <TableAction icon={UserPlus} color="text-amber-500 hover:bg-amber-50" onClick={() => openModal('assign-agent', loan)} tooltip="Assign Recovery Agent" />
+                             {loan.loanStatus !== 'Closed' && (
+                                <TableAction icon={Lock} color="text-amber-500 hover:bg-amber-50" onClick={() => openModal('close-loan', loan)} tooltip="Close Loan" />
                              )}
-                             <TableAction icon={Trash2} color="text-rose-500 hover:bg-rose-50" onClick={() => openModal('delete', loan)} tooltip="Delete Loan" />
+                             {loan.loanStatus === 'Active' && !loan.assignedAgent && (
+                                <TableAction icon={UserPlus} color="text-violet-500 hover:bg-violet-50" onClick={() => openModal('assign-agent', loan)} tooltip="Assign Recovery Agent" />
+                             )}
+                             {loan.loanStatus === 'Closed' && (
+                                <TableAction icon={Trash2} color="text-rose-500 hover:bg-rose-50" onClick={() => openModal('delete', loan)} tooltip="Delete Loan" />
+                             )}
                              
                              <div className="relative" onClick={(e) => e.stopPropagation()}>
                                 <button 
@@ -846,24 +877,126 @@ const ActiveLoans = () => {
          </div>
       </Modal>
 
-      {/* DELETE MODAL */}
+      {/* DELETE MODAL — only works when loan is CLOSED */}
       <Modal isOpen={activeModal === 'delete'} onClose={closeModal} title="Delete Loan Record" maxWidth="max-w-md">
          <div className="space-y-6 text-center">
-            <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-rose-100 shadow-sm">
-               <Trash2 size={28} />
+           {selectedLoan?.loanStatus !== 'Closed' ? (
+             // BLOCKED STATE — loan is not closed
+             <>
+               <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-amber-100 shadow-sm">
+                  <Lock size={28} />
+               </div>
+               <div>
+                  <h4 className="text-xl font-black text-slate-900 tracking-tight">Cannot Delete Active Loan</h4>
+                  <p className="text-sm text-slate-500 mt-2">
+                    <span className="font-bold text-slate-900">{selectedLoan?.loanCode}</span> is currently{' '}
+                    <span className="font-bold text-amber-600">{selectedLoan?.loanStatus}</span>.
+                  </p>
+               </div>
+               <div className="p-5 bg-amber-50 rounded-2xl border border-amber-100 text-left space-y-3">
+                  <p className="text-xs font-black text-amber-700 uppercase tracking-widest">Required Action</p>
+                  <p className="text-sm font-medium text-amber-800">
+                    You must <strong>close this loan first</strong> before it can be permanently deleted.
+                    Use the <strong>🔒 Close Loan</strong> button on the loan row.
+                  </p>
+               </div>
+               <Button variant="ghost" onClick={closeModal} className="w-full">Dismiss</Button>
+             </>
+           ) : (
+             // ALLOWED STATE — loan is closed, permit deletion
+             <>
+               <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-rose-100 shadow-sm">
+                  <Trash2 size={28} />
+               </div>
+               <div>
+                  <h4 className="text-xl font-black text-slate-900 tracking-tight">Permanently Delete Loan?</h4>
+                  <p className="text-sm text-slate-500 mt-2">
+                    You are permanently deleting <span className="font-bold text-slate-900">{selectedLoan?.loanCode}</span>.
+                    This will also remove all linked EMI schedules and payment records.
+                  </p>
+               </div>
+               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col gap-3 text-left">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Closed Loan Details</p>
+                  <ReviewRow label="Borrower" value={selectedLoan?.borrowerName} />
+                  <ReviewRow label="Loan Code" value={selectedLoan?.loanCode} />
+                  <ReviewRow label="Closure Reason" value={selectedLoan?.closureReason || 'N/A'} />
+               </div>
+               <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100 flex items-start gap-3 text-left">
+                  <AlertTriangle size={18} className="text-rose-500 mt-0.5 shrink-0" />
+                  <p className="text-xs font-bold text-rose-700">This action is irreversible. All loan records, EMI schedules and payment history will be permanently erased.</p>
+               </div>
+               <div className="flex gap-3 pt-2">
+                  <Button variant="ghost" onClick={closeModal} disabled={isSubmitting} className="flex-1">Cancel</Button>
+                  <Button variant="danger" onClick={handleDeleteLoan} disabled={isSubmitting} className="flex-1 shadow-lg shadow-rose-200">
+                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Delete Permanently'}
+                  </Button>
+               </div>
+             </>
+           )}
+         </div>
+      </Modal>
+
+      {/* CLOSE LOAN MODAL */}
+      <Modal isOpen={activeModal === 'close-loan'} onClose={() => { closeModal(); setClosureReason('Fully Repaid'); setClosureNotes(''); }} title="Close Loan" maxWidth="max-w-md">
+         <div className="space-y-6">
+            {/* Loan Summary */}
+            <div className="flex items-center gap-4 p-5 bg-slate-50 rounded-[2rem] border border-slate-100">
+               <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center border border-amber-100">
+                  <Lock size={22} />
+               </div>
+               <div>
+                  <p className="text-sm font-black text-slate-900">{selectedLoan?.borrowerName}</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{selectedLoan?.loanCode} • R {selectedLoan?.remainingBalance?.toLocaleString()}</p>
+               </div>
             </div>
-            <div>
-               <h4 className="text-xl font-black text-slate-900 tracking-tight">Remove Loan Record?</h4>
-               <p className="text-sm text-slate-500 mt-2">You are soft deleting <span className="font-bold text-slate-900">{selectedLoan?.loanCode}</span>. This is for administrative cleanup only.</p>
+
+            {/* Warning message */}
+            <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-3">
+               <AlertTriangle size={18} className="text-amber-500 mt-0.5 shrink-0" />
+               <div>
+                  <p className="text-xs font-black text-amber-700 uppercase tracking-widest mb-1">Fintech Lifecycle Rule</p>
+                  <p className="text-xs font-medium text-amber-800">
+                    Closing this loan will lock it from all modifications. Only after closure will permanent deletion become available.
+                  </p>
+               </div>
             </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col gap-3 text-left">
-               <Checkbox label="I understand this will remove historical EMI data from view" />
-               <Checkbox label="This record is no longer needed for current auditing" />
+
+            {/* Closure Reason */}
+            <div className="space-y-2">
+               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Closure Reason</label>
+               <select
+                  value={closureReason}
+                  onChange={(e) => setClosureReason(e.target.value)}
+                  className="w-full bg-slate-50 border-none rounded-2xl px-5 py-4 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/10"
+               >
+                  <option>Fully Repaid</option>
+                  <option>Written Off</option>
+                  <option>Refinanced</option>
+                  <option>Fraud Closure</option>
+                  <option>Administrative Closure</option>
+                  <option>Settlement Agreement</option>
+               </select>
             </div>
+
+            {/* Closure Notes */}
+            <div className="space-y-2">
+               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Notes (Optional)</label>
+               <textarea
+                  value={closureNotes}
+                  onChange={(e) => setClosureNotes(e.target.value)}
+                  placeholder="Additional closure notes for audit trail..."
+                  className="w-full h-24 bg-slate-50 border-none rounded-2xl p-4 text-sm font-medium focus:ring-2 focus:ring-primary/10 transition-all resize-none"
+               />
+            </div>
+
             <div className="flex gap-3 pt-2">
                <Button variant="ghost" onClick={closeModal} disabled={isSubmitting} className="flex-1">Cancel</Button>
-               <Button variant="danger" onClick={handleDeleteLoan} disabled={isSubmitting} className="flex-1 shadow-lg shadow-rose-200">
-                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Remove Loan'}
+               <Button
+                  onClick={handleCloseLoan}
+                  disabled={isSubmitting}
+                  className="flex-1 bg-amber-500 hover:bg-amber-600 shadow-lg shadow-amber-500/20 border-none"
+               >
+                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : '🔒 Confirm Closure'}
                </Button>
             </div>
          </div>

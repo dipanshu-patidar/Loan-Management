@@ -104,7 +104,11 @@ const getLoanReviews = asyncHandler(async (req, res) => {
       verificationNotes: app.staffReview.verificationNotes,
       submittedAt: app.staffReview.verificationDate,
     } : null,
-    submittedDate: app.createdAt
+    submittedDate: app.createdAt,
+    staffReviewLocked: app.staffReviewLocked || false,
+    staffReviewCompleted: app.staffReviewCompleted || false,
+    reviewSubmittedAt: app.reviewSubmittedAt || null,
+    reviewStage: app.reviewStage || 'PENDING'
   }));
 
   sendSuccess(res, 'Loan reviews fetched successfully', {
@@ -139,6 +143,10 @@ const getLoanReviewById = asyncHandler(async (req, res) => {
     applicationId: app.applicationId,
     status: app.status,
     reviewStatus: app.reviewStatus,
+    staffReviewLocked: app.staffReviewLocked || false,
+    staffReviewCompleted: app.staffReviewCompleted || false,
+    reviewSubmittedAt: app.reviewSubmittedAt || null,
+    reviewStage: app.reviewStage || 'PENDING',
     
     borrower: {
       fullName: app.fullName || app.borrowerId?.fullName || 'N/A',
@@ -223,6 +231,11 @@ const recommendApproval = asyncHandler(async (req, res) => {
     return sendError(res, 'Application not found', 404);
   }
 
+  // Prevent duplicate submissions on locked reviews
+  if (app.staffReviewLocked) {
+    return sendError(res, 'This review has already been finalized and locked', 400);
+  }
+
   // State transition
   app.reviewStatus = 'Recommendation Submitted';
   app.status = 'Reviewed';
@@ -237,6 +250,12 @@ const recommendApproval = asyncHandler(async (req, res) => {
     verificationNotes: verificationNotes || recommendationNotes || '',
     verificationDate: new Date()
   };
+
+  // Lock review permanently
+  app.staffReviewLocked = true;
+  app.staffReviewCompleted = true;
+  app.reviewSubmittedAt = new Date();
+  app.reviewStage = 'FINALIZED';
 
   await app.save();
 
@@ -293,6 +312,11 @@ const recommendRejection = asyncHandler(async (req, res) => {
     return sendError(res, 'Application not found', 404);
   }
 
+  // Prevent duplicate submissions on locked reviews
+  if (app.staffReviewLocked) {
+    return sendError(res, 'This review has already been finalized and locked', 400);
+  }
+
   // State transition
   app.reviewStatus = 'Rejected Recommendation';
   app.status = 'Reviewed';
@@ -308,6 +332,12 @@ const recommendRejection = asyncHandler(async (req, res) => {
     verificationNotes: verificationNotes || notes || '',
     verificationDate: new Date()
   };
+
+  // Lock review permanently
+  app.staffReviewLocked = true;
+  app.staffReviewCompleted = true;
+  app.reviewSubmittedAt = new Date();
+  app.reviewStage = 'FINALIZED';
 
   await app.save();
 
@@ -366,6 +396,11 @@ const requestDocuments = asyncHandler(async (req, res) => {
   const app = await LoanApplication.findById(req.params.id);
   if (!app) {
     return sendError(res, 'Application not found', 404);
+  }
+
+  // Prevent requesting documents on locked reviews
+  if (app.staffReviewLocked) {
+    return sendError(res, 'This review has already been finalized and locked', 400);
   }
 
   // Map standard document identifier to nested schema trackers

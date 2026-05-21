@@ -228,6 +228,42 @@ const loanApplicationSchema = new mongoose.Schema(
       verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
     },
 
+    // ── Consumer Credit Report Search (Datanamix — Step 2) ──────────────────
+    creditAssessment: {
+      verificationStatus: {
+        type: String,
+        enum: ['Pending', 'Verified', 'Warning', 'Failed'],
+        default: 'Pending'
+      },
+      enquiryId:       { type: String },
+      enquiryResultId: { type: String },
+
+      matchedConsumers: [
+        {
+          consumerId:      { type: String },
+          firstName:       { type: String },
+          surname:         { type: String },
+          idNo:            { type: String },
+          birthDate:       { type: Date },
+          gender:          { type: String },
+          enquiryId:       { type: String },
+          enquiryResultId: { type: String },
+          reference:       { type: String }
+        }
+      ],
+
+      reportReference: { type: String },
+      reportDate:      { type: Date },
+      searchSuccess:   { type: Boolean },
+      responseCode:    { type: Number },
+
+      overrideReason: { type: String },
+      overriddenBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      overriddenAt:   { type: Date },
+
+      completedAt: { type: Date }
+    },
+
     // Digital Agreement Signature Fields
     agreementGenerated: { type: Boolean, default: false },
     agreementGeneratedAt: { type: Date },

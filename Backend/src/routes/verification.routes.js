@@ -17,6 +17,8 @@ const {
   overrideKYCController,
   verifyAddressProfileController,
   overrideBureauController,
+  runCreditAssessmentController,
+  overrideCreditAssessmentController,
 } = require('../controllers/verification.controller');
 
 const { protectVerification } = require('../middleware/auth.middleware');
@@ -138,5 +140,19 @@ router.post('/address-plus-profile-idv', verifyAddressProfileController);
  * @access  Private (admin only enforced at controller level)
  */
 router.put('/bureau-override/:applicationId', overrideBureauController);
+
+/**
+ * @route   POST /api/verification/consumer-credit-search
+ * @desc    Step 2: Datanamix Consumer Credit Search — generates EnquiryID + EnquiryResultID
+ * @access  Private — requires KYC passed + bureau not rejected
+ */
+router.post('/consumer-credit-search', runCreditAssessmentController);
+
+/**
+ * @route   PUT /api/verification/credit-search-override/:applicationId
+ * @desc    Admin override of a failed/warning credit assessment
+ * @access  Private (admin only enforced at controller level)
+ */
+router.put('/credit-search-override/:applicationId', overrideCreditAssessmentController);
 
 module.exports = router;

@@ -6,7 +6,8 @@ import {
   Mail, Phone, Calendar, Building2, MapPin, Wallet,
   TrendingUp, Activity, Shield, ClipboardList, AlertTriangle, Sparkles,
   ScanFace, Upload, XCircle, Loader2, BadgeCheck, TriangleAlert,
-  Building2 as OfficeBuildingIcon, ChevronDown, ChevronUp
+  Building2 as OfficeBuildingIcon, ChevronDown, ChevronUp,
+  CreditCard, Users, Hash
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,6 +23,7 @@ import Modal from '../../ui/Modal';
 import BorrowerLoanService from '../../services/BorrowerLoanService';
 import kycVerificationService from '../../services/kycVerificationService';
 import addressProfileVerificationService from '../../services/addressProfileVerificationService';
+import creditReportSearchService from '../../services/creditReportSearchService';
 import StepperNavigation from '../../components/loan/StepperNavigation';
 import LoanSummaryCard from '../../components/loan/LoanSummaryCard';
 import UploadDocumentCard from '../../components/loan/UploadDocumentCard';
@@ -62,6 +64,12 @@ const ApplyLoan = () => {
   const [bureauResult, setBureauResult]         = useState(null);
   const [bureauBlocked, setBureauBlocked]       = useState(false);
   const [showAddressHistory, setShowAddressHistory] = useState(false);
+
+  // ── Consumer Credit Search state (Step 2) ─────────────────────────────────
+  const [creditSearchDone, setCreditSearchDone]     = useState(false);
+  const [creditSearchLoading, setCreditSearchLoading] = useState(false);
+  const [creditSearchResult, setCreditSearchResult]   = useState(null);
+  const [selectedConsumer, setSelectedConsumer]       = useState(null);
 
   useEffect(() => {
     const fetchEligibilityAndRules = async () => {
@@ -250,6 +258,39 @@ const ApplyLoan = () => {
     }
   };
 
+  // ── Credit: run consumer credit search ────────────────────────────────────
+  const handleRunCreditSearch = async () => {
+    const idNumber = watch('idNumber');
+    if (!idNumber) { toast.error('Enter your ID Number first'); return; }
+
+    setCreditSearchLoading(true);
+    try {
+      const res = await creditReportSearchService.runConsumerCreditSearch({ idNumber });
+      setCreditSearchResult(res.data);
+
+      if (res.data?.matchedConsumers?.length === 1) {
+        setSelectedConsumer(res.data.matchedConsumers[0]);
+      }
+
+      setCreditSearchDone(true);
+
+      if (res.data?.verificationStatus === 'Warning') {
+        toast('Credit search complete — no matching consumer profile found.', { icon: 'ℹ️' });
+      } else if (res.data?.matchedConsumers?.length > 1) {
+        toast('Multiple profiles found — please select the correct one.', { icon: '⚠️' });
+      } else {
+        toast.success('Consumer credit profile found successfully!');
+      }
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Credit search service unavailable.';
+      setCreditSearchResult({ verificationStatus: 'Failed', responseMessage: msg });
+      setCreditSearchDone(false);
+      toast.error(msg);
+    } finally {
+      setCreditSearchLoading(false);
+    }
+  };
+
   const handleNext = async () => {
     let isValid = false;
     if (currentStep === 1) {
@@ -264,6 +305,10 @@ const ApplyLoan = () => {
       }
       if (isValid && !bureauVerified) {
         toast.error('Complete bureau & address verification before proceeding');
+        return;
+      }
+      if (isValid && !creditSearchDone) {
+        toast.error('Complete the consumer credit assessment before proceeding');
         return;
       }
       if (isValid) setCurrentStep(2);
@@ -607,6 +652,62 @@ const ApplyLoan = () => {
                                    result={bureauResult}
                                    showHistory={showAddressHistory}
                                    onToggleHistory={() => setShowAddressHistory(v => !v)}
+                                 />
+                               )}
+                             </div>
+                           </div>
+
+                           {/* ── Step 2 — Consumer Credit Risk Assessment Card ── */}
+                           <div className="border border-slate-100 rounded-[2rem] overflow-hidden">
+                             <div className="flex items-center gap-3 px-8 py-5 bg-slate-50 border-b border-slate-100">
+                               <CreditCard size={16} className="text-primary" />
+                               <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Consumer Credit Risk Assessment</h3>
+                               {creditSearchDone && (
+                                 <span className={cn(
+                                   'ml-auto flex items-center gap-1.5 px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-widest border',
+                                   creditSearchResult?.verificationStatus === 'Verified'
+                                     ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+                                     : creditSearchResult?.verificationStatus === 'Warning'
+                                       ? 'bg-amber-50 border-amber-100 text-amber-700'
+                                       : 'bg-rose-50 border-rose-100 text-rose-700'
+                                 )}>
+                                   <BadgeCheck size={11} />
+                                   {creditSearchResult?.verificationStatus ?? 'Done'}
+                                 </span>
+                               )}
+                             </div>
+                             <div className="p-8 space-y-6">
+                               <p className="text-xs font-medium text-slate-500">
+                                 This credit assessment checks the borrower's financial and credit profile using national credit bureau data.
+                                 {!bureauVerified && <span className="ml-1 font-bold text-amber-600">Complete bureau verification first.</span>}
+                               </p>
+
+                               {/* Run button */}
+                               {!creditSearchDone && (
+                                 <button
+                                   type="button"
+                                   onClick={handleRunCreditSearch}
+                                   disabled={creditSearchLoading || !bureauVerified || bureauBlocked}
+                                   className={cn(
+                                     'w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all',
+                                     bureauVerified && !bureauBlocked && !creditSearchLoading
+                                       ? 'bg-primary text-white shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30'
+                                       : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                   )}
+                                 >
+                                   {creditSearchLoading
+                                     ? <><Loader2 size={14} className="animate-spin" /> Running Credit Assessment...</>
+                                     : <><CreditCard size={14} /> Run Credit Assessment</>
+                                   }
+                                 </button>
+                               )}
+
+                               {/* Credit search result */}
+                               {creditSearchResult && (
+                                 <CreditSearchResultPanel
+                                   result={creditSearchResult}
+                                   selectedConsumer={selectedConsumer}
+                                   onSelectConsumer={setSelectedConsumer}
                                  />
                                )}
                              </div>
@@ -1028,10 +1129,10 @@ const ApplyLoan = () => {
                         type="button"
                         onClick={handleNext}
                         isLoading={isLoading}
-                        disabled={isLoading || (currentStep === 1 && bureauBlocked)}
+                        disabled={isLoading || (currentStep === 1 && (bureauBlocked || !creditSearchDone))}
                         className={cn(
                           'font-black text-[10px] uppercase tracking-widest px-8',
-                          currentStep === 1 && bureauBlocked && 'opacity-50 cursor-not-allowed'
+                          currentStep === 1 && (bureauBlocked || !creditSearchDone) && 'opacity-50 cursor-not-allowed'
                         )}
                      >
                         {isLoading ? 'Processing...' : 'Next Step'} <ArrowRight size={16} className="ml-2" />
@@ -1234,6 +1335,138 @@ const ReqItem = ({ icon: Icon, label, value, badgeClass }) => (
       </div>
    </div>
 );
+
+// ── Credit Search sub-components ─────────────────────────────────────────────
+
+const CreditSearchResultPanel = ({ result, selectedConsumer, onSelectConsumer }) => {
+  const isVerified = result?.verificationStatus === 'Verified';
+  const isWarning  = result?.verificationStatus === 'Warning';
+  const isFailed   = result?.verificationStatus === 'Failed';
+  const consumers  = result?.matchedConsumers ?? [];
+
+  return (
+    <div className="space-y-4">
+      {/* Status banner */}
+      <div className={cn(
+        'flex items-center justify-between p-4 rounded-2xl border',
+        isVerified ? 'bg-emerald-50 border-emerald-200' :
+        isWarning  ? 'bg-amber-50 border-amber-200' :
+        'bg-rose-50 border-rose-200'
+      )}>
+        <div className="flex items-center gap-3">
+          {isVerified
+            ? <BadgeCheck size={18} className="text-emerald-600 shrink-0" />
+            : isWarning
+              ? <AlertTriangle size={18} className="text-amber-500 shrink-0" />
+              : <TriangleAlert size={18} className="text-rose-500 shrink-0" />
+          }
+          <div>
+            <p className={cn('text-xs font-black',
+              isVerified ? 'text-emerald-800' : isWarning ? 'text-amber-800' : 'text-rose-800'
+            )}>
+              {isVerified ? 'Credit Profile Found' : isWarning ? 'No Credit Profile Found' : 'Credit Search Failed'}
+            </p>
+            {result?.responseMessage && (
+              <p className="text-[10px] font-medium text-slate-500 mt-0.5">{result.responseMessage}</p>
+            )}
+          </div>
+        </div>
+        {consumers.length > 1 && (
+          <span className="px-2.5 py-1 bg-amber-100 text-amber-700 rounded-xl text-[9px] font-black uppercase tracking-widest shrink-0">
+            {consumers.length} Profiles
+          </span>
+        )}
+      </div>
+
+      {/* Report metadata */}
+      {(result?.reportReference || result?.enquiryId) && (
+        <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+          {result.reportReference && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Report Reference</p>
+              <p className="text-xs font-bold text-slate-800">{result.reportReference}</p>
+            </div>
+          )}
+          {result.enquiryId && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Enquiry ID</p>
+              <p className="text-xs font-bold text-slate-800">{result.enquiryId}</p>
+            </div>
+          )}
+          {result.enquiryResultId && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Enquiry Result ID</p>
+              <p className="text-xs font-bold text-slate-800">{result.enquiryResultId}</p>
+            </div>
+          )}
+          {result.reportDate && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Search Date</p>
+              <p className="text-xs font-bold text-slate-800">{result.reportDate}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* No profile found */}
+      {isWarning && consumers.length === 0 && (
+        <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+          <Info size={14} className="text-amber-600 shrink-0" />
+          <p className="text-[10px] font-bold text-amber-800">
+            No credit profile was found for the provided ID number. You may still proceed — this will be reviewed by staff.
+          </p>
+        </div>
+      )}
+
+      {/* Multiple consumers — must select one */}
+      {consumers.length > 1 && (
+        <div className="space-y-2">
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+            <Users size={11} /> Select Your Consumer Profile
+          </p>
+          <div className="space-y-2">
+            {consumers.map((c, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => onSelectConsumer(c)}
+                className={cn(
+                  'w-full text-left p-4 rounded-2xl border-2 transition-all',
+                  selectedConsumer?.enquiryId === c.enquiryId
+                    ? 'border-primary bg-primary/5'
+                    : 'border-slate-100 bg-white hover:border-primary/30'
+                )}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-black text-slate-900">{c.firstName} {c.surname}</p>
+                    <p className="text-[9px] font-bold text-slate-500 mt-0.5">
+                      ID: {c.idNo} &bull; DOB: {c.birthDate} &bull; {c.gender === 'M' ? 'Male' : c.gender === 'F' ? 'Female' : c.gender}
+                    </p>
+                  </div>
+                  {selectedConsumer?.enquiryId === c.enquiryId && (
+                    <CheckCircle2 size={16} className="text-primary shrink-0" />
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Single consumer summary */}
+      {consumers.length === 1 && (
+        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Matched Consumer</p>
+          <p className="text-xs font-black text-slate-900">{consumers[0].firstName} {consumers[0].surname}</p>
+          <p className="text-[10px] font-bold text-slate-500 mt-0.5">
+            ID: {consumers[0].idNo} &bull; DOB: {consumers[0].birthDate}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ── Bureau sub-components ─────────────────────────────────────────────────────
 

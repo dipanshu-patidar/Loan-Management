@@ -6,7 +6,7 @@ import {
   ArrowLeft, Download, Eye, Wallet,
   MapPin, Phone, Building2, Save, Send,
   Clock, ScanFace, BadgeCheck, TriangleAlert, ShieldAlert,
-  ChevronDown, ChevronUp, AlertTriangle
+  ChevronDown, ChevronUp, AlertTriangle, CreditCard, Hash, Users
 } from 'lucide-react';
 import loanApplicationService from '../../services/loanApplicationService';
 import { cn } from '../../utils/cn';
@@ -140,6 +140,16 @@ const LoanReview = () => {
                 showHistory={showBureauHistory}
                 onToggleHistory={() => setShowBureauHistory(v => !v)}
               />
+            </section>
+          )}
+
+          {/* CONSUMER CREDIT SEARCH */}
+          {appData && (
+            <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-premium space-y-6">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                <CreditCard size={16} className="text-primary" /> Consumer Credit Search
+              </h3>
+              <StaffCreditPanel credit={appData.creditAssessment} />
             </section>
           )}
 
@@ -369,6 +379,110 @@ const KycResultPanel = ({ kyc }) => {
           <span>Ref: {kyc.verificationReference}</span>
         )}
       </div>
+    </div>
+  );
+};
+
+// ── Staff Credit Panel (read-only) ───────────────────────────────────────────
+
+const StaffCreditPanel = ({ credit }) => {
+  if (!credit || credit.verificationStatus === 'Pending') {
+    return (
+      <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
+        <AlertCircle size={16} className="text-amber-400 shrink-0" />
+        <p className="text-xs font-bold text-slate-500">Consumer credit search has not been run yet.</p>
+      </div>
+    );
+  }
+
+  const isVerified = credit.verificationStatus === 'Verified';
+  const isWarning  = credit.verificationStatus === 'Warning';
+  const consumers  = credit.matchedConsumers ?? [];
+
+  return (
+    <div className="space-y-4">
+      {/* Status */}
+      <div className={cn(
+        'flex items-center justify-between p-4 rounded-2xl border',
+        isVerified ? 'bg-emerald-50 border-emerald-200' :
+        isWarning  ? 'bg-amber-50 border-amber-200' :
+        'bg-rose-50 border-rose-200'
+      )}>
+        <div className="flex items-center gap-3">
+          {isVerified
+            ? <BadgeCheck size={18} className="text-emerald-600 shrink-0" />
+            : isWarning
+              ? <AlertTriangle size={18} className="text-amber-500 shrink-0" />
+              : <TriangleAlert size={18} className="text-rose-500 shrink-0" />
+          }
+          <p className={cn('text-xs font-black',
+            isVerified ? 'text-emerald-800' : isWarning ? 'text-amber-800' : 'text-rose-800'
+          )}>
+            {isVerified ? 'Credit Profile Found'
+              : isWarning ? 'No Credit Profile Found'
+              : 'Credit Search Failed'}
+          </p>
+        </div>
+        {consumers.length > 0 && (
+          <span className="text-[9px] font-black text-slate-400 shrink-0">
+            {consumers.length} profile{consumers.length !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+
+      {/* Reference data */}
+      {(credit.reportReference || credit.enquiryId) && (
+        <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+          {credit.reportReference && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Report Reference</p>
+              <p className="text-xs font-bold text-slate-800">{credit.reportReference}</p>
+            </div>
+          )}
+          {credit.enquiryId && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Enquiry ID</p>
+              <p className="text-xs font-bold text-slate-800">{credit.enquiryId}</p>
+            </div>
+          )}
+          {credit.enquiryResultId && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Enquiry Result ID</p>
+              <p className="text-xs font-bold text-slate-800">{credit.enquiryResultId}</p>
+            </div>
+          )}
+          {credit.completedAt && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Completed At</p>
+              <p className="text-xs font-bold text-slate-800">
+                {new Date(credit.completedAt).toLocaleString('en-ZA')}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Matched consumers (read-only) */}
+      {consumers.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+            <Users size={11} /> Matched Consumer Profile{consumers.length !== 1 ? 's' : ''}
+          </p>
+          {consumers.map((c, idx) => (
+            <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <p className="text-xs font-black text-slate-900">{c.firstName} {c.surname}</p>
+              <p className="text-[9px] font-bold text-slate-500 mt-0.5">
+                ID: {c.idNo} &bull; DOB: {c.birthDate} &bull; Gender: {c.gender}
+              </p>
+              {c.enquiryId && (
+                <p className="text-[9px] font-bold text-slate-400 mt-1">
+                  Enquiry ID: {c.enquiryId}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

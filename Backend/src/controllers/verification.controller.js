@@ -12,6 +12,7 @@ const Borrower = require('../models/Borrower');
 const LoanApplication = require('../models/LoanApplication');
 const { callProfileIdPhotoMatch } = require('../services/datanamix/profileIdPhotoVerification.service');
 const { callAddressPlusProfileIdv } = require('../services/datanamix/addressProfileIdv.service');
+const { callConsumerCreditSearch } = require('../services/datanamix/consumerCreditSearch.service');
 const { getIO } = require('../socket/socketServer');
 
 /**
@@ -812,6 +813,202 @@ exports.overrideBureauController = async (req, res) => {
     });
   } catch (error) {
     console.error('[Bureau Override Error]:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Override failed' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. Consumer Credit Report Search (Step 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/verification/consumer-credit-search
+ * Requires KYC (step 1) passed and bureau (step 1.5) not rejected.
+ * Body: { applicationId, idNumber, passportNumber? }
+ */
+exports.runCreditAssessmentController = async (req, res) => {
+  const initiatedBy = req.user?._id;
+  const { applicationId, idNumber, passportNumber, borrowerId: bodyBorrowerId } = req.body;
+
+  const borrowerId = bodyBorrowerId || initiatedBy;
+
+  if (!idNumber) return res.status(400).json({ success: false, message: 'idNumber is required' });
+
+  try {
+    // ── Guard: KYC and bureau must be completed ────────────────────────────
+    if (applicationId) {
+      const app = await LoanApplication.findById(applicationId)
+        .select('kycVerification bureauVerification');
+
+      if (app) {
+        const kycStatus    = app.kycVerification?.verificationStatus;
+        const bureauStatus = app.bureauVerification?.verificationStatus;
+
+        const kycPassed = kycStatus === 'Verified' || kycStatus === 'Overridden';
+        if (!kycPassed) {
+          return res.status(400).json({
+            success: false,
+            message: 'Biometric KYC verification must be completed before running credit assessment.',
+          });
+        }
+
+        const bureauBlocked = bureauStatus === 'Rejected';
+        if (bureauBlocked) {
+          return res.status(400).json({
+            success: false,
+            message: 'Bureau verification has fatal indicators. Credit assessment cannot proceed.',
+          });
+        }
+      }
+    }
+
+    console.log(`[CREDIT Controller] Starting consumer credit search — ID: ${idNumber}`);
+
+    const result = await callConsumerCreditSearch({
+      idNumber,
+      passportNumber: passportNumber || '',
+      reference: applicationId || `CREDIT-${Date.now()}`,
+    });
+
+    // ── Persist to LoanApplication ─────────────────────────────────────────
+    if (applicationId) {
+      await LoanApplication.findByIdAndUpdate(applicationId, {
+        'creditAssessment.verificationStatus': result.verificationStatus,
+        'creditAssessment.enquiryId':          result.enquiryId,
+        'creditAssessment.enquiryResultId':    result.enquiryResultId,
+        'creditAssessment.matchedConsumers':   result.matchedConsumers,
+        'creditAssessment.reportReference':    result.reportReference,
+        'creditAssessment.reportDate':         result.reportDate ? new Date(result.reportDate) : null,
+        'creditAssessment.searchSuccess':      result.searchSuccess,
+        'creditAssessment.responseCode':       result.responseCode,
+        'creditAssessment.completedAt':        new Date(),
+      });
+    }
+
+    // ── Audit log ──────────────────────────────────────────────────────────
+    await writeAuditLog({
+      borrowerId,
+      applicationId: applicationId || undefined,
+      verificationType: 'CREDIT_REPORT_SEARCH',
+      status: result.searchSuccess ? 'SUCCESS' : 'FAILED',
+      initiatedBy,
+      requestPayload: { idNumber, reference: applicationId },
+      responsePayload: {
+        verificationStatus:  result.verificationStatus,
+        enquiryId:           result.enquiryId,
+        enquiryResultId:     result.enquiryResultId,
+        consumerCount:       result.matchedConsumers.length,
+        reportReference:     result.reportReference,
+      },
+    });
+
+    // ── Socket events ──────────────────────────────────────────────────────
+    try {
+      const io   = getIO();
+      const room = borrowerId?.toString();
+
+      if (result.searchSuccess) {
+        io.to(room).emit('credit-search-completed', {
+          applicationId,
+          enquiryId:       result.enquiryId,
+          enquiryResultId: result.enquiryResultId,
+          consumerCount:   result.matchedConsumers.length,
+          message: 'Consumer credit search completed successfully',
+        });
+      } else {
+        io.to(room).emit('credit-search-failed', {
+          applicationId,
+          message: 'Consumer credit search failed',
+        });
+      }
+    } catch {
+      // Socket not initialized — non-fatal
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: result.verificationStatus === 'Verified'
+        ? 'Consumer credit search successful'
+        : result.verificationStatus === 'Warning'
+          ? 'Credit search completed — no matching consumer profile found'
+          : 'Consumer credit search failed',
+      data: {
+        verificationStatus:  result.verificationStatus,
+        enquiryId:           result.enquiryId,
+        enquiryResultId:     result.enquiryResultId,
+        matchedConsumers:    result.matchedConsumers,
+        reportReference:     result.reportReference,
+        reportDate:          result.reportDate,
+        searchSuccess:       result.searchSuccess,
+        responseCode:        result.responseCode,
+      },
+    });
+  } catch (error) {
+    console.error('[CREDIT Controller Error]:', error.message);
+
+    await writeAuditLog({
+      borrowerId,
+      applicationId: applicationId || undefined,
+      verificationType: 'CREDIT_REPORT_SEARCH',
+      status: 'ERROR',
+      initiatedBy,
+      requestPayload: { idNumber },
+      errorMessage: error.message,
+    });
+
+    return res.status(error.response?.status || 500).json({
+      success: false,
+      message: error.response?.data?.message || error.message || 'Consumer credit search failed',
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12. Admin Credit Assessment Override
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * PUT /api/verification/credit-search-override/:applicationId
+ */
+exports.overrideCreditAssessmentController = async (req, res) => {
+  const { applicationId } = req.params;
+  const { overrideReason } = req.body;
+  const adminId = req.user?._id;
+
+  if (!overrideReason?.trim()) {
+    return res.status(400).json({ success: false, message: 'overrideReason is required' });
+  }
+
+  try {
+    const application = await LoanApplication.findById(applicationId);
+    if (!application) {
+      return res.status(404).json({ success: false, message: 'Application not found' });
+    }
+
+    await LoanApplication.findByIdAndUpdate(applicationId, {
+      'creditAssessment.verificationStatus': 'Verified',
+      'creditAssessment.overrideReason':     overrideReason.trim(),
+      'creditAssessment.overriddenBy':       adminId,
+      'creditAssessment.overriddenAt':       new Date(),
+    });
+
+    await writeAuditLog({
+      borrowerId:       application.borrowerId || adminId,
+      applicationId,
+      verificationType: 'CREDIT_REPORT_OVERRIDE',
+      status:           'SUCCESS',
+      initiatedBy:      adminId,
+      requestPayload:   { overrideReason, applicationId },
+      responsePayload:  { action: 'CREDIT_MANUAL_OVERRIDE', overrideBy: adminId },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Credit assessment successfully overridden',
+      data: { applicationId, overrideReason, overriddenAt: new Date() },
+    });
+  } catch (error) {
+    console.error('[Credit Override Error]:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Override failed' });
   }
 };

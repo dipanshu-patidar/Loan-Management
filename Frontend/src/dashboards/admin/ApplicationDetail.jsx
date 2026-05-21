@@ -6,7 +6,7 @@ import {
   Clock, Pause, ExternalLink, Download, Loader2,
   FileCheck, FileX, Info, ScanFace, BadgeCheck,
   TriangleAlert, ShieldAlert, RefreshCw, Shield,
-  AlertTriangle, ChevronDown, ChevronUp
+  AlertTriangle, ChevronDown, ChevronUp, CreditCard, Hash, Users
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { cn } from '../../utils/cn';
@@ -14,6 +14,7 @@ import loanApplicationService from '../../services/loanApplicationService';
 import agreementService from '../../services/agreementService';
 import kycVerificationService from '../../services/kycVerificationService';
 import addressProfileVerificationService from '../../services/addressProfileVerificationService';
+import creditReportSearchService from '../../services/creditReportSearchService';
 import StatusBadge from '../../components/StatusBadge';
 import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
@@ -47,6 +48,11 @@ const ApplicationDetail = () => {
   const [bureauOverrideReason, setBureauOverrideReason] = useState('');
   const [bureauOverrideLoading, setBureauOverrideLoading] = useState(false);
   const [showAdminBureauHistory, setShowAdminBureauHistory] = useState(false);
+
+  // ── Credit override ───────────────────────────────────────────────────────────
+  const [isCreditOverrideOpen, setIsCreditOverrideOpen] = useState(false);
+  const [creditOverrideReason, setCreditOverrideReason] = useState('');
+  const [creditOverrideLoading, setCreditOverrideLoading] = useState(false);
 
   const fetchAgreementStatus = async () => {
     try {
@@ -213,6 +219,26 @@ const ApplicationDetail = () => {
       toast.error(err.response?.data?.message || 'Override failed');
     } finally {
       setKycOverrideLoading(false);
+    }
+  };
+
+  const handleCreditOverride = async () => {
+    if (!creditOverrideReason.trim()) {
+      toast.error('Override reason is required');
+      return;
+    }
+    try {
+      setCreditOverrideLoading(true);
+      await creditReportSearchService.overrideCreditAssessment(id, creditOverrideReason);
+      toast.success('Credit assessment successfully overridden');
+      setIsCreditOverrideOpen(false);
+      setCreditOverrideReason('');
+      const res = await loanApplicationService.getApplicationDetails(id);
+      setApp(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Override failed');
+    } finally {
+      setCreditOverrideLoading(false);
     }
   };
 
@@ -397,6 +423,14 @@ const ApplicationDetail = () => {
               onOverride={() => setIsBureauOverrideOpen(true)}
               showHistory={showAdminBureauHistory}
               onToggleHistory={() => setShowAdminBureauHistory(v => !v)}
+            />
+          </Section>
+
+          {/* Credit Report Search Audit */}
+          <Section title="Credit Report Search Audit" icon={CreditCard}>
+            <AdminCreditPanel
+              credit={app.creditAssessment}
+              onOverride={() => setIsCreditOverrideOpen(true)}
             />
           </Section>
 
@@ -789,6 +823,47 @@ const ApplicationDetail = () => {
         agreementDetails={agreementDetails}
       />
 
+      {/* Credit Override Modal */}
+      <Modal
+        isOpen={isCreditOverrideOpen}
+        onClose={() => { setIsCreditOverrideOpen(false); setCreditOverrideReason(''); }}
+        title="Override Credit Assessment"
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 text-left">
+          <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-2xl border border-amber-200">
+            <CreditCard size={20} className="text-amber-600 shrink-0" />
+            <div>
+              <p className="text-xs font-black text-amber-800">Admin Manual Credit Override</p>
+              <p className="text-[10px] font-medium text-amber-700 mt-0.5">
+                Manually approves a failed or warning credit assessment. All overrides create a permanent audit log.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Override Reason (Required)</label>
+            <textarea
+              value={creditOverrideReason}
+              onChange={(e) => setCreditOverrideReason(e.target.value)}
+              placeholder="Explain why this credit assessment is being manually overridden..."
+              className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-medium text-slate-700 min-h-[100px] focus:ring-2 focus:ring-primary/10 transition-all outline-none"
+            />
+          </div>
+          <div className="flex gap-3 pt-2 border-t border-slate-50">
+            <Button variant="ghost"
+              onClick={() => { setIsCreditOverrideOpen(false); setCreditOverrideReason(''); }}
+              className="flex-1 py-4 font-black uppercase tracking-widest text-[10px]">
+              Cancel
+            </Button>
+            <Button onClick={handleCreditOverride}
+              disabled={creditOverrideLoading || !creditOverrideReason.trim()}
+              className="flex-1 py-4 bg-amber-500 hover:bg-amber-600 text-white font-black uppercase tracking-widest text-[10px] border-none shadow-lg shadow-amber-500/20">
+              {creditOverrideLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Confirm Override'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Bureau Override Modal */}
       <Modal
         isOpen={isBureauOverrideOpen}
@@ -907,6 +982,141 @@ const DetailItem = ({ label, value, isBold, isPrimary }) => (
     </p>
   </div>
 );
+
+const AdminCreditPanel = ({ credit, onOverride }) => {
+  if (!credit || credit.verificationStatus === 'Pending') {
+    return (
+      <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
+        <Info size={16} className="text-amber-400 shrink-0" />
+        <p className="text-xs font-bold text-slate-500">Consumer credit search has not been run yet.</p>
+      </div>
+    );
+  }
+
+  const isVerified = credit.verificationStatus === 'Verified';
+  const isWarning  = credit.verificationStatus === 'Warning';
+  const isFailed   = credit.verificationStatus === 'Failed';
+  const consumers  = credit.matchedConsumers ?? [];
+  const isOverride = !!(credit.overriddenAt);
+
+  return (
+    <div className="space-y-5">
+      {/* Status + override button */}
+      <div className={cn(
+        'flex items-center justify-between p-5 rounded-2xl border',
+        isVerified || isOverride ? 'bg-emerald-50 border-emerald-200' :
+        isWarning  ? 'bg-amber-50 border-amber-200' :
+        'bg-rose-50 border-rose-200'
+      )}>
+        <div className="flex items-center gap-3">
+          {isVerified || isOverride
+            ? <BadgeCheck size={22} className="text-emerald-600 shrink-0" />
+            : isWarning
+              ? <AlertTriangle size={22} className="text-amber-500 shrink-0" />
+              : <TriangleAlert size={22} className="text-rose-500 shrink-0" />
+          }
+          <div>
+            <p className={cn('text-sm font-black',
+              isVerified || isOverride ? 'text-emerald-800' :
+              isWarning  ? 'text-amber-800' : 'text-rose-800'
+            )}>
+              {isOverride ? 'Admin Override — Credit Manually Approved'
+                : isVerified ? 'Credit Profile Found'
+                : isWarning  ? 'No Credit Profile Found'
+                : 'Credit Search Failed'}
+            </p>
+            {consumers.length > 0 && (
+              <p className="text-[10px] font-medium text-slate-500 mt-0.5">
+                {consumers.length} consumer profile{consumers.length !== 1 ? 's' : ''} matched
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {credit.reportReference && (
+            <span className="text-[9px] font-black text-slate-400 shrink-0">Ref: {credit.reportReference}</span>
+          )}
+          {(isFailed || isWarning) && !isOverride && (
+            <Button onClick={onOverride}
+              className="py-2 px-4 bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-black uppercase tracking-widest border-none shadow-sm">
+              <RefreshCw size={12} className="mr-1.5 inline" /> Override
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Enquiry IDs */}
+      <div className="grid grid-cols-2 gap-3 p-5 bg-slate-50 rounded-2xl border border-slate-100">
+        {credit.enquiryId && (
+          <div>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Enquiry ID</p>
+            <p className="text-xs font-bold text-slate-800 font-mono">{credit.enquiryId}</p>
+          </div>
+        )}
+        {credit.enquiryResultId && (
+          <div>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Enquiry Result ID</p>
+            <p className="text-xs font-bold text-slate-800 font-mono">{credit.enquiryResultId}</p>
+          </div>
+        )}
+        {credit.reportDate && (
+          <div>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Search Date</p>
+            <p className="text-xs font-bold text-slate-800">{credit.reportDate}</p>
+          </div>
+        )}
+        {credit.completedAt && (
+          <div>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Completed At</p>
+            <p className="text-xs font-bold text-slate-800">
+              {new Date(credit.completedAt).toLocaleString('en-ZA')}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Matched consumer profiles */}
+      {consumers.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+            <Users size={11} /> Matched Consumer Profile{consumers.length !== 1 ? 's' : ''}
+          </p>
+          {consumers.map((c, idx) => (
+            <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black text-slate-900">{c.firstName} {c.surname}</p>
+                  <p className="text-[9px] font-bold text-slate-500 mt-0.5">
+                    ID: {c.idNo} &bull; DOB: {c.birthDate} &bull; Gender: {c.gender}
+                  </p>
+                </div>
+                {c.enquiryId && (
+                  <div className="text-right shrink-0">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Enquiry ID</p>
+                    <p className="text-[10px] font-bold text-slate-700 font-mono">{c.enquiryId}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Override details */}
+      {isOverride && credit.overrideReason && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-1">
+          <p className="text-[9px] font-black text-amber-700 uppercase tracking-widest">Override Reason</p>
+          <p className="text-xs font-medium text-amber-800">{credit.overrideReason}</p>
+          {credit.overriddenAt && (
+            <p className="text-[9px] font-bold text-amber-600">
+              Overridden: {new Date(credit.overriddenAt).toLocaleString('en-ZA')}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const AdminBureauPanel = ({ bureau, onOverride, showHistory, onToggleHistory }) => {
   if (!bureau || bureau.verificationStatus === 'Pending') {

@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  User, Briefcase, FileText, PieChart, 
-  CheckCircle2, XCircle, AlertCircle, 
+import {
+  User, Briefcase, FileText, PieChart,
+  CheckCircle2, XCircle, AlertCircle,
   ArrowLeft, Download, Eye, Wallet,
   MapPin, Phone, Building2, Save, Send,
-  Clock
+  Clock, ScanFace, BadgeCheck, TriangleAlert, ShieldAlert
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import loanApplicationService from '../../services/loanApplicationService';
 import { cn } from '../../utils/cn';
 import Button from '../../ui/Button';
 import StatusBadge from '../../components/StatusBadge';
@@ -18,6 +18,14 @@ const LoanReview = () => {
   const navigate = useNavigate();
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [staffNotes, setStaffNotes] = useState('');
+  const [appData, setAppData] = useState(null);
+
+  useEffect(() => {
+    if (!id) return;
+    loanApplicationService.getApplicationDetails(id)
+      .then(res => setAppData(res.data))
+      .catch(() => {});
+  }, [id]);
 
   const borrower = {
     name: 'Alice Johnson',
@@ -108,6 +116,16 @@ const LoanReview = () => {
               <DocCard name="Proof of Residence" status="Verified" />
             </div>
           </section>
+
+          {/* BIOMETRIC VERIFICATION RESULT */}
+          {appData && (
+            <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-premium space-y-6">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                <ScanFace size={16} className="text-primary" /> Biometric Verification Result
+              </h3>
+              <KycResultPanel kyc={appData.kycVerification} />
+            </section>
+          )}
 
           {/* AFFORDABILITY SUMMARY */}
           <section className="bg-slate-900 p-10 rounded-[2.5rem] shadow-2xl relative overflow-hidden text-white">
@@ -248,5 +266,95 @@ const DocCard = ({ name, status }) => (
     </div>
   </div>
 );
+
+const KycResultPanel = ({ kyc }) => {
+  if (!kyc || kyc.verificationStatus === 'Pending') {
+    return (
+      <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
+        <AlertCircle size={16} className="text-amber-400 shrink-0" />
+        <p className="text-xs font-bold text-slate-500">Identity verification not yet completed by borrower.</p>
+      </div>
+    );
+  }
+
+  const isVerified = kyc.verificationStatus === 'Verified' || kyc.verificationStatus === 'Overridden';
+  const isOverride = kyc.verificationStatus === 'Overridden';
+
+  return (
+    <div className="space-y-4">
+      {/* Status badge row */}
+      <div className={cn(
+        'flex items-center justify-between p-4 rounded-2xl border',
+        isVerified ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'
+      )}>
+        <div className="flex items-center gap-3">
+          {isVerified
+            ? <BadgeCheck size={20} className="text-emerald-600 shrink-0" />
+            : <ShieldAlert size={20} className="text-rose-500 shrink-0" />
+          }
+          <div>
+            <p className={cn('text-xs font-black', isVerified ? 'text-emerald-800' : 'text-rose-800')}>
+              {isOverride ? 'Admin Override — Manually Approved' : isVerified ? 'Biometric Verification Passed' : 'Biometric Verification Failed'}
+            </p>
+            {kyc.responseMessage && (
+              <p className="text-[10px] font-medium text-slate-500 mt-0.5">{kyc.responseMessage}</p>
+            )}
+          </div>
+        </div>
+        {kyc.faceMatchScore != null && (
+          <div className="text-right">
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Face Match</p>
+            <p className={cn('text-2xl font-black', isVerified ? 'text-emerald-700' : 'text-rose-600')}>
+              {Math.round(kyc.faceMatchScore)}%
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* OCR data */}
+      {kyc.extractedOCRData && Object.keys(kyc.extractedOCRData).length > 0 && (
+        <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+          <p className="col-span-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">OCR Extracted Data</p>
+          {Object.entries(kyc.extractedOCRData).slice(0, 6).map(([k, v]) => v ? (
+            <div key={k}>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{k.replace(/([A-Z])/g, ' $1').trim()}</p>
+              <p className="text-xs font-bold text-slate-800">{String(v)}</p>
+            </div>
+          ) : null)}
+        </div>
+      )}
+
+      {/* Fraud flags */}
+      {kyc.fraudFlags?.length > 0 && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-1">
+          <p className="text-[9px] font-black text-rose-700 uppercase tracking-widest flex items-center gap-1.5">
+            <TriangleAlert size={11} /> Fraud Indicators
+          </p>
+          {kyc.fraudFlags.map((f, i) => (
+            <p key={i} className="text-[10px] font-bold text-rose-600">• {f}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Override reason */}
+      {isOverride && kyc.overrideReason && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+          <p className="text-[9px] font-black text-amber-700 uppercase tracking-widest mb-1">Admin Override Reason</p>
+          <p className="text-xs font-medium text-amber-800">{kyc.overrideReason}</p>
+        </div>
+      )}
+
+      {/* Timestamp + ref */}
+      <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
+        {kyc.verificationTimestamp && (
+          <span>{new Date(kyc.verificationTimestamp).toLocaleString('en-ZA')}</span>
+        )}
+        {kyc.verificationReference && (
+          <span>Ref: {kyc.verificationReference}</span>
+        )}
+      </div>
+    </div>
+  );
+};
 
 export default LoanReview;

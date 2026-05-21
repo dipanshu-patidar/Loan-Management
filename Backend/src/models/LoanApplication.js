@@ -155,6 +155,30 @@ const loanApplicationSchema = new mongoose.Schema(
       default: "PENDING"
     },
 
+    // ── KYC Biometric Verification (Datanamix Profile Plus ID Photo Match) ──
+    kycVerification: {
+      verificationStatus: {
+        type: String,
+        enum: ['Pending', 'Verified', 'Failed', 'Overridden'],
+        default: 'Pending'
+      },
+      responseStatusCode: { type: Number },
+      responseMessage: { type: String },
+      faceMatchScore: { type: Number },
+      verificationReference: { type: String },
+      verificationTimestamp: { type: Date },
+      fraudFlags: [{ type: String }],
+      extractedOCRData: { type: mongoose.Schema.Types.Mixed, default: {} },
+      verificationPdf: { type: String },
+      rawApiResponse: { type: mongoose.Schema.Types.Mixed, default: {} },
+      verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      overrideReason: { type: String },
+      overrideBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      overrideAt: { type: Date },
+      verificationSource: { type: String, default: 'DATANAMIX' },
+      verificationProvider: { type: String, default: 'Profile Plus ID Photo Match' }
+    },
+
     // Digital Agreement Signature Fields
     agreementGenerated: { type: Boolean, default: false },
     agreementGeneratedAt: { type: Date },

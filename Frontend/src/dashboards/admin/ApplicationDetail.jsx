@@ -4,12 +4,14 @@ import {
   ArrowLeft, User, Wallet, Building2, ShieldCheck,
   FileText, Phone, Mail, MapPin, CheckCircle2,
   Clock, Pause, ExternalLink, Download, Loader2,
-  FileCheck, FileX, Info
+  FileCheck, FileX, Info, ScanFace, BadgeCheck,
+  TriangleAlert, ShieldAlert, RefreshCw, Shield
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { cn } from '../../utils/cn';
 import loanApplicationService from '../../services/loanApplicationService';
 import agreementService from '../../services/agreementService';
+import kycVerificationService from '../../services/kycVerificationService';
 import StatusBadge from '../../components/StatusBadge';
 import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
@@ -34,6 +36,9 @@ const ApplicationDetail = () => {
   const [documentContent, setDocumentContent] = useState('');
   const [loadingDoc, setLoadingDoc] = useState(false);
   const [isAgreementPreviewOpen, setIsAgreementPreviewOpen] = useState(false);
+  const [isKycOverrideOpen, setIsKycOverrideOpen] = useState(false);
+  const [kycOverrideReason, setKycOverrideReason] = useState('');
+  const [kycOverrideLoading, setKycOverrideLoading] = useState(false);
 
   const fetchAgreementStatus = async () => {
     try {
@@ -183,6 +188,26 @@ const ApplicationDetail = () => {
     }
   };
 
+  const handleKycOverride = async () => {
+    if (!kycOverrideReason.trim()) {
+      toast.error('Override reason is required');
+      return;
+    }
+    try {
+      setKycOverrideLoading(true);
+      await kycVerificationService.overrideKYCVerification(id, kycOverrideReason);
+      toast.success('KYC verification successfully overridden');
+      setIsKycOverrideOpen(false);
+      setKycOverrideReason('');
+      const res = await loanApplicationService.getApplicationDetails(id);
+      setApp(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Override failed');
+    } finally {
+      setKycOverrideLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -328,6 +353,15 @@ const ApplicationDetail = () => {
               })}
             </div>
           </Section>
+
+          {/* KYC & Identity Audit */}
+          <Section title="KYC & Identity Audit" icon={ScanFace}>
+            <AdminKycPanel
+              kyc={app.kycVerification}
+              onOverride={() => setIsKycOverrideOpen(true)}
+            />
+          </Section>
+
         </div>
 
         {/* RIGHT — Staff Review + Admin Decision */}
@@ -716,6 +750,51 @@ const ApplicationDetail = () => {
         app={app}
         agreementDetails={agreementDetails}
       />
+
+      {/* KYC Override Modal */}
+      <Modal
+        isOpen={isKycOverrideOpen}
+        onClose={() => { setIsKycOverrideOpen(false); setKycOverrideReason(''); }}
+        title="Override KYC Verification"
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 text-left">
+          <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-2xl border border-amber-200">
+            <Shield size={20} className="text-amber-600 shrink-0" />
+            <div>
+              <p className="text-xs font-black text-amber-800">Admin Manual Override</p>
+              <p className="text-[10px] font-medium text-amber-700 mt-0.5">
+                Overriding a failed KYC creates a permanent audit log. Use only when identity has been confirmed through alternative means.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Override Reason (Required)</label>
+            <textarea
+              value={kycOverrideReason}
+              onChange={(e) => setKycOverrideReason(e.target.value)}
+              placeholder="Explain why this KYC is being manually overridden..."
+              className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-medium text-slate-700 min-h-[100px] focus:ring-2 focus:ring-primary/10 transition-all outline-none"
+            />
+          </div>
+          <div className="flex gap-3 pt-2 border-t border-slate-50">
+            <Button
+              variant="ghost"
+              onClick={() => { setIsKycOverrideOpen(false); setKycOverrideReason(''); }}
+              className="flex-1 py-4 font-black uppercase tracking-widest text-[10px]"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleKycOverride}
+              disabled={kycOverrideLoading || !kycOverrideReason.trim()}
+              className="flex-1 py-4 bg-amber-500 hover:bg-amber-600 text-white font-black uppercase tracking-widest text-[10px] border-none shadow-lg shadow-amber-500/20"
+            >
+              {kycOverrideLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Confirm Override'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
@@ -752,5 +831,141 @@ const DetailItem = ({ label, value, isBold, isPrimary }) => (
     </p>
   </div>
 );
+
+const AdminKycPanel = ({ kyc, onOverride }) => {
+  if (!kyc || kyc.verificationStatus === 'Pending') {
+    return (
+      <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
+        <Info size={16} className="text-amber-400 shrink-0" />
+        <p className="text-xs font-bold text-slate-500">KYC identity verification has not been completed by the borrower yet.</p>
+      </div>
+    );
+  }
+
+  const isVerified = kyc.verificationStatus === 'Verified';
+  const isOverride = kyc.verificationStatus === 'Overridden';
+  const isFailed = kyc.verificationStatus === 'Failed';
+
+  return (
+    <div className="space-y-5">
+      {/* Status banner */}
+      <div className={cn(
+        'flex items-center justify-between p-5 rounded-2xl border',
+        isVerified ? 'bg-emerald-50 border-emerald-200' :
+        isOverride ? 'bg-amber-50 border-amber-200' :
+        'bg-rose-50 border-rose-200'
+      )}>
+        <div className="flex items-center gap-3">
+          {isVerified
+            ? <BadgeCheck size={22} className="text-emerald-600 shrink-0" />
+            : isOverride
+              ? <Shield size={22} className="text-amber-600 shrink-0" />
+              : <ShieldAlert size={22} className="text-rose-500 shrink-0" />
+          }
+          <div>
+            <p className={cn('text-sm font-black',
+              isVerified ? 'text-emerald-800' :
+              isOverride ? 'text-amber-800' : 'text-rose-800'
+            )}>
+              {isVerified ? 'Identity Verified'
+                : isOverride ? 'Manually Overridden by Admin'
+                : 'Verification Failed'}
+            </p>
+            {kyc.responseMessage && (
+              <p className="text-[10px] font-medium text-slate-500 mt-0.5">{kyc.responseMessage}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          {kyc.faceMatchScore != null && (
+            <div className="text-right">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Face Match</p>
+              <p className={cn('text-2xl font-black',
+                isVerified ? 'text-emerald-700' :
+                isOverride ? 'text-amber-700' : 'text-rose-600'
+              )}>
+                {Math.round(kyc.faceMatchScore)}%
+              </p>
+            </div>
+          )}
+          {isFailed && (
+            <Button
+              onClick={onOverride}
+              className="py-2 px-4 bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-black uppercase tracking-widest border-none shadow-sm"
+            >
+              <RefreshCw size={12} className="mr-1.5 inline" /> Override
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* KYC metadata grid */}
+      <div className="grid grid-cols-2 gap-3 p-5 bg-slate-50 rounded-2xl border border-slate-100">
+        {kyc.verificationReference && (
+          <div>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Reference</p>
+            <p className="text-xs font-bold text-slate-800">{kyc.verificationReference}</p>
+          </div>
+        )}
+        {kyc.verificationTimestamp && (
+          <div>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Verified At</p>
+            <p className="text-xs font-bold text-slate-800">
+              {new Date(kyc.verificationTimestamp).toLocaleString('en-ZA')}
+            </p>
+          </div>
+        )}
+        <div>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Provider</p>
+          <p className="text-xs font-bold text-slate-800">{kyc.verificationProvider || 'Datanamix'}</p>
+        </div>
+        <div>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Source</p>
+          <p className="text-xs font-bold text-slate-800">{kyc.verificationSource || 'N/A'}</p>
+        </div>
+      </div>
+
+      {/* OCR extracted data */}
+      {kyc.extractedOCRData && Object.keys(kyc.extractedOCRData).length > 0 && (
+        <div className="space-y-3">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OCR Extracted Data</p>
+          <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            {Object.entries(kyc.extractedOCRData).slice(0, 8).map(([k, v]) => v ? (
+              <div key={k}>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{k.replace(/([A-Z])/g, ' $1').trim()}</p>
+                <p className="text-xs font-bold text-slate-800">{String(v)}</p>
+              </div>
+            ) : null)}
+          </div>
+        </div>
+      )}
+
+      {/* Fraud flags */}
+      {kyc.fraudFlags?.length > 0 && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-1">
+          <p className="text-[9px] font-black text-rose-700 uppercase tracking-widest flex items-center gap-1.5">
+            <TriangleAlert size={11} /> Fraud Indicators Detected
+          </p>
+          {kyc.fraudFlags.map((f, i) => (
+            <p key={i} className="text-[10px] font-bold text-rose-600">• {f}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Override details */}
+      {isOverride && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-1">
+          <p className="text-[9px] font-black text-amber-700 uppercase tracking-widest">Override Reason</p>
+          <p className="text-xs font-medium text-amber-800">{kyc.overrideReason}</p>
+          {kyc.overrideAt && (
+            <p className="text-[9px] font-bold text-amber-600">
+              Overridden: {new Date(kyc.overrideAt).toLocaleString('en-ZA')}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default ApplicationDetail;

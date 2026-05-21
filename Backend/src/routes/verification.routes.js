@@ -12,11 +12,24 @@ const {
   verifyBankController,
   verifyCreditController,
   verifyPhoneController,
-  verifyAMLController
+  verifyAMLController,
+  verifyBorrowerKYCController,
+  overrideKYCController,
 } = require('../controllers/verification.controller');
 
 const { protectVerification } = require('../middleware/auth.middleware');
 const { requireConsent, validateProfileData } = require('../middleware/verification.middleware');
+const multer = require('multer');
+
+// Memory-storage multer for KYC image uploads (no disk I/O, consistent with uploadMiddleware)
+const kycUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    cb(null, allowed.includes(file.mimetype));
+  },
+});
 
 // Apply protection to all integration routes
 router.use(protectVerification);
@@ -87,5 +100,27 @@ router.post(
   validateProfileData(['borrowerId', 'idNumber', 'fullName']),
   verifyAMLController
 );
+
+/**
+ * @route   POST /api/verification/profile-id-photo-match
+ * @desc    KYC: Datanamix Profile Plus ID Photo Match (Offline) — primary KYC gate
+ * @access  Private — multipart/form-data: idFrontImage required, selfieImage + idBackImage optional
+ */
+router.post(
+  '/profile-id-photo-match',
+  kycUpload.fields([
+    { name: 'idFrontImage', maxCount: 1 },
+    { name: 'selfieImage',  maxCount: 1 },
+    { name: 'idBackImage',  maxCount: 1 },
+  ]),
+  verifyBorrowerKYCController
+);
+
+/**
+ * @route   PUT /api/verification/kyc-override/:applicationId
+ * @desc    Admin manual override of a failed KYC — always creates an audit log
+ * @access  Private (admin only enforced at controller level via req.user)
+ */
+router.put('/kyc-override/:applicationId', overrideKYCController);
 
 module.exports = router;

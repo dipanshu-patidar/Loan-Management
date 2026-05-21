@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User, Briefcase, Landmark, FileText,
   CheckCircle2, ArrowRight, ArrowLeft,
   Info, ShieldCheck, Calculator, Clock,
   Mail, Phone, Calendar, Building2, MapPin, Wallet,
-  TrendingUp, Activity, Shield, ClipboardList, AlertTriangle, Sparkles
+  TrendingUp, Activity, Shield, ClipboardList, AlertTriangle, Sparkles,
+  ScanFace, Upload, XCircle, Loader2, BadgeCheck, TriangleAlert
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,6 +19,7 @@ import Input from '../../ui/Input';
 import Modal from '../../ui/Modal';
 
 import BorrowerLoanService from '../../services/BorrowerLoanService';
+import kycVerificationService from '../../services/kycVerificationService';
 import StepperNavigation from '../../components/loan/StepperNavigation';
 import LoanSummaryCard from '../../components/loan/LoanSummaryCard';
 import UploadDocumentCard from '../../components/loan/UploadDocumentCard';
@@ -40,6 +42,17 @@ const ApplyLoan = () => {
   const [creditConsentError, setCreditConsentError] = useState(false);
   const [eligibilitySettings, setEligibilitySettings] = useState(null);
   const [validationRules, setValidationRules] = useState(null);
+
+  // ── KYC state ──────────────────────────────────────────────────────────────
+  const [kycVerified, setKycVerified]     = useState(false);
+  const [kycLoading, setKycLoading]       = useState(false);
+  const [kycResult, setKycResult]         = useState(null);
+  const [kycIdFront, setKycIdFront]       = useState(null);  // File
+  const [kycIdBack, setKycIdBack]         = useState(null);  // File
+  const [kycSelfie, setKycSelfie]         = useState(null);  // File
+  const kycIdFrontRef                     = useRef(null);
+  const kycIdBackRef                      = useRef(null);
+  const kycSelfieRef                      = useRef(null);
 
   useEffect(() => {
     const fetchEligibilityAndRules = async () => {
@@ -128,10 +141,57 @@ const ApplyLoan = () => {
     { id: 5, title: 'Review', icon: ShieldCheck },
   ];
 
+  // ── KYC: handle file picks ─────────────────────────────────────────────────
+  const handleKycFilePick = (setter, inputRef) => {
+    inputRef.current?.click();
+    inputRef.current.onchange = (e) => {
+      const file = e.target.files?.[0];
+      if (file) setter(file);
+    };
+  };
+
+  // ── KYC: verify identity ───────────────────────────────────────────────────
+  const handleVerifyIdentity = async () => {
+    const idNumber = watch('idNumber');
+    if (!idNumber) { toast.error('Enter your ID Number first'); return; }
+    if (!kycIdFront) { toast.error('Upload your ID Document Front to verify'); return; }
+
+    setKycLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('idNumber', idNumber);
+      formData.append('idFrontImage', kycIdFront);
+      if (kycSelfie) formData.append('selfieImage', kycSelfie);
+      if (kycIdBack) formData.append('idBackImage', kycIdBack);
+
+      const res = await kycVerificationService.verifyProfileIdPhoto(formData);
+      setKycResult(res.data);
+
+      if (res.success && res.data?.responseStatusCode === 1) {
+        setKycVerified(true);
+        toast.success('Identity verified successfully!');
+      } else {
+        setKycVerified(false);
+        toast.error(res.data?.responseMessage || res.message || 'Verification failed');
+      }
+    } catch (error) {
+      setKycVerified(false);
+      const msg = error.response?.data?.message || 'Verification service unavailable. Please try again.';
+      setKycResult({ verificationStatus: 'Failed', responseMessage: msg });
+      toast.error(msg);
+    } finally {
+      setKycLoading(false);
+    }
+  };
+
   const handleNext = async () => {
     let isValid = false;
     if (currentStep === 1) {
       isValid = await trigger(['fullName', 'phoneNumber', 'emailAddress', 'idNumber', 'dateOfBirth', 'residentialAddress']);
+      if (isValid && !kycVerified) {
+        toast.error('Complete identity verification before proceeding');
+        return;
+      }
       if (isValid) setCurrentStep(2);
     } else if (currentStep === 2) {
       isValid = await trigger(['employmentStatus', 'employerName', 'monthlyIncome', 'workAddress', 'employmentDuration']);
@@ -335,6 +395,76 @@ const ApplyLoan = () => {
                                  <Input label="Residential Address" isTextArea placeholder="Enter your full home address..." icon={MapPin} {...register('residentialAddress', { required: 'Address is required' })} />
                                  <ValidationMessage message={errors.residentialAddress?.message} />
                               </div>
+                           </div>
+
+                           {/* ── KYC Identity & Biometric Verification Card ── */}
+                           <div className="border border-slate-100 rounded-[2rem] overflow-hidden">
+                             <div className="flex items-center gap-3 px-8 py-5 bg-slate-50 border-b border-slate-100">
+                               <ScanFace size={16} className="text-primary" />
+                               <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Identity &amp; Biometric Verification</h3>
+                               {kycVerified && (
+                                 <span className="ml-auto flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-100 rounded-xl text-[9px] font-black text-emerald-700 uppercase tracking-widest">
+                                   <BadgeCheck size={11} /> Verified
+                                 </span>
+                               )}
+                             </div>
+                             <div className="p-8 space-y-6">
+                               <p className="text-xs font-medium text-slate-500">Upload your ID document and selfie to complete biometric verification. This is required to proceed with your application.</p>
+
+                               {/* File upload row */}
+                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                 {/* ID Front */}
+                                 <KycFilePickerCard
+                                   label="ID Document Front"
+                                   required
+                                   file={kycIdFront}
+                                   onPick={() => handleKycFilePick(setKycIdFront, kycIdFrontRef)}
+                                   onClear={() => { setKycIdFront(null); setKycVerified(false); setKycResult(null); }}
+                                   inputRef={kycIdFrontRef}
+                                 />
+                                 {/* ID Back */}
+                                 <KycFilePickerCard
+                                   label="ID Document Back"
+                                   file={kycIdBack}
+                                   onPick={() => handleKycFilePick(setKycIdBack, kycIdBackRef)}
+                                   onClear={() => setKycIdBack(null)}
+                                   inputRef={kycIdBackRef}
+                                 />
+                                 {/* Selfie */}
+                                 <KycFilePickerCard
+                                   label="Selfie / Portrait"
+                                   file={kycSelfie}
+                                   onPick={() => handleKycFilePick(setKycSelfie, kycSelfieRef)}
+                                   onClear={() => setKycSelfie(null)}
+                                   inputRef={kycSelfieRef}
+                                 />
+                               </div>
+
+                               {/* Verify button */}
+                               {!kycVerified && (
+                                 <button
+                                   type="button"
+                                   onClick={handleVerifyIdentity}
+                                   disabled={kycLoading || !kycIdFront}
+                                   className={cn(
+                                     'w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all',
+                                     kycIdFront && !kycLoading
+                                       ? 'bg-primary text-white shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30'
+                                       : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                   )}
+                                 >
+                                   {kycLoading
+                                     ? <><Loader2 size={14} className="animate-spin" /> Verifying Identity...</>
+                                     : <><ScanFace size={14} /> Verify Identity</>
+                                   }
+                                 </button>
+                               )}
+
+                               {/* Result banner */}
+                               {kycResult && (
+                                 <KycResultBanner result={kycResult} />
+                               )}
+                             </div>
                            </div>
                         </div>
                      )}
@@ -950,5 +1080,133 @@ const ReqItem = ({ icon: Icon, label, value, badgeClass }) => (
       </div>
    </div>
 );
+
+// ── KYC sub-components ────────────────────────────────────────────────────────
+
+const KycFilePickerCard = ({ label, required = false, file, onPick, onClear, inputRef }) => (
+  <div
+    className={cn(
+      'relative p-4 rounded-2xl border-2 border-dashed transition-all cursor-pointer group',
+      file ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:border-primary/30'
+    )}
+    onClick={() => !file && onPick()}
+  >
+    {/* Hidden file input */}
+    <input ref={inputRef} type="file" accept="image/jpeg,image/jpg,image/png,application/pdf" className="hidden" />
+
+    <div className="flex flex-col items-center gap-2 text-center">
+      <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center transition-colors',
+        file ? 'bg-emerald-100 text-emerald-600' : 'bg-white text-slate-400 group-hover:text-primary'
+      )}>
+        {file ? <CheckCircle2 size={20} /> : <Upload size={18} />}
+      </div>
+      <div>
+        <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest">
+          {label}
+          {required && <span className="text-rose-500 ml-0.5">*</span>}
+        </p>
+        <p className="text-[9px] font-medium text-slate-400 mt-0.5 max-w-[120px] truncate">
+          {file ? file.name : 'JPG, PNG, PDF · Max 10MB'}
+        </p>
+      </div>
+    </div>
+
+    {file && (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onClear(); }}
+        className="absolute top-2 right-2 p-1 rounded-lg bg-white text-slate-400 hover:text-rose-500 transition-colors shadow-sm"
+      >
+        <XCircle size={14} />
+      </button>
+    )}
+  </div>
+);
+
+const KycResultBanner = ({ result }) => {
+  const isVerified = result?.verificationStatus === 'Verified' || result?.responseStatusCode === 1;
+  const hasFraud = result?.fraudFlags?.length > 0;
+
+  const errorMap = {
+    'Face Match Failed': 'Face match failed. Please use a clear, well-lit photo.',
+    'No Face Found': 'No face detected in the document image.',
+    'Invalid RSA ID': 'The South African ID number provided is invalid.',
+    'Service Unavailable': 'Verification service is currently unavailable.',
+  };
+
+  const friendlyMessage = result?.responseMessage
+    ? Object.keys(errorMap).find(k => result.responseMessage.toLowerCase().includes(k.toLowerCase()))
+      ? errorMap[Object.keys(errorMap).find(k => result.responseMessage.toLowerCase().includes(k.toLowerCase()))]
+      : result.responseMessage
+    : isVerified ? 'Identity successfully verified' : 'Verification failed';
+
+  return (
+    <div className={cn(
+      'p-5 rounded-2xl border space-y-4 transition-all',
+      isVerified ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'
+    )}>
+      {/* Status row */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          {isVerified
+            ? <BadgeCheck size={20} className="text-emerald-600 shrink-0" />
+            : <TriangleAlert size={20} className="text-rose-500 shrink-0" />
+          }
+          <div>
+            <p className={cn('text-xs font-black', isVerified ? 'text-emerald-800' : 'text-rose-800')}>
+              {isVerified ? 'Verification Successful' : 'Verification Failed'}
+            </p>
+            <p className="text-[10px] font-medium text-slate-500 mt-0.5">{friendlyMessage}</p>
+          </div>
+        </div>
+        {result?.faceMatchScore != null && (
+          <div className="text-right shrink-0">
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Face Match</p>
+            <p className={cn('text-lg font-black', isVerified ? 'text-emerald-700' : 'text-rose-600')}>
+              {Math.round(result.faceMatchScore)}%
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* OCR extracted name */}
+      {result?.extractedOCRData && Object.keys(result.extractedOCRData).length > 0 && (
+        <div className="pt-3 border-t border-current/10 grid grid-cols-2 gap-3">
+          {result.extractedOCRData.FirstName && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">OCR First Name</p>
+              <p className="text-xs font-bold text-slate-700">{result.extractedOCRData.FirstName}</p>
+            </div>
+          )}
+          {result.extractedOCRData.LastName && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">OCR Last Name</p>
+              <p className="text-xs font-bold text-slate-700">{result.extractedOCRData.LastName}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fraud flags */}
+      {hasFraud && (
+        <div className="pt-3 border-t border-rose-200 space-y-1">
+          <p className="text-[9px] font-black text-rose-700 uppercase tracking-widest flex items-center gap-1.5">
+            <AlertTriangle size={11} /> Fraud Indicators Detected
+          </p>
+          {result.fraudFlags.map((flag, i) => (
+            <p key={i} className="text-[10px] font-bold text-rose-600">• {flag}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Timestamp */}
+      {result?.verificationTimestamp && (
+        <p className="text-[9px] font-bold text-slate-400 text-right">
+          {new Date(result.verificationTimestamp).toLocaleString('en-ZA')}
+        </p>
+      )}
+    </div>
+  );
+};
 
 export default ApplyLoan;

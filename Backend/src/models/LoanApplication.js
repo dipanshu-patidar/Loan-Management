@@ -179,6 +179,55 @@ const loanApplicationSchema = new mongoose.Schema(
       verificationProvider: { type: String, default: 'Profile Plus ID Photo Match' }
     },
 
+    // ── Bureau / Address Plus Profile IDV (Datanamix) ────────────────────────
+    bureauVerification: {
+      verificationStatus: {
+        type: String,
+        enum: ['Pending', 'Verified', 'Warning', 'Failed', 'Rejected', 'Overridden'],
+        default: 'Pending'
+      },
+      responseCode:    { type: Number },
+      responseMessage: { type: String },
+      bureauReference: { type: String },
+
+      // Bureau-verified identity fields
+      verifiedFirstName:          { type: String },
+      verifiedSurname:            { type: String },
+      verifiedPhone:              { type: String },
+      verifiedEmail:              { type: String },
+      verifiedEmployer:           { type: String },
+      verifiedResidentialAddress: { type: String },
+      verifiedPostalAddress:      { type: String },
+
+      // Fraud / deceased
+      deceasedStatus: { type: Boolean, default: false },
+      deceasedDate:   { type: String },
+      safpsFlag:      { type: Boolean, default: false },
+      fraudIndicators: [{ type: String }],
+
+      // Address history array
+      addressHistory: [{ type: mongoose.Schema.Types.Mixed }],
+
+      // PDF report (base64)
+      pdfReport: { type: String },
+
+      // Raw API response
+      bureauRawResponse: { type: mongoose.Schema.Types.Mixed, default: {} },
+
+      verifiedAt: { type: Date },
+
+      // Mismatch engine output
+      comparedFields: { type: mongoose.Schema.Types.Mixed, default: {} },
+      mismatchFlags:  [{ type: String }],
+
+      // Override
+      overrideReason: { type: String },
+      overrideBy:     { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      overrideAt:     { type: Date },
+
+      verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    },
+
     // Digital Agreement Signature Fields
     agreementGenerated: { type: Boolean, default: false },
     agreementGeneratedAt: { type: Date },

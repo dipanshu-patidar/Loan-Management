@@ -15,7 +15,7 @@ const verificationLogSchema = new mongoose.Schema(
     },
     verificationType: {
       type: String,
-      enum: ['IDV_PHOTO', 'FACETEC_LIVENESS', 'BANK_AHV', 'CREDIT_REPORT', 'PHONE_CARRIER', 'AML_PEP', 'KYC_PROFILE_PHOTO', 'KYC_OVERRIDE'],
+      enum: ['IDV_PHOTO', 'FACETEC_LIVENESS', 'BANK_AHV', 'CREDIT_REPORT', 'PHONE_CARRIER', 'AML_PEP', 'KYC_PROFILE_PHOTO', 'KYC_OVERRIDE', 'BUREAU_PROFILE_VERIFICATION', 'BUREAU_OVERRIDE'],
       required: true
     },
     status: {

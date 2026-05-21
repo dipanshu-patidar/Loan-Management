@@ -11,6 +11,7 @@ const BankVerification = require('../models/BankVerification');
 const Borrower = require('../models/Borrower');
 const LoanApplication = require('../models/LoanApplication');
 const { callProfileIdPhotoMatch } = require('../services/datanamix/profileIdPhotoVerification.service');
+const { callAddressPlusProfileIdv } = require('../services/datanamix/addressProfileIdv.service');
 const { getIO } = require('../socket/socketServer');
 
 /**
@@ -564,6 +565,253 @@ exports.overrideKYCController = async (req, res) => {
     });
   } catch (error) {
     console.error('[KYC Override Error]:', error.message);
+    return res.status(500).json({ success: false, message: error.message || 'Override failed' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. Address Plus Profile IDV (Bureau Verification — Step 1.5)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/verification/address-plus-profile-idv
+ *
+ * Requires biometric KYC (Step 1) to be Verified or Overridden first.
+ * Body: { applicationId, idNumber, surname, passportNumber?,
+ *          phoneNumber?, emailAddress?, residentialAddress?, employerName? }
+ */
+exports.verifyAddressProfileController = async (req, res) => {
+  const initiatedBy = req.user?._id;
+  const {
+    applicationId,
+    idNumber,
+    surname,
+    passportNumber,
+    phoneNumber,
+    emailAddress,
+    residentialAddress,
+    employerName,
+    borrowerId: bodyBorrowerId,
+  } = req.body;
+
+  const borrowerId = bodyBorrowerId || initiatedBy;
+
+  if (!idNumber) return res.status(400).json({ success: false, message: 'idNumber is required' });
+  if (!surname)  return res.status(400).json({ success: false, message: 'surname is required' });
+
+  try {
+    // ── Guard: biometric must be completed first ───────────────────────────
+    if (applicationId) {
+      const app = await LoanApplication.findById(applicationId).select('kycVerification');
+      if (app) {
+        const kycStatus = app.kycVerification?.verificationStatus;
+        if (!kycStatus || kycStatus === 'Pending' || kycStatus === 'Failed') {
+          return res.status(400).json({
+            success: false,
+            message: 'Biometric identity verification must be completed before bureau verification.',
+          });
+        }
+      }
+    }
+
+    console.log(`[BUREAU Controller] Starting bureau verification — ID: ${idNumber}`);
+
+    const result = await callAddressPlusProfileIdv({
+      surname,
+      idNumber,
+      passportNumber: passportNumber || '',
+      clientReference: applicationId || `BUREAU-${Date.now()}`,
+      borrowerData: { fullName: `${surname}`, phoneNumber, emailAddress, residentialAddress, employerName },
+    });
+
+    // ── Determine block-level ──────────────────────────────────────────────
+    // Fatal: deceased or SAFPS listing blocks progression
+    const isFatal = result.deceasedStatus || result.safpsFlag;
+    const hasWarnings = result.mismatchFlags?.length > 0;
+
+    // ── Persist to LoanApplication ─────────────────────────────────────────
+    if (applicationId) {
+      await LoanApplication.findByIdAndUpdate(applicationId, {
+        'bureauVerification.verificationStatus': result.verificationStatus,
+        'bureauVerification.responseCode':    result.responseCode,
+        'bureauVerification.responseMessage': result.responseMessage,
+        'bureauVerification.bureauReference': result.bureauReference,
+        'bureauVerification.verifiedFirstName':          result.verifiedFirstName,
+        'bureauVerification.verifiedSurname':            result.verifiedSurname,
+        'bureauVerification.verifiedPhone':              result.verifiedPhone,
+        'bureauVerification.verifiedEmail':              result.verifiedEmail,
+        'bureauVerification.verifiedEmployer':           result.verifiedEmployer,
+        'bureauVerification.verifiedResidentialAddress': result.verifiedResidentialAddress,
+        'bureauVerification.verifiedPostalAddress':      result.verifiedPostalAddress,
+        'bureauVerification.deceasedStatus': result.deceasedStatus,
+        'bureauVerification.deceasedDate':   result.deceasedDate,
+        'bureauVerification.safpsFlag':      result.safpsFlag,
+        'bureauVerification.fraudIndicators': result.fraudFlags,
+        'bureauVerification.addressHistory': result.addressHistory,
+        'bureauVerification.pdfReport':      result.pdfReport,
+        'bureauVerification.bureauRawResponse': result.bureauRawResponse,
+        'bureauVerification.verifiedAt':     new Date(),
+        'bureauVerification.comparedFields': result.comparedFields,
+        'bureauVerification.mismatchFlags':  result.mismatchFlags,
+        'bureauVerification.verifiedBy':     initiatedBy,
+      });
+    }
+
+    // ── Audit log ──────────────────────────────────────────────────────────
+    await writeAuditLog({
+      borrowerId,
+      applicationId: applicationId || undefined,
+      verificationType: 'BUREAU_PROFILE_VERIFICATION',
+      status: isFatal ? 'FAILED' : 'SUCCESS',
+      initiatedBy,
+      requestPayload: { idNumber, surname, clientReference: applicationId },
+      responsePayload: {
+        verificationStatus: result.verificationStatus,
+        bureauReference:    result.bureauReference,
+        deceasedStatus:     result.deceasedStatus,
+        safpsFlag:          result.safpsFlag,
+        mismatchFlags:      result.mismatchFlags,
+      },
+    });
+
+    // ── Socket events ──────────────────────────────────────────────────────
+    try {
+      const io = getIO();
+      const room = borrowerId?.toString();
+
+      if (isFatal) {
+        io.to(room).emit('bureau-fraud-detected', {
+          applicationId,
+          deceasedStatus: result.deceasedStatus,
+          safpsFlag: result.safpsFlag,
+          message: result.deceasedStatus
+            ? 'Bureau check: Deceased flag detected'
+            : 'Bureau check: SAFPS fraud listing detected',
+        });
+        io.to(room).emit('bureau-verification-failed', { applicationId, message: result.responseMessage });
+      } else if (hasWarnings) {
+        io.to(room).emit('bureau-verification-warning', {
+          applicationId,
+          mismatchFlags: result.mismatchFlags,
+          message: 'Bureau verification completed with data mismatches',
+        });
+      } else {
+        io.to(room).emit('bureau-verification-completed', {
+          applicationId,
+          bureauReference: result.bureauReference,
+          message: 'Bureau profile verified successfully',
+        });
+      }
+    } catch {
+      // Socket not initialized — non-fatal
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: isFatal
+        ? 'Bureau verification failed: fatal fraud indicator detected'
+        : hasWarnings
+          ? 'Bureau verification completed with warnings'
+          : 'Bureau verification successful',
+      data: {
+        verificationStatus:         isFatal ? 'Failed' : result.verificationStatus,
+        bureauReference:            result.bureauReference,
+        verifiedFirstName:          result.verifiedFirstName,
+        verifiedSurname:            result.verifiedSurname,
+        verifiedPhone:              result.verifiedPhone,
+        verifiedEmail:              result.verifiedEmail,
+        verifiedEmployer:           result.verifiedEmployer,
+        verifiedResidentialAddress: result.verifiedResidentialAddress,
+        verifiedPostalAddress:      result.verifiedPostalAddress,
+        deceasedStatus:  result.deceasedStatus,
+        safpsFlag:       result.safpsFlag,
+        haVerified:      result.haVerified,
+        fraudFlags:      result.fraudFlags,
+        addressHistory:  result.addressHistory,
+        mismatchFlags:   result.mismatchFlags,
+        comparedFields:  result.comparedFields,
+        isFatal,
+        hasWarnings,
+      },
+    });
+  } catch (error) {
+    console.error('[BUREAU Controller Error]:', error.message);
+
+    await writeAuditLog({
+      borrowerId,
+      applicationId: applicationId || undefined,
+      verificationType: 'BUREAU_PROFILE_VERIFICATION',
+      status: 'ERROR',
+      initiatedBy,
+      requestPayload: { idNumber, surname },
+      errorMessage: error.message,
+    });
+
+    return res.status(error.response?.status || 500).json({
+      success: false,
+      message: error.response?.data?.message || error.message || 'Bureau verification failed',
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. Admin Bureau Override
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * PUT /api/verification/bureau-override/:applicationId
+ * Admin only — override bureau mismatches / low-risk flags (not deceased/SAFPS without reason)
+ */
+exports.overrideBureauController = async (req, res) => {
+  const { applicationId } = req.params;
+  const { overrideReason } = req.body;
+  const adminId = req.user?._id;
+
+  if (!overrideReason?.trim()) {
+    return res.status(400).json({ success: false, message: 'overrideReason is required' });
+  }
+
+  try {
+    const application = await LoanApplication.findById(applicationId);
+    if (!application) {
+      return res.status(404).json({ success: false, message: 'Application not found' });
+    }
+
+    await LoanApplication.findByIdAndUpdate(applicationId, {
+      'bureauVerification.verificationStatus': 'Overridden',
+      'bureauVerification.overrideReason': overrideReason.trim(),
+      'bureauVerification.overrideBy':     adminId,
+      'bureauVerification.overrideAt':     new Date(),
+    });
+
+    await writeAuditLog({
+      borrowerId:       application.borrowerId || adminId,
+      applicationId,
+      verificationType: 'BUREAU_OVERRIDE',
+      status:           'SUCCESS',
+      initiatedBy:      adminId,
+      requestPayload:   { overrideReason, applicationId },
+      responsePayload:  { action: 'BUREAU_MANUAL_OVERRIDE', overrideBy: adminId },
+    });
+
+    try {
+      const io = getIO();
+      io.to(application.borrowerId?.toString()).emit('bureau-verification-completed', {
+        applicationId,
+        message: 'Bureau verification manually overridden by admin',
+        overridden: true,
+      });
+    } catch {
+      // Socket not initialized — non-fatal
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Bureau verification successfully overridden',
+      data: { applicationId, overrideReason, overrideAt: new Date() },
+    });
+  } catch (error) {
+    console.error('[Bureau Override Error]:', error.message);
     return res.status(500).json({ success: false, message: error.message || 'Override failed' });
   }
 };

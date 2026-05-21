@@ -5,13 +5,15 @@ import {
   FileText, Phone, Mail, MapPin, CheckCircle2,
   Clock, Pause, ExternalLink, Download, Loader2,
   FileCheck, FileX, Info, ScanFace, BadgeCheck,
-  TriangleAlert, ShieldAlert, RefreshCw, Shield
+  TriangleAlert, ShieldAlert, RefreshCw, Shield,
+  AlertTriangle, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { cn } from '../../utils/cn';
 import loanApplicationService from '../../services/loanApplicationService';
 import agreementService from '../../services/agreementService';
 import kycVerificationService from '../../services/kycVerificationService';
+import addressProfileVerificationService from '../../services/addressProfileVerificationService';
 import StatusBadge from '../../components/StatusBadge';
 import Button from '../../ui/Button';
 import Modal from '../../ui/Modal';
@@ -39,6 +41,12 @@ const ApplicationDetail = () => {
   const [isKycOverrideOpen, setIsKycOverrideOpen] = useState(false);
   const [kycOverrideReason, setKycOverrideReason] = useState('');
   const [kycOverrideLoading, setKycOverrideLoading] = useState(false);
+
+  // ── Bureau override ──────────────────────────────────────────────────────────
+  const [isBureauOverrideOpen, setIsBureauOverrideOpen] = useState(false);
+  const [bureauOverrideReason, setBureauOverrideReason] = useState('');
+  const [bureauOverrideLoading, setBureauOverrideLoading] = useState(false);
+  const [showAdminBureauHistory, setShowAdminBureauHistory] = useState(false);
 
   const fetchAgreementStatus = async () => {
     try {
@@ -208,6 +216,26 @@ const ApplicationDetail = () => {
     }
   };
 
+  const handleBureauOverride = async () => {
+    if (!bureauOverrideReason.trim()) {
+      toast.error('Override reason is required');
+      return;
+    }
+    try {
+      setBureauOverrideLoading(true);
+      await addressProfileVerificationService.overrideBureauVerification(id, bureauOverrideReason);
+      toast.success('Bureau verification successfully overridden');
+      setIsBureauOverrideOpen(false);
+      setBureauOverrideReason('');
+      const res = await loanApplicationService.getApplicationDetails(id);
+      setApp(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Override failed');
+    } finally {
+      setBureauOverrideLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -359,6 +387,16 @@ const ApplicationDetail = () => {
             <AdminKycPanel
               kyc={app.kycVerification}
               onOverride={() => setIsKycOverrideOpen(true)}
+            />
+          </Section>
+
+          {/* Bureau Profile Verification */}
+          <Section title="Bureau Profile Verification" icon={MapPin}>
+            <AdminBureauPanel
+              bureau={app.bureauVerification}
+              onOverride={() => setIsBureauOverrideOpen(true)}
+              showHistory={showAdminBureauHistory}
+              onToggleHistory={() => setShowAdminBureauHistory(v => !v)}
             />
           </Section>
 
@@ -751,6 +789,44 @@ const ApplicationDetail = () => {
         agreementDetails={agreementDetails}
       />
 
+      {/* Bureau Override Modal */}
+      <Modal
+        isOpen={isBureauOverrideOpen}
+        onClose={() => { setIsBureauOverrideOpen(false); setBureauOverrideReason(''); }}
+        title="Override Bureau Verification"
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-5 text-left">
+          <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-2xl border border-amber-200">
+            <MapPin size={20} className="text-amber-600 shrink-0" />
+            <div>
+              <p className="text-xs font-black text-amber-800">Admin Manual Bureau Override</p>
+              <p className="text-[10px] font-medium text-amber-700 mt-0.5">
+                Overrides mismatch warnings or low-risk flags. Fatal conditions (deceased/SAFPS) still require documented reason. All overrides create a permanent audit log.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Override Reason (Required)</label>
+            <textarea
+              value={bureauOverrideReason}
+              onChange={(e) => setBureauOverrideReason(e.target.value)}
+              placeholder="Explain why this bureau verification is being manually overridden..."
+              className="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-medium text-slate-700 min-h-[100px] focus:ring-2 focus:ring-primary/10 transition-all outline-none"
+            />
+          </div>
+          <div className="flex gap-3 pt-2 border-t border-slate-50">
+            <Button variant="ghost" onClick={() => { setIsBureauOverrideOpen(false); setBureauOverrideReason(''); }}
+              className="flex-1 py-4 font-black uppercase tracking-widest text-[10px]">Cancel</Button>
+            <Button onClick={handleBureauOverride}
+              disabled={bureauOverrideLoading || !bureauOverrideReason.trim()}
+              className="flex-1 py-4 bg-amber-500 hover:bg-amber-600 text-white font-black uppercase tracking-widest text-[10px] border-none shadow-lg shadow-amber-500/20">
+              {bureauOverrideLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Confirm Override'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* KYC Override Modal */}
       <Modal
         isOpen={isKycOverrideOpen}
@@ -831,6 +907,219 @@ const DetailItem = ({ label, value, isBold, isPrimary }) => (
     </p>
   </div>
 );
+
+const AdminBureauPanel = ({ bureau, onOverride, showHistory, onToggleHistory }) => {
+  if (!bureau || bureau.verificationStatus === 'Pending') {
+    return (
+      <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
+        <Info size={16} className="text-amber-400 shrink-0" />
+        <p className="text-xs font-bold text-slate-500">Bureau address verification not yet completed by borrower.</p>
+      </div>
+    );
+  }
+
+  const isVerified = bureau.verificationStatus === 'Verified';
+  const isWarning  = bureau.verificationStatus === 'Warning';
+  const isFailed   = bureau.verificationStatus === 'Failed';
+  const isOverride = bureau.verificationStatus === 'Overridden';
+  const canOverride = isFailed || isWarning;
+
+  const statusColor = (isFailed && !isOverride) ? 'rose' : isWarning ? 'amber' : 'emerald';
+  const colorMap = {
+    emerald: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', iconClass: 'text-emerald-600' },
+    amber:   { bg: 'bg-amber-50',   border: 'border-amber-200',   text: 'text-amber-800',   iconClass: 'text-amber-600'   },
+    rose:    { bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-800',    iconClass: 'text-rose-500'    },
+  };
+  const c = colorMap[isOverride ? 'amber' : statusColor];
+
+  return (
+    <div className="space-y-5">
+      {/* Status banner + override button */}
+      <div className={cn('flex items-center justify-between p-5 rounded-2xl border', c.bg, c.border)}>
+        <div className="flex items-center gap-3">
+          {(isFailed && !isOverride)
+            ? <ShieldAlert size={22} className={c.iconClass} />
+            : isWarning
+              ? <AlertTriangle size={22} className={c.iconClass} />
+              : isOverride
+                ? <Shield size={22} className={c.iconClass} />
+                : <BadgeCheck size={22} className={c.iconClass} />
+          }
+          <div>
+            <p className={cn('text-sm font-black', c.text)}>
+              {isOverride ? 'Admin Override — Bureau Manually Approved'
+                : isFailed ? 'Bureau Verification Failed'
+                : isWarning ? 'Bureau Verified — Mismatches Detected'
+                : 'Bureau Verified'}
+            </p>
+            {bureau.responseMessage && (
+              <p className="text-[10px] font-medium text-slate-500 mt-0.5">{bureau.responseMessage}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {bureau.bureauReference && (
+            <span className="text-[9px] font-black text-slate-400 shrink-0">Ref: {bureau.bureauReference}</span>
+          )}
+          {canOverride && (
+            <Button onClick={onOverride}
+              className="py-2 px-4 bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-black uppercase tracking-widest border-none shadow-sm">
+              <RefreshCw size={12} className="mr-1.5 inline" /> Override
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Fatal flags */}
+      {(bureau.deceasedStatus || bureau.safpsFlag) && (
+        <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest">
+              <TriangleAlert size={10} />
+              {bureau.deceasedStatus ? 'DECEASED PERSON' : 'FRAUD LISTED'}
+            </span>
+            <span className="px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg text-[9px] font-black uppercase tracking-widest">
+              High Risk
+            </span>
+          </div>
+          {bureau.deceasedStatus && (
+            <p className="text-[10px] font-bold text-rose-600">
+              • Home Affairs record confirms deceased status
+              {bureau.deceasedDate ? ` — Date of death: ${bureau.deceasedDate}` : ''}
+            </p>
+          )}
+          {bureau.safpsFlag && (
+            <p className="text-[10px] font-bold text-rose-600">
+              • SAFPS fraud listing: borrower appears on national fraud register
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Verified details grid */}
+      {(bureau.verifiedFirstName || bureau.verifiedPhone || bureau.verifiedEmail || bureau.verifiedEmployer) && (
+        <div className="space-y-3">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bureau Verified Details</p>
+          <div className="grid grid-cols-2 gap-3 p-5 bg-slate-50 rounded-2xl border border-slate-100">
+            {(bureau.verifiedFirstName || bureau.verifiedSurname) && (
+              <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Full Name</p>
+                <p className="text-xs font-bold text-slate-800">{bureau.verifiedFirstName} {bureau.verifiedSurname}</p></div>
+            )}
+            {bureau.verifiedPhone && (
+              <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Phone</p>
+                <p className="text-xs font-bold text-slate-800">{bureau.verifiedPhone}</p></div>
+            )}
+            {bureau.verifiedEmail && (
+              <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Email</p>
+                <p className="text-xs font-bold text-slate-800 truncate">{bureau.verifiedEmail}</p></div>
+            )}
+            {bureau.verifiedEmployer && (
+              <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Employer</p>
+                <p className="text-xs font-bold text-slate-800">{bureau.verifiedEmployer}</p></div>
+            )}
+            {bureau.verifiedResidentialAddress && (
+              <div className="col-span-2"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Residential Address</p>
+                <p className="text-xs font-bold text-slate-800">{bureau.verifiedResidentialAddress}</p></div>
+            )}
+            {bureau.verifiedPostalAddress && (
+              <div className="col-span-2"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Postal Address</p>
+                <p className="text-xs font-bold text-slate-800">{bureau.verifiedPostalAddress}</p></div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Comparison / mismatch results */}
+      {bureau.comparedFields && Object.keys(bureau.comparedFields).length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Data Comparison</p>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(bureau.comparedFields).map(([field, val]) => {
+              const label = field.charAt(0).toUpperCase() + field.slice(1);
+              if (val.status === 'matched') return (
+                <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-emerald-50 text-emerald-700">
+                  <CheckCircle2 size={11} className="text-emerald-500 shrink-0" /> {label} Matched
+                </div>
+              );
+              if (val.status === 'mismatch') return (
+                <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-amber-50 text-amber-700">
+                  <AlertTriangle size={11} className="text-amber-500 shrink-0" /> {label} Mismatch
+                </div>
+              );
+              if (val.status === 'unavailable') return (
+                <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-slate-50 text-slate-400">
+                  <Info size={11} className="shrink-0" /> {label} Unavailable
+                </div>
+              );
+              if (val.status === 'not_provided') return (
+                <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-slate-50 text-slate-400">
+                  <Info size={11} className="shrink-0" /> {label} Not Provided
+                </div>
+              );
+              return null;
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Address history timeline */}
+      {bureau.addressHistory?.length > 0 && (
+        <div className="space-y-2">
+          <button type="button" onClick={onToggleHistory}
+            className="flex items-center gap-2 text-[10px] font-black text-primary uppercase tracking-widest">
+            {showHistory ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            Address History ({bureau.addressHistory.length} records)
+          </button>
+          {showHistory && (
+            <div className="space-y-2 pl-2 border-l-2 border-slate-200">
+              {bureau.addressHistory.map((entry, idx) => (
+                <div key={idx} className="pl-4 py-3 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={cn('px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest',
+                      entry.addressType === 'Residential' ? 'bg-primary/10 text-primary' : 'bg-slate-200 text-slate-600'
+                    )}>{entry.addressType || 'Address'}</span>
+                    {entry.lastUpdatedDate && <span className="text-[9px] font-bold text-slate-400">{entry.lastUpdatedDate}</span>}
+                  </div>
+                  <p className="text-xs font-bold text-slate-800">{entry.address}</p>
+                  {entry.subscriberName && <p className="text-[9px] font-medium text-slate-400 mt-0.5">via {entry.subscriberName}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PDF download */}
+      {bureau.pdfReport && (
+        <a
+          href={`data:application/pdf;base64,${bureau.pdfReport}`}
+          download={`bureau-report-${id}.pdf`}
+          className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 hover:border-primary/30 transition-all group"
+        >
+          <Download size={14} className="text-slate-400 group-hover:text-primary transition-colors" />
+          <p className="text-[10px] font-bold text-slate-600 group-hover:text-primary transition-colors">Download Bureau PDF Report</p>
+        </a>
+      )}
+
+      {/* Override details */}
+      {isOverride && bureau.overrideReason && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl space-y-1">
+          <p className="text-[9px] font-black text-amber-700 uppercase tracking-widest">Override Reason</p>
+          <p className="text-xs font-medium text-amber-800">{bureau.overrideReason}</p>
+          {bureau.overrideAt && (
+            <p className="text-[9px] font-bold text-amber-600">Overridden: {new Date(bureau.overrideAt).toLocaleString('en-ZA')}</p>
+          )}
+        </div>
+      )}
+
+      {bureau.verifiedAt && (
+        <p className="text-[9px] font-bold text-slate-400 text-right">
+          Verified: {new Date(bureau.verifiedAt).toLocaleString('en-ZA')}
+        </p>
+      )}
+    </div>
+  );
+};
 
 const AdminKycPanel = ({ kyc, onOverride }) => {
   if (!kyc || kyc.verificationStatus === 'Pending') {

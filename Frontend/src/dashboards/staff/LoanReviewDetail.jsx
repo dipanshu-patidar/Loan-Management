@@ -5,7 +5,8 @@ import {
   CheckCircle2, XCircle, AlertCircle,
   ArrowLeft, Download, Eye, Wallet,
   MapPin, Phone, Building2, Save, Send,
-  Clock, ScanFace, BadgeCheck, TriangleAlert, ShieldAlert
+  Clock, ScanFace, BadgeCheck, TriangleAlert, ShieldAlert,
+  ChevronDown, ChevronUp, AlertTriangle
 } from 'lucide-react';
 import loanApplicationService from '../../services/loanApplicationService';
 import { cn } from '../../utils/cn';
@@ -19,6 +20,7 @@ const LoanReview = () => {
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [staffNotes, setStaffNotes] = useState('');
   const [appData, setAppData] = useState(null);
+  const [showBureauHistory, setShowBureauHistory] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -124,6 +126,20 @@ const LoanReview = () => {
                 <ScanFace size={16} className="text-primary" /> Biometric Verification Result
               </h3>
               <KycResultPanel kyc={appData.kycVerification} />
+            </section>
+          )}
+
+          {/* BUREAU VERIFICATION RESULT */}
+          {appData && (
+            <section className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-premium space-y-6">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                <MapPin size={16} className="text-primary" /> Bureau Verification Result
+              </h3>
+              <StaffBureauPanel
+                bureau={appData.bureauVerification}
+                showHistory={showBureauHistory}
+                onToggleHistory={() => setShowBureauHistory(v => !v)}
+              />
             </section>
           )}
 
@@ -353,6 +369,173 @@ const KycResultPanel = ({ kyc }) => {
           <span>Ref: {kyc.verificationReference}</span>
         )}
       </div>
+    </div>
+  );
+};
+
+// ── Staff Bureau Panel (read-only, no override) ───────────────────────────────
+
+const StaffBureauPanel = ({ bureau, showHistory, onToggleHistory }) => {
+  if (!bureau || bureau.verificationStatus === 'Pending') {
+    return (
+      <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-3">
+        <AlertCircle size={16} className="text-amber-400 shrink-0" />
+        <p className="text-xs font-bold text-slate-500">Bureau address verification has not been completed by the borrower.</p>
+      </div>
+    );
+  }
+
+  const isVerified  = bureau.verificationStatus === 'Verified' || bureau.verificationStatus === 'Overridden';
+  const isWarning   = bureau.verificationStatus === 'Warning';
+  const isFailed    = bureau.verificationStatus === 'Failed';
+  const isOverride  = bureau.verificationStatus === 'Overridden';
+
+  const statusColor = isFailed ? 'rose' : isWarning ? 'amber' : 'emerald';
+  const colorMap = {
+    emerald: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', icon: 'text-emerald-600' },
+    amber:   { bg: 'bg-amber-50',   border: 'border-amber-200',   text: 'text-amber-800',   icon: 'text-amber-600'   },
+    rose:    { bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-800',    icon: 'text-rose-500'    },
+  };
+  const c = colorMap[statusColor];
+
+  return (
+    <div className="space-y-4">
+      {/* Status */}
+      <div className={cn('flex items-center justify-between p-4 rounded-2xl border', c.bg, c.border)}>
+        <div className="flex items-center gap-3">
+          {isFailed ? <ShieldAlert size={18} className={c.icon} />
+            : isWarning ? <AlertTriangle size={18} className={c.icon} />
+            : <BadgeCheck size={18} className={c.icon} />
+          }
+          <div>
+            <p className={cn('text-xs font-black', c.text)}>
+              {isOverride ? 'Admin Overridden'
+                : isFailed ? 'Bureau Verification Failed'
+                : isWarning ? 'Bureau Verified — Data Mismatches'
+                : 'Bureau Verified'}
+            </p>
+            {bureau.responseMessage && (
+              <p className="text-[10px] font-medium text-slate-500 mt-0.5">{bureau.responseMessage}</p>
+            )}
+          </div>
+        </div>
+        {bureau.bureauReference && (
+          <span className="text-[9px] font-black text-slate-400 shrink-0">Ref: {bureau.bureauReference}</span>
+        )}
+      </div>
+
+      {/* Fatal indicators (staff cannot override) */}
+      {(bureau.deceasedStatus || bureau.safpsFlag) && (
+        <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-2xl space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest">
+              <TriangleAlert size={10} />
+              {bureau.deceasedStatus ? 'DECEASED PERSON' : 'FRAUD LISTED'}
+            </span>
+            <p className="text-[9px] font-black text-rose-700 uppercase tracking-widest">High Risk — Admin Action Required</p>
+          </div>
+          {bureau.deceasedStatus && (
+            <p className="text-[10px] font-bold text-rose-600">
+              • Deceased flag confirmed on Home Affairs record
+              {bureau.deceasedDate ? ` — Date: ${bureau.deceasedDate}` : ''}
+            </p>
+          )}
+          {bureau.safpsFlag && <p className="text-[10px] font-bold text-rose-600">• SAFPS fraud listing detected</p>}
+        </div>
+      )}
+
+      {/* Verified contact details */}
+      {(bureau.verifiedFirstName || bureau.verifiedPhone || bureau.verifiedEmail || bureau.verifiedEmployer) && (
+        <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+          <p className="col-span-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Bureau Verified Details</p>
+          {(bureau.verifiedFirstName || bureau.verifiedSurname) && (
+            <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Name</p>
+              <p className="text-xs font-bold text-slate-800">{bureau.verifiedFirstName} {bureau.verifiedSurname}</p></div>
+          )}
+          {bureau.verifiedPhone && (
+            <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Phone</p>
+              <p className="text-xs font-bold text-slate-800">{bureau.verifiedPhone}</p></div>
+          )}
+          {bureau.verifiedEmail && (
+            <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Email</p>
+              <p className="text-xs font-bold text-slate-800 truncate">{bureau.verifiedEmail}</p></div>
+          )}
+          {bureau.verifiedEmployer && (
+            <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Employer</p>
+              <p className="text-xs font-bold text-slate-800">{bureau.verifiedEmployer}</p></div>
+          )}
+          {bureau.verifiedResidentialAddress && (
+            <div className="col-span-2"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Address</p>
+              <p className="text-xs font-bold text-slate-800">{bureau.verifiedResidentialAddress}</p></div>
+          )}
+        </div>
+      )}
+
+      {/* Data comparison */}
+      {bureau.comparedFields && (
+        <div className="grid grid-cols-2 gap-2">
+          {Object.entries(bureau.comparedFields).map(([field, val]) => {
+            const label = field.charAt(0).toUpperCase() + field.slice(1);
+            if (val.status === 'matched') return (
+              <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-emerald-50 text-emerald-700">
+                <CheckCircle2 size={11} className="text-emerald-500 shrink-0" /> {label} Matched
+              </div>
+            );
+            if (val.status === 'mismatch') return (
+              <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-amber-50 text-amber-700">
+                <AlertTriangle size={11} className="text-amber-500 shrink-0" /> {label} Mismatch
+              </div>
+            );
+            if (val.status === 'unavailable') return (
+              <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-slate-50 text-slate-400">
+                <AlertCircle size={11} className="shrink-0" /> {label} Unavailable
+              </div>
+            );
+            return null;
+          })}
+        </div>
+      )}
+
+      {/* Address history */}
+      {bureau.addressHistory?.length > 0 && (
+        <div className="space-y-2">
+          <button type="button" onClick={onToggleHistory}
+            className="flex items-center gap-2 text-[10px] font-black text-primary uppercase tracking-widest">
+            {showHistory ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            Address History ({bureau.addressHistory.length} records)
+          </button>
+          {showHistory && (
+            <div className="space-y-2 pl-2 border-l-2 border-slate-200">
+              {bureau.addressHistory.map((entry, idx) => (
+                <div key={idx} className="pl-4 py-3 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={cn('px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest',
+                      entry.addressType === 'Residential' ? 'bg-primary/10 text-primary' : 'bg-slate-200 text-slate-600'
+                    )}>{entry.addressType || 'Address'}</span>
+                    {entry.lastUpdatedDate && <span className="text-[9px] font-bold text-slate-400">{entry.lastUpdatedDate}</span>}
+                  </div>
+                  <p className="text-xs font-bold text-slate-800">{entry.address}</p>
+                  {entry.subscriberName && <p className="text-[9px] font-medium text-slate-400 mt-0.5">via {entry.subscriberName}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PDF report note — staff cannot override but can note */}
+      {bureau.pdfReport && (
+        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+          <FileText size={14} className="text-primary shrink-0" />
+          <p className="text-[10px] font-bold text-slate-600">Bureau PDF report available — request admin download.</p>
+        </div>
+      )}
+
+      {bureau.verifiedAt && (
+        <p className="text-[9px] font-bold text-slate-400 text-right">
+          Verified: {new Date(bureau.verifiedAt).toLocaleString('en-ZA')}
+        </p>
+      )}
     </div>
   );
 };

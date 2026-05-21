@@ -5,7 +5,8 @@ import {
   Info, ShieldCheck, Calculator, Clock,
   Mail, Phone, Calendar, Building2, MapPin, Wallet,
   TrendingUp, Activity, Shield, ClipboardList, AlertTriangle, Sparkles,
-  ScanFace, Upload, XCircle, Loader2, BadgeCheck, TriangleAlert
+  ScanFace, Upload, XCircle, Loader2, BadgeCheck, TriangleAlert,
+  Building2 as OfficeBuildingIcon, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,6 +21,7 @@ import Modal from '../../ui/Modal';
 
 import BorrowerLoanService from '../../services/BorrowerLoanService';
 import kycVerificationService from '../../services/kycVerificationService';
+import addressProfileVerificationService from '../../services/addressProfileVerificationService';
 import StepperNavigation from '../../components/loan/StepperNavigation';
 import LoanSummaryCard from '../../components/loan/LoanSummaryCard';
 import UploadDocumentCard from '../../components/loan/UploadDocumentCard';
@@ -53,6 +55,13 @@ const ApplyLoan = () => {
   const kycIdFrontRef                     = useRef(null);
   const kycIdBackRef                      = useRef(null);
   const kycSelfieRef                      = useRef(null);
+
+  // ── Bureau / Address IDV state (Step 1.5) ─────────────────────────────────
+  const [bureauVerified, setBureauVerified]     = useState(false);
+  const [bureauLoading, setBureauLoading]       = useState(false);
+  const [bureauResult, setBureauResult]         = useState(null);
+  const [bureauBlocked, setBureauBlocked]       = useState(false);
+  const [showAddressHistory, setShowAddressHistory] = useState(false);
 
   useEffect(() => {
     const fetchEligibilityAndRules = async () => {
@@ -184,12 +193,77 @@ const ApplyLoan = () => {
     }
   };
 
+  // ── Bureau: verify address + profile ──────────────────────────────────────
+  const handleVerifyBureau = async () => {
+    const idNumber   = watch('idNumber');
+    const fullName   = watch('fullName');
+    const phone      = watch('phoneNumber');
+    const email      = watch('emailAddress');
+    const address    = watch('residentialAddress');
+    const employer   = watch('employerName');
+
+    if (!idNumber || !fullName) {
+      toast.error('ID Number and Full Name are required for bureau verification');
+      return;
+    }
+
+    // Extract surname — use last word of full name as surname approximation
+    const nameParts = fullName.trim().split(/\s+/);
+    const surname   = nameParts[nameParts.length - 1];
+
+    setBureauLoading(true);
+    try {
+      const res = await addressProfileVerificationService.verifyAddressProfile({
+        idNumber,
+        surname,
+        phoneNumber:         phone,
+        emailAddress:        email,
+        residentialAddress:  address,
+        employerName:        employer,
+      });
+
+      setBureauResult(res.data);
+
+      const fatal = res.data?.isFatal;
+      setBureauBlocked(!!fatal);
+      setBureauVerified(!fatal);
+
+      if (fatal) {
+        toast.error(
+          res.data?.deceasedStatus
+            ? 'Verification blocked: Deceased flag on record.'
+            : 'Verification blocked: SAFPS fraud listing detected.'
+        );
+      } else if (res.data?.hasWarnings) {
+        toast('Bureau verification complete — some data mismatches detected.', { icon: '⚠️' });
+      } else {
+        toast.success('Bureau profile verified successfully!');
+      }
+    } catch (error) {
+      const msg = error.response?.data?.message || 'Bureau verification service unavailable.';
+      setBureauResult({ verificationStatus: 'Failed', responseMessage: msg });
+      setBureauBlocked(false);
+      setBureauVerified(false);
+      toast.error(msg);
+    } finally {
+      setBureauLoading(false);
+    }
+  };
+
   const handleNext = async () => {
     let isValid = false;
     if (currentStep === 1) {
       isValid = await trigger(['fullName', 'phoneNumber', 'emailAddress', 'idNumber', 'dateOfBirth', 'residentialAddress']);
       if (isValid && !kycVerified) {
         toast.error('Complete identity verification before proceeding');
+        return;
+      }
+      if (isValid && bureauBlocked) {
+        toast.error('Bureau verification has blocked progression due to a fatal fraud indicator.');
+        return;
+      }
+      if (isValid && !bureauVerified) {
+        toast.error('Complete bureau & address verification before proceeding');
         return;
       }
       if (isValid) setCurrentStep(2);
@@ -463,6 +537,77 @@ const ApplyLoan = () => {
                                {/* Result banner */}
                                {kycResult && (
                                  <KycResultBanner result={kycResult} />
+                               )}
+                             </div>
+                           </div>
+
+                           {/* ── Step 1.5 — Address & Bureau Verification Card ── */}
+                           <div className="border border-slate-100 rounded-[2rem] overflow-hidden">
+                             <div className="flex items-center gap-3 px-8 py-5 bg-slate-50 border-b border-slate-100">
+                               <MapPin size={16} className="text-primary" />
+                               <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Address &amp; Bureau Verification</h3>
+                               {bureauVerified && !bureauBlocked && (
+                                 <span className="ml-auto flex items-center gap-1.5 px-3 py-1 bg-emerald-50 border border-emerald-100 rounded-xl text-[9px] font-black text-emerald-700 uppercase tracking-widest">
+                                   <BadgeCheck size={11} /> Verified
+                                 </span>
+                               )}
+                               {bureauBlocked && (
+                                 <span className="ml-auto flex items-center gap-1.5 px-3 py-1 bg-rose-50 border border-rose-100 rounded-xl text-[9px] font-black text-rose-700 uppercase tracking-widest">
+                                   <TriangleAlert size={11} /> Blocked
+                                 </span>
+                               )}
+                             </div>
+                             <div className="p-8 space-y-6">
+                               <p className="text-xs font-medium text-slate-500">
+                                 Bureau verification checks your address, contact details, and fraud indicators against national databases.
+                                 {!kycVerified && <span className="ml-1 font-bold text-amber-600">Complete biometric verification first.</span>}
+                               </p>
+
+                               {/* Fatal blocked banner */}
+                               {bureauBlocked && (
+                                 <div className="flex items-start gap-3 p-4 bg-rose-50 border border-rose-200 rounded-2xl">
+                                   <TriangleAlert size={18} className="text-rose-600 shrink-0 mt-0.5" />
+                                   <div>
+                                     <p className="text-xs font-black text-rose-800 uppercase tracking-widest">
+                                       Application Blocked — Fatal Fraud Indicator
+                                     </p>
+                                     <p className="text-[10px] font-medium text-rose-700 mt-1">
+                                       {bureauResult?.deceasedStatus
+                                         ? 'Deceased person detected on Home Affairs record. This application cannot proceed.'
+                                         : 'SAFPS fraud listing detected. This application cannot proceed.'
+                                       }
+                                     </p>
+                                   </div>
+                                 </div>
+                               )}
+
+                               {/* Verify button */}
+                               {!bureauVerified && !bureauBlocked && (
+                                 <button
+                                   type="button"
+                                   onClick={handleVerifyBureau}
+                                   disabled={bureauLoading || !kycVerified}
+                                   className={cn(
+                                     'w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all',
+                                     kycVerified && !bureauLoading
+                                       ? 'bg-primary text-white shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30'
+                                       : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                   )}
+                                 >
+                                   {bureauLoading
+                                     ? <><Loader2 size={14} className="animate-spin" /> Verifying Bureau Profile...</>
+                                     : <><MapPin size={14} /> Verify Address &amp; Bureau</>
+                                   }
+                                 </button>
+                               )}
+
+                               {/* Bureau result */}
+                               {bureauResult && (
+                                 <BureauResultPanel
+                                   result={bureauResult}
+                                   showHistory={showAddressHistory}
+                                   onToggleHistory={() => setShowAddressHistory(v => !v)}
+                                 />
                                )}
                              </div>
                            </div>
@@ -879,7 +1024,16 @@ const ApplyLoan = () => {
                
                <div className="flex items-center gap-3">
                   {currentStep < 5 ? (
-                     <Button type="button" onClick={handleNext} isLoading={isLoading} className="font-black text-[10px] uppercase tracking-widest px-8">
+                     <Button
+                        type="button"
+                        onClick={handleNext}
+                        isLoading={isLoading}
+                        disabled={isLoading || (currentStep === 1 && bureauBlocked)}
+                        className={cn(
+                          'font-black text-[10px] uppercase tracking-widest px-8',
+                          currentStep === 1 && bureauBlocked && 'opacity-50 cursor-not-allowed'
+                        )}
+                     >
                         {isLoading ? 'Processing...' : 'Next Step'} <ArrowRight size={16} className="ml-2" />
                      </Button>
                   ) : (
@@ -1080,6 +1234,168 @@ const ReqItem = ({ icon: Icon, label, value, badgeClass }) => (
       </div>
    </div>
 );
+
+// ── Bureau sub-components ─────────────────────────────────────────────────────
+
+const BureauResultPanel = ({ result, showHistory, onToggleHistory }) => {
+  const isVerified = result?.verificationStatus === 'Verified';
+  const isWarning  = result?.verificationStatus === 'Warning' || result?.hasWarnings;
+  const isFailed   = result?.verificationStatus === 'Failed' || result?.isFatal;
+
+  const statusColor = isFailed ? 'rose' : isWarning ? 'amber' : 'emerald';
+  const colorMap = {
+    emerald: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', icon: 'text-emerald-600' },
+    amber:   { bg: 'bg-amber-50',   border: 'border-amber-200',   text: 'text-amber-800',   icon: 'text-amber-600'   },
+    rose:    { bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-800',    icon: 'text-rose-500'    },
+  };
+  const c = colorMap[statusColor];
+
+  return (
+    <div className="space-y-4">
+      {/* Status banner */}
+      <div className={cn('flex items-center justify-between p-4 rounded-2xl border', c.bg, c.border)}>
+        <div className="flex items-center gap-3">
+          {isFailed
+            ? <TriangleAlert size={18} className={c.icon} />
+            : isWarning
+              ? <AlertTriangle size={18} className={c.icon} />
+              : <BadgeCheck size={18} className={c.icon} />
+          }
+          <div>
+            <p className={cn('text-xs font-black', c.text)}>
+              {isFailed ? 'Bureau Verification Blocked' : isWarning ? 'Bureau Verified — With Warnings' : 'Bureau Verification Successful'}
+            </p>
+            {result?.responseMessage && (
+              <p className="text-[10px] font-medium text-slate-500 mt-0.5">{result.responseMessage}</p>
+            )}
+          </div>
+        </div>
+        {result?.bureauReference && (
+          <span className="text-[9px] font-black text-slate-400 shrink-0">Ref: {result.bureauReference}</span>
+        )}
+      </div>
+
+      {/* Fatal fraud indicators */}
+      {(result?.deceasedStatus || result?.safpsFlag) && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-1">
+          <p className="text-[9px] font-black text-rose-700 uppercase tracking-widest flex items-center gap-1.5">
+            <TriangleAlert size={11} /> Fatal Fraud Indicators
+          </p>
+          {result.deceasedStatus && <p className="text-[10px] font-bold text-rose-600">• Deceased flag active on Home Affairs record</p>}
+          {result.safpsFlag      && <p className="text-[10px] font-bold text-rose-600">• SAFPS fraud listing detected</p>}
+        </div>
+      )}
+
+      {/* Verified contact details */}
+      {(result?.verifiedFirstName || result?.verifiedPhone || result?.verifiedEmail || result?.verifiedEmployer) && (
+        <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+          <p className="col-span-2 text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Bureau Verified Details</p>
+          {result.verifiedFirstName && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Name</p>
+              <p className="text-xs font-bold text-slate-800">{result.verifiedFirstName} {result.verifiedSurname}</p>
+            </div>
+          )}
+          {result.verifiedPhone && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Phone</p>
+              <p className="text-xs font-bold text-slate-800">{result.verifiedPhone}</p>
+            </div>
+          )}
+          {result.verifiedEmail && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Email</p>
+              <p className="text-xs font-bold text-slate-800 truncate">{result.verifiedEmail}</p>
+            </div>
+          )}
+          {result.verifiedEmployer && (
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Employer</p>
+              <p className="text-xs font-bold text-slate-800">{result.verifiedEmployer}</p>
+            </div>
+          )}
+          {result.verifiedResidentialAddress && (
+            <div className="col-span-2">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Address</p>
+              <p className="text-xs font-bold text-slate-800">{result.verifiedResidentialAddress}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Comparison results */}
+      {result?.comparedFields && (
+        <div className="space-y-2">
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Data Comparison</p>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(result.comparedFields).map(([field, val]) => {
+              const label = field.charAt(0).toUpperCase() + field.slice(1);
+              if (val.status === 'matched') return (
+                <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-emerald-50 text-emerald-700">
+                  <CheckCircle2 size={11} className="text-emerald-500 shrink-0" /> {label} Matched
+                </div>
+              );
+              if (val.status === 'mismatch') return (
+                <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-amber-50 text-amber-700">
+                  <AlertTriangle size={11} className="text-amber-500 shrink-0" /> {label} Mismatch
+                </div>
+              );
+              if (val.status === 'unavailable') return (
+                <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-slate-50 text-slate-400">
+                  <Info size={11} className="shrink-0" /> {label} Unavailable
+                </div>
+              );
+              if (val.status === 'not_provided') return (
+                <div key={field} className="flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold bg-slate-50 text-slate-400">
+                  <Info size={11} className="shrink-0" /> {label} Not Provided
+                </div>
+              );
+              return null;
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Address history toggle */}
+      {result?.addressHistory?.length > 0 && (
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={onToggleHistory}
+            className="flex items-center gap-2 text-[10px] font-black text-primary uppercase tracking-widest"
+          >
+            {showHistory ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            Address History ({result.addressHistory.length} records)
+          </button>
+
+          {showHistory && (
+            <div className="space-y-2 pl-2 border-l-2 border-slate-200">
+              {result.addressHistory.map((entry, idx) => (
+                <div key={idx} className="pl-4 py-3 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={cn(
+                      'px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest',
+                      entry.addressType === 'Residential' ? 'bg-primary/10 text-primary' : 'bg-slate-200 text-slate-600'
+                    )}>
+                      {entry.addressType || 'Address'}
+                    </span>
+                    {entry.lastUpdatedDate && (
+                      <span className="text-[9px] font-bold text-slate-400">{entry.lastUpdatedDate}</span>
+                    )}
+                  </div>
+                  <p className="text-xs font-bold text-slate-800">{entry.address}</p>
+                  {entry.subscriberName && (
+                    <p className="text-[9px] font-medium text-slate-400 mt-0.5">via {entry.subscriberName}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ── KYC sub-components ────────────────────────────────────────────────────────
 

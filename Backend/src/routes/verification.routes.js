@@ -15,6 +15,8 @@ const {
   verifyAMLController,
   verifyBorrowerKYCController,
   overrideKYCController,
+  verifyAddressProfileController,
+  overrideBureauController,
 } = require('../controllers/verification.controller');
 
 const { protectVerification } = require('../middleware/auth.middleware');
@@ -122,5 +124,19 @@ router.post(
  * @access  Private (admin only enforced at controller level via req.user)
  */
 router.put('/kyc-override/:applicationId', overrideKYCController);
+
+/**
+ * @route   POST /api/verification/address-plus-profile-idv
+ * @desc    Bureau: Address Plus Profile IDV — Step 1.5 after biometric KYC
+ * @access  Private — JSON body: { applicationId, idNumber, surname, ... }
+ */
+router.post('/address-plus-profile-idv', verifyAddressProfileController);
+
+/**
+ * @route   PUT /api/verification/bureau-override/:applicationId
+ * @desc    Admin override of bureau mismatch / low-risk flags
+ * @access  Private (admin only enforced at controller level)
+ */
+router.put('/bureau-override/:applicationId', overrideBureauController);
 
 module.exports = router;
